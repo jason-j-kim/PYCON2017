@@ -1,0 +1,839 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>국회 토론회 레이더</title>
+  <style>
+    :root {
+      --bg: #f6f8f7;
+      --surface: #ffffff;
+      --ink: #17201c;
+      --muted: #66736d;
+      --line: #dce5e1;
+      --soft: #edf4f1;
+      --accent: #008c7a;
+      --accent-soft: #d9f2ed;
+      --warn: #b64138;
+      --gold: #9a6b14;
+      --gold-soft: #f6ecd6;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    button, input, select { font: inherit; }
+
+    .app {
+      min-height: 100svh;
+      display: grid;
+      grid-template-columns: 312px minmax(0, 1fr);
+    }
+
+    .side {
+      height: 100svh;
+      position: sticky;
+      top: 0;
+      overflow: auto;
+      padding: 28px 24px;
+      border-right: 1px solid var(--line);
+      background: #fbfcfb;
+    }
+
+    .main { padding: 30px 34px 46px; min-width: 0; }
+
+    .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+
+    .mark {
+      width: 40px; height: 40px; border-radius: 10px;
+      background: var(--accent); position: relative;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .28);
+    }
+    .mark::before, .mark::after {
+      content: ""; position: absolute; left: 11px; right: 11px;
+      border-top: 3px solid #fff;
+    }
+    .mark::before { top: 13px; }
+    .mark::after { top: 24px; }
+
+    h1 { margin: 0; font-size: 21px; }
+    .subtitle { margin-top: 3px; color: var(--muted); font-size: 13px; }
+
+    .field { margin: 16px 0; }
+    label {
+      display: block; margin-bottom: 8px; color: #34413b;
+      font-size: 12px; font-weight: 800;
+    }
+    input, select {
+      width: 100%; border: 1px solid var(--line); border-radius: 8px;
+      background: var(--surface); color: var(--ink); outline: none; padding: 11px 12px;
+    }
+    input:focus, select:focus {
+      border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+    .hint { margin-top: 8px; color: var(--muted); font-size: 12px; line-height: 1.55; }
+
+    .source-pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      margin-bottom: 14px; padding: 6px 10px; border-radius: 999px;
+      background: var(--soft); color: #355046; font-size: 12px; font-weight: 700;
+    }
+    .source-pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+    .source-pill.live .dot { background: var(--accent); }
+    .source-pill.sample .dot { background: var(--gold); }
+    .source-pill.error .dot { background: var(--warn); }
+
+    .actions { display: grid; gap: 10px; margin-top: 18px; }
+    button {
+      border: 1px solid var(--line); border-radius: 8px; background: var(--surface);
+      color: var(--ink); cursor: pointer; padding: 11px 13px;
+      transition: background .16s ease, border-color .16s ease, transform .16s ease;
+    }
+    button:hover { border-color: #b8c7c0; transform: translateY(-1px); }
+    .primary { border-color: var(--accent); background: var(--accent); color: #fff; font-weight: 800; }
+
+    .status { min-height: 18px; margin-top: 14px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+    .status.error { color: var(--warn); }
+
+    details.advanced { margin-top: 18px; }
+    details.advanced > summary {
+      cursor: pointer; color: #34413b; font-size: 12px; font-weight: 800;
+      list-style: none; padding: 6px 0;
+    }
+    details.advanced > summary::before { content: "▸ "; color: var(--muted); }
+    details.advanced[open] > summary::before { content: "▾ "; }
+
+    .weights { display: grid; gap: 8px; margin-top: 10px; }
+    .weight-row {
+      display: grid; grid-template-columns: 1fr 64px; align-items: center; gap: 8px;
+      font-size: 13px;
+    }
+    .weight-row input { padding: 6px 8px; text-align: center; }
+
+    .note {
+      margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line);
+      color: var(--muted); font-size: 12px; line-height: 1.6;
+    }
+
+    .topbar { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; margin-bottom: 20px; flex-wrap: wrap; }
+    h2 { margin: 0 0 8px; font-size: clamp(26px, 3.6vw, 42px); }
+    .lead { max-width: 760px; margin: 0; color: var(--muted); line-height: 1.55; }
+
+    .view-controls { display: flex; gap: 10px; flex-wrap: wrap; }
+    .toggle {
+      display: inline-flex; flex-shrink: 0; gap: 3px;
+      border: 1px solid var(--line); border-radius: 9px; background: var(--surface); padding: 3px;
+    }
+    .toggle button { border: 0; border-radius: 6px; background: transparent; color: var(--muted); padding: 8px 12px; transform: none; }
+    .toggle button.active { background: var(--accent-soft); color: #006a5d; font-weight: 800; }
+
+    .metrics {
+      display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px;
+      overflow: hidden; border: 1px solid var(--line); border-radius: 10px;
+      background: var(--line); margin-bottom: 20px;
+    }
+    .metric { min-height: 92px; background: var(--surface); padding: 18px; }
+    .metric-label { color: var(--muted); font-size: 13px; margin-bottom: 10px; }
+    .metric-value { font-size: 28px; font-weight: 850; }
+
+    .filters {
+      display: flex; flex-wrap: wrap; gap: 10px; align-items: end;
+      margin-bottom: 16px;
+    }
+    .filters .f { display: grid; gap: 6px; }
+    .filters label { margin: 0; }
+    .filters input { width: 168px; padding: 9px 10px; }
+    .filters .switch {
+      display: inline-flex; align-items: center; gap: 7px; font-size: 13px;
+      color: #34413b; cursor: pointer; padding: 9px 2px;
+    }
+    .filters .spacer { flex: 1 1 40px; }
+    .filters .export { display: flex; gap: 8px; }
+    .filters .export button { padding: 9px 12px; font-size: 13px; }
+
+    .toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 18px; }
+    .chip { border-radius: 999px; padding: 8px 11px; font-size: 13px; transform: none; }
+    .chip.active { border-color: #97d5c9; background: var(--accent-soft); color: #006a5d; font-weight: 800; }
+
+    .workspace { border-top: 1px solid var(--line); }
+
+    table { width: 100%; border-collapse: collapse; }
+    thead th {
+      position: sticky; top: 0; z-index: 1; background: #fbfcfb;
+      padding: 13px 12px; border-bottom: 2px solid var(--line);
+      color: var(--muted); font-size: 12px; text-align: left; white-space: nowrap;
+    }
+    tbody tr:nth-child(even) { background: #fcfdfc; }
+    tbody tr:hover { background: var(--soft); }
+    td {
+      padding: 16px 12px; border-bottom: 1px solid var(--line);
+      vertical-align: top; font-size: 14px; line-height: 1.45;
+    }
+    .col-date, .col-score { white-space: nowrap; }
+
+    .event-title { margin-bottom: 7px; font-size: 15px; font-weight: 820; }
+    .tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+    .tag { border-radius: 999px; background: var(--soft); color: #355046; padding: 4px 7px; font-size: 12px; }
+    .people { margin-top: 6px; font-size: 12.5px; color: #42504a; line-height: 1.5; }
+    .people .ple { display: inline-block; min-width: 30px; margin-right: 4px; color: var(--accent); font-weight: 800; }
+    .badge {
+      border-radius: 999px; background: var(--gold-soft); color: var(--gold);
+      padding: 4px 8px; font-size: 11px; font-weight: 800;
+      border: 1px solid #e6d4a8;
+    }
+
+    .score {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 36px; height: 32px; border-radius: 8px;
+      background: var(--accent-soft); color: #006a5d; font-weight: 850;
+    }
+    .score.hot { background: #006a5d; color: #fff; }
+
+    .link { color: #006f63; text-decoration: none; font-weight: 800; }
+
+    .briefing { display: grid; }
+    .brief {
+      display: grid; grid-template-columns: 92px minmax(0, 1fr) 56px;
+      gap: 18px; align-items: start; padding: 18px 0; border-bottom: 1px solid var(--line);
+    }
+    .datebox { color: var(--muted); font-size: 13px; line-height: 1.4; }
+    .brief h3 { margin: 0 0 8px; font-size: 18px; }
+    .brief p { margin: 0; color: #42504a; line-height: 1.55; }
+
+    .empty { padding: 46px 0; border-bottom: 1px solid var(--line); color: var(--muted); text-align: center; }
+
+    @media (max-width: 980px) {
+      .app { grid-template-columns: 1fr; }
+      .side { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+      .main { padding: 24px 18px 36px; }
+      .topbar { flex-direction: column; }
+      .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .filters input { width: 100%; }
+      .filters .f { width: 100%; }
+
+      table, thead, tbody, th, td, tr { display: block; }
+      thead { display: none; }
+      tbody tr { border-bottom: 1px solid var(--line); padding: 12px 0; background: transparent; }
+      tbody tr:nth-child(even) { background: transparent; }
+      td { border-bottom: 0; padding: 6px 0; }
+      td::before {
+        content: attr(data-label); display: block; margin-bottom: 4px;
+        color: var(--muted); font-size: 12px; font-weight: 700;
+      }
+      .brief { grid-template-columns: 1fr; gap: 8px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="side">
+      <div class="brand">
+        <div class="mark" aria-hidden="true"></div>
+        <div>
+          <h1>국회 토론회 레이더</h1>
+          <div class="subtitle">2주 이내 정책세미나 자동 선별</div>
+        </div>
+      </div>
+
+      <div id="sourcePill" class="source-pill"><span class="dot"></span><span id="sourceText">샘플 데이터</span></div>
+
+      <div class="actions">
+        <button class="primary" id="loadBtn">데이터 불러오기</button>
+        <button id="sampleBtn">샘플 데이터로 보기</button>
+      </div>
+
+      <div id="status" class="status"></div>
+
+      <details class="advanced">
+        <summary>연결 설정 (서버 프록시 / 직접 호출)</summary>
+        <div class="field">
+          <label for="apiKey">공공데이터포털 API 키</label>
+          <input id="apiKey" type="password" placeholder="직접 호출 시에만 입력" autocomplete="off" />
+          <div class="hint">서버(<code>server.js</code>)로 열면 키 없이 동작합니다. 키는 저장하지 않으며, 운영 시 <code>ASSEMBLY_API_KEY</code> 환경변수로 분리하세요.</div>
+        </div>
+        <div class="field">
+          <label for="endpoint">조회 API 엔드포인트</label>
+          <input id="endpoint" value="https://open.assembly.go.kr/portal/openapi/nfcoioopazrwmjrgs" />
+          <div class="hint">열린국회정보 "국회의원 세미나 일정" API(nfcoioopazrwmjrgs) 기본값.</div>
+        </div>
+        <div class="field">
+          <label for="schedule">자동 수신 주기 (안내용)</label>
+          <select id="schedule">
+            <option>매일 아침 08:00</option>
+            <option>평일 아침 08:00</option>
+            <option>매주 월요일 08:00</option>
+          </select>
+          <div class="hint">실제 자동 실행은 <code>fetch-daily.js</code> + 작업 스케줄러로 구성합니다.</div>
+        </div>
+      </details>
+
+      <details class="advanced">
+        <summary>키워드 가중치</summary>
+        <div class="weights" id="weightEditor"></div>
+      </details>
+
+      <div class="note">
+        운영 구조: API 조회 → 기간 필터 → 관심 키워드 필터 → 제목·일시·장소 기준 중복 제거 → 중요도 점수 → 표 또는 브리핑으로 요약.
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="topbar">
+        <div>
+          <h2>오늘 볼 국회 토론회</h2>
+          <p class="lead">재정·예산·산업정책·저출산·연금·복지·AI·지역균형·문화·예술·플랫폼·디지털 키워드가 들어간 예정 세미나를 중요도 순으로 보여줍니다.</p>
+        </div>
+        <div class="view-controls">
+          <div class="toggle" id="rangeToggle" aria-label="기간">
+            <button data-range="today">오늘</button>
+            <button data-range="week">이번 주</button>
+            <button data-range="two" class="active">2주</button>
+            <button data-range="past" title="발제자·토론자 정보가 있는 지난 세미나">지난</button>
+          </div>
+          <div class="toggle" id="viewToggle" aria-label="보기 방식">
+            <button data-view="table" class="active">표</button>
+            <button data-view="brief">브리핑</button>
+          </div>
+        </div>
+      </div>
+
+      <section class="metrics" aria-label="요약 지표">
+        <div class="metric"><div class="metric-label">기간 내 전체</div><div class="metric-value" id="mTotal">0</div></div>
+        <div class="metric"><div class="metric-label">키워드 매칭</div><div class="metric-value" id="mMatch">0</div></div>
+        <div class="metric"><div class="metric-label">최고 중요도</div><div class="metric-value" id="mTop">0</div></div>
+        <div class="metric"><div class="metric-label">다음 일정</div><div class="metric-value" id="mNext">-</div></div>
+      </section>
+
+      <div class="filters">
+        <div class="f">
+          <label for="hostFilter">주최 의원</label>
+          <input id="hostFilter" placeholder="예: 김도현" autocomplete="off" />
+        </div>
+        <div class="f">
+          <label for="committeeFilter">위원회</label>
+          <input id="committeeFilter" placeholder="예: 기획재정" autocomplete="off" />
+        </div>
+        <label class="switch"><input type="checkbox" id="dedupToggle" checked /> 중복 숨김</label>
+        <div class="spacer"></div>
+        <div class="export">
+          <button id="csvBtn">CSV 내려받기</button>
+          <button id="mdBtn">브리핑 복사</button>
+        </div>
+      </div>
+
+      <div class="toolbar" id="keywordBar" aria-label="키워드 필터"></div>
+      <section class="workspace" id="workspace"></section>
+    </main>
+  </div>
+
+  <!-- 자동 수집된 공개 데이터(매일 GitHub Actions 갱신)를 읽는다 -->
+  <script>window.__DATA_URL__ = "./seminars.json";</script>
+  <!-- BUILD:EMBED --><script>
+    "use strict";
+
+    /* ── 설정 ───────────────────────────────────────────── */
+    const KEYWORDS = ["재정", "예산", "산업정책", "저출산", "연금", "복지", "AI", "지역균형", "문화", "예술", "플랫폼", "디지털"];
+    const INSTITUTIONS = [
+      { key: "KDI", label: "KDI", pattern: /KDI|한국개발연구원/i },
+      { key: "예산정책처", label: "예산정책처", pattern: /예산정책처|NABO/i },
+      { key: "입법조사처", label: "입법조사처", pattern: /입법조사처|NARS/i },
+      { key: "미래연구원", label: "미래연구원", pattern: /미래연구원|NAFI/i },
+    ];
+
+    const state = {
+      raw: [],
+      activeKeywords: new Set(KEYWORDS),
+      weights: Object.fromEntries(KEYWORDS.map((k) => [k, 1])),
+      view: "table",
+      range: "two",      // today | week | two
+      dedup: true,
+      hostFilter: "",
+      committeeFilter: "",
+      source: "sample",  // sample | api | error
+    };
+
+    const hasProxy = location.protocol === "http:" || location.protocol === "https:";
+
+    /* ── 날짜 유틸 ──────────────────────────────────────── */
+    const today = new Date();
+    const z = (n) => String(n).padStart(2, "0");
+    const ymd = (d) => `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`;
+    const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+    const startOfDay = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
+
+    function dateValue(value) {
+      if (!value) return NaN;
+      const cleaned = String(value).replace(/[.]/g, "-").replace(/[년월]/g, "-").replace(/일/g, "").replace(/\s+/g, "");
+      const m = cleaned.match(/(\d{4})-?(\d{1,2})-?(\d{1,2})/);
+      if (!m) return NaN;
+      return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime();
+    }
+
+    function rangeBounds() {
+      const todayStart = startOfDay(today);
+      if (state.range === "past") {
+        // 지난 45일 (발제자·토론자 포함 개최분)
+        return { start: startOfDay(addDays(today, -45)).getTime(), end: todayStart.getTime() - 1 };
+      }
+      let endDay;
+      if (state.range === "today") endDay = todayStart;
+      else if (state.range === "week") {
+        const dow = today.getDay();
+        endDay = startOfDay(addDays(today, dow === 0 ? 0 : 7 - dow));
+      } else endDay = startOfDay(addDays(today, 14));
+      return { start: todayStart.getTime(), end: endDay.getTime() + 24 * 60 * 60 * 1000 - 1 };
+    }
+
+    /* ── 데이터 처리 ────────────────────────────────────── */
+    function cleanDate(value) {
+      const m = String(value).replace(/[.]/g, "-").match(/(\d{4})-?(\d{1,2})-?(\d{1,2})/);
+      if (!m) return String(value || "").trim();
+      return `${m[1]}-${String(m[2]).padStart(2, "0")}-${String(m[3]).padStart(2, "0")}`;
+    }
+    function extractTime(value) {
+      const m = String(value).match(/(\d{1,2}:\d{2})/);
+      return m ? m[1] : "";
+    }
+
+    function normalizeEvent(row) {
+      const pick = (...names) => {
+        for (const name of names) {
+          if (row[name] !== undefined && row[name] !== null && String(row[name]).trim()) return String(row[name]).trim();
+        }
+        return "";
+      };
+      // 일정 API(nfcoioopazrwmjrgs) + 개최현황 API(nbqbmccpamsvwebkn: 발제자·토론자) 공통 매핑
+      const rawDate = pick("SDATE", "HOST_DT", "date", "DATE", "SEMINAR_DATE", "EVENT_DT", "EVT_DT", "START_DE", "FR_DT", "DT");
+      const time = pick("STIME", "time", "TIME", "SEMINAR_TIME", "EVENT_TIME", "EVT_TIME", "START_TIME") || extractTime(rawDate);
+      return {
+        title: pick("TITLE", "title", "SEMINAR_TITLE", "EVENT_TITLE", "EVT_NM", "EVENT_NM", "BBS_SJ", "SJ"),
+        date: cleanDate(rawDate),
+        time,
+        place: pick("LOCATION", "HOST_PLACE_NAME", "place", "PLACE", "SEMINAR_PLACE", "EVENT_PLACE", "EVT_PLACE", "PLC", "LC"),
+        host: pick("NAME", "HOST_INS_NAME", "host", "HOST", "HOST_NM", "MNA_NM", "POLY_NM", "RPRS_NM", "HG_NM"),
+        cohost: pick("cohost", "COHOST", "JOINT_HOST", "ORGANIZER", "ORGNZT_NM", "SPONSOR"),
+        committee: pick("committee", "COMMITTEE", "CMIT_NM", "COMMITTEE_NM", "CMT_NM"),
+        link: pick("LINK", "DETAIL_VIEW_URL", "link", "URL", "DETAIL_URL", "HMPG_URL"),
+        text: pick("DESCRIPTION", "text", "CONTENT", "SUMMARY", "RM", "DESC", "CN"),
+        presenters: pick("presenters", "ATTENDANCE_NAME1"),
+        discussants: pick("discussants", "ATTENDANCE_NAME2"),
+        kind: String(row.kind || "").trim(),
+      };
+    }
+
+    function parseApiRows(payload) {
+      const rows = [];
+      const visit = (v) => {
+        if (!v) return;
+        if (Array.isArray(v)) { v.forEach(visit); return; }
+        if (typeof v === "object") {
+          if (Array.isArray(v.row)) rows.push(...v.row);
+          Object.values(v).forEach(visit);
+        }
+      };
+      visit(payload);
+      return rows.map(normalizeEvent).filter((e) => e.title || e.date);
+    }
+
+    function detectInstitutions(e) {
+      const hay = `${e.host} ${e.cohost} ${e.title} ${e.text}`;
+      return INSTITUTIONS.filter((inst) => inst.pattern.test(hay));
+    }
+
+    const KEYWORD_SYNONYMS = {
+      "문화": ["문화", "콘텐츠", "문화재", "한류", "출판", "영화", "웹툰", "애니메이션"],
+      "예술": ["예술", "미술", "공연", "음악", "디자인", "공예", "연극", "무용"],
+      "AI": ["ai", "인공지능"],
+      "산업정책": ["산업정책", "산업 정책", "제조업", "산업전략"],
+      "저출산": ["저출산", "저출생", "인구위기", "인구절벽"],
+      "지역균형": ["지역균형", "균형발전", "지방소멸", "지역소멸"],
+    };
+    const synonymsFor = (k) => (KEYWORD_SYNONYMS[k] || [k]).map((s) => s.toLowerCase());
+
+    function matchedKeywords(e) {
+      // 설명문(text)은 장소명이 섞여 오탐을 부르므로 매칭에서 제외 (제목·주최·위원회만)
+      const hay = `${e.title} ${e.host} ${e.cohost} ${e.committee}`.toLowerCase();
+      return KEYWORDS.filter((k) => state.activeKeywords.has(k) && synonymsFor(k).some((s) => hay.includes(s)));
+    }
+
+    function scoreEvent(e, matched) {
+      let score = matched.reduce((s, k) => s + (Number(state.weights[k]) || 1) * 2, 0);
+      if (/(위원회|특별위원회|예산결산)/.test(e.committee)) score += 2;
+      if (/(국회예산정책처|국회입법조사처|국회미래연구원|연구원|학회)/.test(`${e.cohost} ${e.host}`)) score += 2;
+      if (/(토론회|세미나|포럼)/.test(e.title)) score += 1;
+      score += detectInstitutions(e).length;
+      return score;
+    }
+
+    function withinRange() {
+      const { start, end } = rangeBounds();
+      return state.raw
+        .map(normalizeEvent)
+        .map((e) => ({ ...e, timestamp: dateValue(e.date) }))
+        .filter((e) => Number.isFinite(e.timestamp) && e.timestamp >= start && e.timestamp <= end);
+    }
+
+    function buildEvents() {
+      const host = state.hostFilter.trim().toLowerCase();
+      const committee = state.committeeFilter.trim().toLowerCase();
+      const seen = new Set();
+      return withinRange()
+        .map((e) => {
+          const matched = matchedKeywords(e);
+          return { ...e, matched, institutions: detectInstitutions(e), score: scoreEvent(e, matched) };
+        })
+        .filter((e) => e.matched.length > 0)
+        .filter((e) => !host || e.host.toLowerCase().includes(host))
+        .filter((e) => !committee || e.committee.toLowerCase().includes(committee))
+        .filter((e) => {
+          if (!state.dedup) return true;
+          const key = `${e.title.replace(/\s+/g, "")}|${e.date}|${e.place.replace(/\s+/g, "")}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        })
+        .sort((a, b) => b.score - a.score || a.timestamp - b.timestamp);
+    }
+
+    /* ── 출력 유틸 ──────────────────────────────────────── */
+    function escapeHtml(v) {
+      return String(v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[c]));
+    }
+    function escapeAttr(v) { return String(v).replace(/"/g, "&quot;"); }
+
+    function briefingText(e) {
+      const matched = e.matched.length ? e.matched.join(", ") : "관심 키워드";
+      const insts = e.institutions.length ? ` ${e.institutions.map((i) => i.label).join("·")} 참여.` : "";
+      const people = [];
+      if (e.presenters) people.push(`발제: ${e.presenters}`);
+      if (e.discussants) people.push(`토론: ${e.discussants}`);
+      const peopleStr = people.length ? ` ${people.join(" / ")}.` : "";
+      return `${e.host || "주최 미확인"} 주최, ${e.place || "장소 미확인"}에서 ${e.kind === "past" ? "열렸습니다" : "열립니다"}. ${matched} 키워드가 잡혔고, ${e.committee || "관련 위원회 미확인"}와 연결해 볼 만합니다.${insts}${peopleStr}`;
+    }
+
+    function badgeHtml(e) {
+      return e.institutions.map((i) => `<span class="badge">${escapeHtml(i.label)}</span>`).join("");
+    }
+
+    /* ── 렌더 ───────────────────────────────────────────── */
+    function renderSource() {
+      const pill = document.getElementById("sourcePill");
+      const text = document.getElementById("sourceText");
+      pill.className = "source-pill " + (state.source === "api" || state.source === "static" ? "live" : state.source === "error" ? "error" : "sample");
+      text.textContent = state.source === "api" ? "실시간 API 데이터"
+        : state.source === "static" ? (window.__GENERATED_AT__ ? `갱신: ${window.__GENERATED_AT__}` : "정적 데이터")
+        : state.source === "error" ? "연결 실패 · 샘플 표시" : "샘플 데이터";
+    }
+
+    function renderKeywords() {
+      const bar = document.getElementById("keywordBar");
+      bar.innerHTML = "";
+      KEYWORDS.forEach((k) => {
+        const b = document.createElement("button");
+        b.className = "chip" + (state.activeKeywords.has(k) ? " active" : "");
+        b.textContent = k;
+        b.onclick = () => {
+          state.activeKeywords.has(k) ? state.activeKeywords.delete(k) : state.activeKeywords.add(k);
+          render();
+        };
+        bar.appendChild(b);
+      });
+    }
+
+    function renderWeights() {
+      const box = document.getElementById("weightEditor");
+      box.innerHTML = "";
+      KEYWORDS.forEach((k) => {
+        const row = document.createElement("div");
+        row.className = "weight-row";
+        const span = document.createElement("span");
+        span.textContent = k;
+        const input = document.createElement("input");
+        input.type = "number"; input.min = "0"; input.max = "5"; input.step = "1";
+        input.value = state.weights[k];
+        input.oninput = () => { state.weights[k] = Number(input.value) || 0; render(); };
+        row.appendChild(span); row.appendChild(input);
+        box.appendChild(row);
+      });
+    }
+
+    function renderMetrics(events) {
+      document.getElementById("mTotal").textContent = withinRange().length;
+      document.getElementById("mMatch").textContent = events.length;
+      document.getElementById("mTop").textContent = events.length ? Math.max(...events.map((e) => e.score)) : 0;
+      document.getElementById("mNext").textContent = events.length
+        ? events.slice().sort((a, b) => a.timestamp - b.timestamp)[0].date.slice(5)
+        : "-";
+    }
+
+    function renderTable(events) {
+      if (!events.length) return `<div class="empty">선택한 조건에 맞는 세미나가 없습니다.</div>`;
+      const top = Math.max(...events.map((e) => e.score));
+      return `
+        <table>
+          <thead><tr>
+            <th class="col-score">중요도</th><th>제목</th><th class="col-date">일시</th>
+            <th>장소</th><th>주최</th><th>관련 위원회</th><th>링크</th>
+          </tr></thead>
+          <tbody>
+            ${events.map((e) => `
+              <tr>
+                <td class="col-score" data-label="중요도"><span class="score${e.score === top ? " hot" : ""}">${e.score}</span></td>
+                <td data-label="제목">
+                  <div class="event-title">${escapeHtml(e.title || "제목 없음")}</div>
+                  <div class="tags">
+                    ${badgeHtml(e)}
+                    ${e.matched.map((k) => `<span class="tag">${escapeHtml(k)}</span>`).join("")}
+                  </div>
+                  ${e.presenters ? `<div class="people"><span class="ple">발제</span> ${escapeHtml(e.presenters)}</div>` : ""}
+                  ${e.discussants ? `<div class="people"><span class="ple">토론</span> ${escapeHtml(e.discussants)}</div>` : ""}
+                </td>
+                <td class="col-date" data-label="일시">${escapeHtml(e.date || "-")}<br>${escapeHtml(e.time || "")}</td>
+                <td data-label="장소">${escapeHtml(e.place || "-")}</td>
+                <td data-label="주최">${escapeHtml(e.host || "-")}<br><span style="color:var(--muted)">${escapeHtml(e.cohost || "")}</span></td>
+                <td data-label="관련 위원회">${escapeHtml(e.committee || "-")}</td>
+                <td data-label="링크">${e.link && e.link !== "#" ? `<a class="link" href="${escapeAttr(e.link)}" target="_blank" rel="noreferrer">열기</a>` : "-"}</td>
+              </tr>`).join("")}
+          </tbody>
+        </table>`;
+    }
+
+    function renderBriefing(events) {
+      if (!events.length) return `<div class="empty">브리핑할 세미나가 없습니다. 조건을 다시 선택해 보세요.</div>`;
+      return `
+        <div class="briefing">
+          ${events.map((e) => `
+            <article class="brief">
+              <div class="datebox">${escapeHtml(e.date || "-")}<br>${escapeHtml(e.time || "")}</div>
+              <div>
+                <h3>${escapeHtml(e.title || "제목 없음")}</h3>
+                <p>${escapeHtml(briefingText(e))}</p>
+                <div class="tags">${badgeHtml(e)}${e.matched.map((k) => `<span class="tag">${escapeHtml(k)}</span>`).join("")}</div>
+              </div>
+              <span class="score">${e.score}</span>
+            </article>`).join("")}
+        </div>`;
+    }
+
+    function render() {
+      renderSource();
+      renderKeywords();
+      const events = buildEvents();
+      window.__events = events; // CSV/MD 내보내기에서 사용
+      renderMetrics(events);
+      document.getElementById("workspace").innerHTML = state.view === "table" ? renderTable(events) : renderBriefing(events);
+      document.querySelectorAll("#viewToggle button").forEach((b) => b.classList.toggle("active", b.dataset.view === state.view));
+      document.querySelectorAll("#rangeToggle button").forEach((b) => b.classList.toggle("active", b.dataset.range === state.range));
+    }
+
+    /* ── 내보내기 ───────────────────────────────────────── */
+    function download(filename, text, mime) {
+      const blob = new Blob([text], { type: mime });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    function toCsv(events) {
+      const header = ["중요도", "제목", "일자", "시간", "장소", "주최", "발제자", "토론자", "위원회", "키워드", "연구기관", "링크"];
+      const cell = (v) => {
+        const s = String(v ?? "").replace(/"/g, '""');
+        return /[",\n]/.test(s) ? `"${s}"` : s;
+      };
+      const rows = events.map((e) => [e.score, e.title, e.date, e.time, e.place, e.host, e.presenters || "", e.discussants || "", e.committee, e.matched.join(" "), e.institutions.map((i) => i.label).join(" "), e.link && e.link !== "#" ? e.link : ""].map(cell).join(","));
+      return "﻿" + [header.join(","), ...rows].join("\r\n");
+    }
+
+    function toMarkdown(events) {
+      const rangeLabel = state.range === "today" ? "오늘" : state.range === "week" ? "이번 주" : state.range === "past" ? "지난 세미나" : "2주 이내";
+      const lines = [`# 국회 토론회 레이더 — ${ymd(today)}`, "", `기준: ${rangeLabel} · 매칭 ${events.length}건`, ""];
+      if (!events.length) { lines.push("> 조건에 맞는 세미나가 없습니다."); return lines.join("\n"); }
+      events.forEach((e, i) => {
+        const insts = e.institutions.length ? ` _(${e.institutions.map((x) => x.label).join(", ")})_` : "";
+        lines.push(`## ${i + 1}. ${e.title || "제목 없음"} · 중요도 ${e.score}${insts}`);
+        lines.push(`- 일시: ${e.date || "-"} ${e.time || ""}`.trim());
+        lines.push(`- 장소: ${e.place || "-"}`);
+        lines.push(`- 주최: ${e.host || "-"}${e.cohost ? ` / 공동 ${e.cohost}` : ""}`);
+        if (e.presenters) lines.push(`- 발제자: ${e.presenters}`);
+        if (e.discussants) lines.push(`- 토론자: ${e.discussants}`);
+        if (e.committee) lines.push(`- 위원회: ${e.committee}`);
+        if (e.matched.length) lines.push(`- 키워드: ${e.matched.join(", ")}`);
+        if (e.link && e.link !== "#") lines.push(`- 링크: ${e.link}`);
+        lines.push("");
+      });
+      return lines.join("\n").trim();
+    }
+
+    /* ── 데이터 로드 ────────────────────────────────────── */
+    const statusEl = document.getElementById("status");
+    function setStatus(msg, isError) {
+      statusEl.className = "status" + (isError ? " error" : "");
+      statusEl.textContent = msg;
+    }
+
+    function loadSample(msg) {
+      state.raw = sampleData();
+      state.source = "sample";
+      if (msg) setStatus(msg, false);
+      render();
+    }
+
+    async function loadFromProxy() {
+      const res = await fetch("/api/seminars");
+      const data = await res.json();
+      if (data.ok && data.events.length) {
+        state.raw = data.events;
+        state.source = data.source === "sample" ? "sample" : "api";
+        setStatus(`${data.source === "sample" ? "서버 샘플" : "API"} ${data.events.length}건을 불러왔습니다.`, false);
+        render();
+        return true;
+      }
+      if (data.fallback === "sample") {
+        loadSample("서버에 API 키가 없어 샘플로 표시합니다. (.env 의 ASSEMBLY_API_KEY 설정 시 실데이터)");
+        return true;
+      }
+      throw new Error(data.error || "프록시 응답 오류");
+    }
+
+    async function loadDirect() {
+      const key = document.getElementById("apiKey").value.trim();
+      const endpoint = document.getElementById("endpoint").value.trim();
+      if (!key) throw new Error("NO_KEY");
+      const url = new URL(endpoint);
+      url.searchParams.set("KEY", key);
+      url.searchParams.set("Type", "json");
+      url.searchParams.set("pIndex", "1");
+      url.searchParams.set("pSize", "100");
+      const res = await fetch(url.toString());
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const payload = await res.json();
+      const rows = parseApiRows(payload);
+      if (!rows.length) throw new Error("응답에서 세미나 목록을 찾지 못했습니다.");
+      state.raw = rows;
+      state.source = "api";
+      setStatus(`API ${rows.length}건을 불러왔습니다.`, false);
+      render();
+    }
+
+    async function loadData() {
+      setStatus("불러오는 중입니다…", false);
+      try {
+        if (hasProxy) {
+          try { if (await loadFromProxy()) return; } catch (e) { /* 프록시 실패 → 직접 호출 시도 */ }
+        }
+        await loadDirect();
+      } catch (error) {
+        if (error.message === "NO_KEY") {
+          state.source = "sample";
+          loadSample("API 키가 없어 샘플로 표시합니다. 서버로 열거나(server.js) 연결 설정에 키를 입력하세요.");
+        } else {
+          state.source = "error";
+          loadSample(`API 호출 실패: ${error.message}. 샘플로 전환합니다.`);
+        }
+      }
+    }
+
+    /* ── 샘플 ───────────────────────────────────────────── */
+    function sampleData() {
+      const d = (n) => ymd(addDays(today, n));
+      return [
+        { title: "초고령사회 연금개혁과 재정 지속가능성 정책토론회", date: d(2), time: "10:00", place: "국회의원회관 제2세미나실", host: "김도현 의원", cohost: "한국재정학회, 국회입법조사처", committee: "기획재정위원회", link: "#", text: "연금, 재정, 복지 지출의 장기 지속가능성을 논의한다." },
+        { title: "AI 전환 시대 산업정책과 디지털 플랫폼 규제의 방향", date: d(4), time: "14:00", place: "국회의원회관 대회의실", host: "박서연 의원", cohost: "국회미래연구원, 산업연구원", committee: "산업통상자원중소벤처기업위원회", link: "#", text: "AI, 산업정책, 플랫폼, 디지털 전환 정책을 다룬다." },
+        { title: "지역균형발전과 문화예술 기반 도시전략 토론회", date: d(6), time: "15:00", place: "국회도서관 강당", host: "이준석 의원", cohost: "한국문화관광연구원", committee: "문화체육관광위원회", link: "#", text: "지역균형, 문화, 예술 정책의 연결을 검토한다." },
+        { title: "저출산 대응 복지전달체계 개편 세미나", date: d(8), time: "09:30", place: "국회의원회관 제8간담회의실", host: "한민정 의원", cohost: "보건사회연구원", committee: "보건복지위원회", link: "#", text: "저출산, 복지, 돌봄 전달체계의 제도 개편을 논의한다." },
+        { title: "2026 예산안 쟁점과 재정준칙 공개 토론회", date: d(11), time: "13:30", place: "국회의원회관 제1소회의실", host: "정우진 의원", cohost: "국회예산정책처", committee: "예산결산특별위원회", link: "#", text: "예산, 재정준칙, 국가채무 관리 방안을 검토한다." },
+        { title: "소상공인 현장 간담회", date: d(5), time: "11:00", place: "국회의원회관", host: "강민수 의원", cohost: "소상공인연합회", committee: "정무위원회", link: "#", text: "일반 민생 현안을 논의한다." },
+        { title: "디지털 전환과 지역 문화예술 활성화 토론회", date: d(-3), time: "14:00", place: "국회도서관 소회의실", host: "국회 문화예술연구회", cohost: "", committee: "", link: "#", text: "", presenters: "정란수(한양대학교 관광학부, 겸임교수)", discussants: "김도현(문화체육관광부, 정책관) / 이수진(지역문화진흥원, 본부장)", kind: "past" },
+        { title: "복지전달체계 개편과 재정 지속가능성 세미나", date: d(-7), time: "10:00", place: "의원회관 제2세미나실", host: "한국사회보장학회", cohost: "", committee: "", link: "#", text: "", presenters: "김진석(서울여자대학교, 교수)", discussants: "전용호(인천대학교 사회복지학과, 교수)", kind: "past" },
+      ];
+    }
+
+    /* ── 이벤트 바인딩 ──────────────────────────────────── */
+    document.getElementById("loadBtn").addEventListener("click", loadData);
+    document.getElementById("sampleBtn").addEventListener("click", () => loadSample("샘플 데이터로 표시 중입니다."));
+
+    document.getElementById("viewToggle").addEventListener("click", (e) => {
+      const btn = e.target.closest("button"); if (!btn) return;
+      state.view = btn.dataset.view; render();
+    });
+    document.getElementById("rangeToggle").addEventListener("click", (e) => {
+      const btn = e.target.closest("button"); if (!btn) return;
+      state.range = btn.dataset.range; render();
+    });
+    document.getElementById("dedupToggle").addEventListener("change", (e) => { state.dedup = e.target.checked; render(); });
+    document.getElementById("hostFilter").addEventListener("input", (e) => { state.hostFilter = e.target.value; render(); });
+    document.getElementById("committeeFilter").addEventListener("input", (e) => { state.committeeFilter = e.target.value; render(); });
+
+    document.getElementById("csvBtn").addEventListener("click", () => {
+      const events = window.__events || [];
+      if (!events.length) { setStatus("내보낼 항목이 없습니다.", true); return; }
+      download(`국회토론회_${ymd(today)}.csv`, toCsv(events), "text/csv;charset=utf-8");
+    });
+    document.getElementById("mdBtn").addEventListener("click", async () => {
+      const events = window.__events || [];
+      const md = toMarkdown(events);
+      try {
+        await navigator.clipboard.writeText(md);
+        setStatus("브리핑 마크다운을 클립보드에 복사했습니다.", false);
+      } catch {
+        download(`국회토론회_${ymd(today)}.md`, md, "text/markdown;charset=utf-8");
+      }
+    });
+
+    /* ── 시작 ───────────────────────────────────────────── */
+    // 정적/원격 데이터 모드에서는 키 입력·불러오기 UI가 불필요 → 제거
+    function enterStaticMode(generatedAt) {
+      document.querySelectorAll("details.advanced").forEach((d) => { if (/연결 설정/.test(d.textContent)) d.remove(); });
+      const actions = document.querySelector(".actions");
+      if (actions) actions.remove();
+      if (generatedAt) window.__GENERATED_AT__ = generatedAt;
+    }
+
+    // 클라우드에 게시된 공개 JSON({generatedAt, events})을 읽어 표시 (키 없음)
+    async function loadRemote(url) {
+      setStatus("데이터를 불러오는 중입니다…", false);
+      try {
+        const res = await fetch(url, { cache: "no-store" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const events = Array.isArray(data) ? data : data.events;
+        if (!Array.isArray(events) || !events.length) throw new Error("데이터가 비어 있습니다.");
+        state.raw = events;
+        state.source = "static";
+        if (data.generatedAt) window.__GENERATED_AT__ = data.generatedAt;
+        setStatus(window.__GENERATED_AT__ ? `${window.__GENERATED_AT__} 기준 데이터입니다.` : "데이터를 불러왔습니다.", false);
+        render();
+      } catch (error) {
+        state.source = "error";
+        loadSample(`데이터를 불러오지 못했습니다(${error.message}). 샘플로 표시합니다.`);
+      }
+    }
+
+    renderWeights();
+    if (Array.isArray(window.__EMBEDDED_EVENTS__)) {
+      // 정적 배포본: 데이터가 파일에 박혀 있음 (API 호출·키 없음)
+      state.raw = window.__EMBEDDED_EVENTS__;
+      state.source = "static";
+      enterStaticMode();
+      setStatus(window.__GENERATED_AT__ ? `${window.__GENERATED_AT__} 기준 데이터입니다.` : "정적 데이터로 표시 중입니다.", false);
+      render();
+    } else if (typeof window.__DATA_URL__ === "string" && window.__DATA_URL__) {
+      // 원격(클라우드 JSON) 모드: 매일 갱신되는 공개 JSON을 읽음
+      enterStaticMode();
+      loadRemote(window.__DATA_URL__);
+    } else if (hasProxy) {
+      loadData(); // 서버로 열렸으면 자동으로 실데이터/서버샘플 시도
+    } else {
+      loadSample("샘플 데이터로 표시 중입니다. 실데이터는 server.js 로 열어 사용하세요.");
+    }
+  </script>
+</body>
+</html>
