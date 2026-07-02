@@ -167,3 +167,7 @@ bh_unicode_properties.cache
 GitHub.sublime-settings
 
 # End of https://www.gitignore.io/api/macos,python,sublimetext
+
+# 배포용 번들(로컬 산출물)
+이건희_감응의디자인_프로젝트/
+이건희_감응의디자인_프로젝트.zip
