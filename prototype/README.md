@@ -20,14 +20,20 @@ prototype/
   대화에 참여하지 않고 로그만 본다.
 - **서버 측 상태 머신** — 단계 전이(명료화 → 독창성 → 실용성 → 수용태도 →
   자기 평가)는 파이썬 코드가 강제하고, LLM에는 매 턴 현재 단계 지시만 주입한다.
-- **설명 가능한 채점** — 채점은 JSON 스키마 강제(structured output)로 받고,
-  모든 하위 점수에 대화 턴 번호 인용을 요구한다. 가중 평균은 코드가 계산한다.
+- **설명 가능한 채점** — 채점 결과는 JSON으로 받아 파싱·검증하고(실패 시 자동
+  재시도), 모든 하위 점수에 대화 턴 번호 인용을 요구한다. 가중 평균은 코드가
+  계산한다.
 
 ## 실행
 
+**API 키가 필요 없다.** 백엔드로 Claude Code CLI(`claude -p`)를 사용하므로,
+Claude Pro/Max 구독 계정으로 로그인만 되어 있으면 된다. 파이썬 패키지 설치도 없다
+(표준 라이브러리만 사용).
+
 ```bash
-pip install anthropic
-export ANTHROPIC_API_KEY=sk-...
+# 최초 1회: Claude Code 설치(https://claude.com/claude-code) 후 로그인
+claude /login
+
 python socratic_cli.py
 
 # 가중치 조정 (합이 1이어야 함)

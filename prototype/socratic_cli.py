@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """소크라테스 문답법 아이디어 평가 — 1단계 프롬프트 프로토타입 CLI.
 
-질문자(대화 진행)와 채점자(루브릭 채점)를 별도 LLM 호출로 분리한다.
+백엔드로 Claude Code CLI(`claude -p`)를 사용한다. Claude Pro/Max 구독으로
+로그인되어 있으면 그대로 동작하며, API 키가 필요 없다.
+
+질문자(대화 진행)와 채점자(루브릭 채점)를 별도 호출로 분리한다.
 질문자는 점수를 모르고, 채점자는 대화에 참여하지 않는다.
 
 사용법:
-    export ANTHROPIC_API_KEY=sk-...
+    claude /login   # 최초 1회, Pro 구독 계정으로 로그인
     python socratic_cli.py
     python socratic_cli.py --w-orig 0.5 --w-prac 0.3 --w-acc 0.2
 
@@ -16,12 +19,12 @@
 import argparse
 import datetime
 import json
+import re
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
-import anthropic
-
-MODEL = "claude-opus-4-8"
 PROMPT_DIR = Path(__file__).parent / "prompts"
 
 # 단계 정의: (내부 이름, 표시 이름, 질문 턴 수, 질문자에게 주입할 단계 지시)
@@ -55,89 +58,86 @@ STAGES = [
     ),
 ]
 
-# 채점 결과 스키마 — 수치 범위는 스키마로 강제할 수 없으므로 프롬프트 루브릭이 담당한다.
-_CRITERION = {
-    "type": "object",
-    "properties": {
-        "specificity": {"type": "integer", "description": "구체성 0~4"},
-        "consistency": {"type": "integer", "description": "논리적 일관성 0~3"},
-        "self_awareness": {"type": "integer", "description": "자기 인식 0~3"},
-        "evidence": {
-            "type": "array",
-            "items": {"type": "string"},
-            "description": "각 점수의 근거. 반드시 턴 번호를 인용",
-        },
-    },
-    "required": ["specificity", "consistency", "self_awareness", "evidence"],
-    "additionalProperties": False,
-}
+# 채점자가 반환해야 할 JSON 형태 (프롬프트로 강제하고 파싱 시 검증한다)
+GRADE_FORMAT = """\
+{
+  "originality":  {"specificity": 0, "consistency": 0, "self_awareness": 0, "evidence": ["턴 N: 근거"]},
+  "practicality": {"specificity": 0, "consistency": 0, "self_awareness": 0, "evidence": ["턴 N: 근거"]},
+  "acceptance":   {"specificity": 0, "consistency": 0, "self_awareness": 0, "evidence": ["턴 N: 근거"]},
+  "strengths": ["..."],
+  "suggestions": ["..."],
+  "encouragement": "..."
+}"""
 
-GRADE_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "originality": _CRITERION,
-        "practicality": _CRITERION,
-        "acceptance": _CRITERION,
-        "strengths": {"type": "array", "items": {"type": "string"}},
-        "suggestions": {"type": "array", "items": {"type": "string"}},
-        "encouragement": {"type": "string"},
-    },
-    "required": [
-        "originality", "practicality", "acceptance",
-        "strengths", "suggestions", "encouragement",
-    ],
-    "additionalProperties": False,
-}
+CRITERIA = ("originality", "practicality", "acceptance")
+SUBSCORES = ("specificity", "consistency", "self_awareness")
 
 
-def ask_questioner(client, system_prompt, messages, stage_directive):
-    """질문자 호출. 단계 지시는 mid-conversation system 메시지로 주입해
-    캐시된 대화 프리픽스를 깨지 않는다. 스트리밍으로 출력."""
-    request_messages = messages + [{"role": "system", "content": stage_directive}]
-    parts = []
-    with client.messages.stream(
-        model=MODEL,
-        max_tokens=2048,
-        thinking={"type": "adaptive"},
-        system=[{
-            "type": "text",
-            "text": system_prompt,
-            "cache_control": {"type": "ephemeral"},
-        }],
-        messages=request_messages,
-    ) as stream:
-        for text in stream.text_stream:
-            print(text, end="", flush=True)
-            parts.append(text)
-        final = stream.get_final_message()
-    print()
-    if final.stop_reason == "refusal":
-        raise RuntimeError("질문자 요청이 안전상의 이유로 거부되었습니다.")
-    return "".join(parts), request_messages
-
-
-def grade(client, grader_prompt, transcript):
-    """채점자 호출. 대화 로그 전체를 넘기고 스키마 강제 JSON으로 받는다."""
-    response = client.messages.create(
-        model=MODEL,
-        max_tokens=16000,
-        thinking={"type": "adaptive"},
-        system=grader_prompt,
-        output_config={"format": {"type": "json_schema", "schema": GRADE_SCHEMA}},
-        messages=[{
-            "role": "user",
-            "content": "다음 아이디어 평가 세션의 대화 로그를 루브릭에 따라 채점하라.\n\n"
-                       + transcript,
-        }],
+def call_claude(prompt, system_prompt):
+    """Claude Code CLI를 헤드리스로 호출한다. 도구를 모두 끄고 순수 대화만 시킨다."""
+    cmd = [
+        "claude", "-p",
+        "--system-prompt", system_prompt,
+        "--tools", "",
+        "--no-session-persistence",
+        "--output-format", "text",
+    ]
+    result = subprocess.run(
+        cmd, input=prompt, capture_output=True, text=True, timeout=300,
     )
-    if response.stop_reason == "refusal":
-        raise RuntimeError("채점 요청이 안전상의 이유로 거부되었습니다.")
-    text = next(b.text for b in response.content if b.type == "text")
-    return json.loads(text)
+    if result.returncode != 0:
+        raise RuntimeError(f"claude CLI 오류: {result.stderr.strip()[:500]}")
+    return result.stdout.strip()
+
+
+def ask_questioner(system_prompt, transcript_log, stage_directive):
+    """대화 로그 전체 + 현재 단계 지시를 넘겨 다음 질문 하나를 받는다."""
+    prompt = (
+        "<대화 기록>\n" + "\n\n".join(transcript_log) + "\n</대화 기록>\n\n"
+        f"<현재 단계 지시>\n{stage_directive}\n</현재 단계 지시>\n\n"
+        "위 대화에 이어서, 시스템 프롬프트의 규칙에 따라 질문자의 다음 발화를 "
+        "출력하라. 발화 내용만 출력하고 다른 설명은 붙이지 마라."
+    )
+    return call_claude(prompt, system_prompt)
+
+
+def parse_grade_json(text):
+    """응답에서 JSON을 추출·검증한다. 코드 펜스나 앞뒤 설명이 붙어도 견딘다."""
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+    if not match:
+        raise ValueError("응답에서 JSON을 찾지 못함")
+    result = json.loads(match.group(0))
+    for c in CRITERIA:
+        for s in SUBSCORES:
+            if not isinstance(result[c][s], int):
+                raise ValueError(f"{c}.{s}가 정수가 아님")
+        result[c].setdefault("evidence", [])
+    for key in ("strengths", "suggestions", "encouragement"):
+        if key not in result:
+            raise ValueError(f"{key} 누락")
+    return result
+
+
+def grade(grader_prompt, transcript):
+    """채점자 호출. 대화 로그 전체를 넘기고 JSON으로 받는다. 파싱 실패 시 1회 재시도."""
+    prompt = (
+        "다음 아이디어 평가 세션의 대화 로그를 시스템 프롬프트의 루브릭에 따라 "
+        "채점하라.\n\n<대화 로그>\n" + transcript + "\n</대화 로그>\n\n"
+        "결과는 아래 형태의 JSON **하나만** 출력하라. 코드 펜스나 설명 없이 "
+        "JSON으로 시작해서 JSON으로 끝나야 한다.\n" + GRADE_FORMAT
+    )
+    last_error = None
+    for _ in range(2):
+        text = call_claude(prompt, grader_prompt)
+        try:
+            return parse_grade_json(text)
+        except (ValueError, KeyError, json.JSONDecodeError) as e:
+            last_error = e
+    raise RuntimeError(f"채점 결과 파싱 실패: {last_error}")
 
 
 def criterion_total(c):
-    return c["specificity"] + c["consistency"] + c["self_awareness"]
+    return sum(c[s] for s in SUBSCORES)
 
 
 def print_report(result, weights):
@@ -182,46 +182,45 @@ def main():
     if abs(sum(weights) - 1.0) > 1e-6:
         parser.error(f"가중치의 합은 1이어야 합니다 (현재 {sum(weights)})")
 
+    if shutil.which("claude") is None:
+        sys.exit(
+            "claude CLI를 찾을 수 없습니다.\n"
+            "설치: https://claude.com/claude-code  → 설치 후 `claude /login` 으로 "
+            "Pro 구독 계정에 로그인하세요. (API 키 불필요)"
+        )
+
     questioner_prompt = (PROMPT_DIR / "questioner_system.md").read_text(encoding="utf-8")
     grader_prompt = (PROMPT_DIR / "grader_system.md").read_text(encoding="utf-8")
-
-    client = anthropic.Anthropic()
 
     print("아이디어를 자유롭게 서술하세요. (입력 후 Enter)")
     idea = input("> ").strip()
     if not idea:
         sys.exit("아이디어가 비어 있습니다.")
 
-    # transcript_log: 채점자에게 넘길 턴 번호 붙은 기록
-    # messages: 질문자 API 호출용 대화 이력 (단계 지시 system 메시지 포함)
     turn = 1
     transcript_log = [f"[턴 {turn}] 제안자: {idea}"]
-    messages = [{"role": "user", "content": idea}]
 
     try:
         for _, stage_label, n_turns, directive in STAGES:
             print(f"\n--- {stage_label} 단계 ---")
             for _ in range(n_turns):
-                print("\n질문자: ", end="", flush=True)
-                question, messages = ask_questioner(
-                    client, questioner_prompt, messages, directive
-                )
+                print("\n(질문 생성 중...)", end="\r")
+                question = ask_questioner(questioner_prompt, transcript_log, directive)
                 turn += 1
                 transcript_log.append(f"[턴 {turn}] 질문자({stage_label}): {question}")
-                messages.append({"role": "assistant", "content": question})
+                print(f"질문자: {question}      ")
 
                 answer = input("\n제안자> ").strip()
                 if answer.lower() == "q":
                     raise KeyboardInterrupt
                 turn += 1
                 transcript_log.append(f"[턴 {turn}] 제안자: {answer}")
-                messages.append({"role": "user", "content": answer})
     except KeyboardInterrupt:
         print("\n(문답을 종료하고 채점으로 넘어갑니다)")
 
     transcript = "\n\n".join(transcript_log)
     print("\n채점 중...")
-    result = grade(client, grader_prompt, transcript)
+    result = grade(grader_prompt, transcript)
     weighted_total = print_report(result, weights)
 
     stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -244,11 +243,4 @@ def main():
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except anthropic.AuthenticationError:
-        sys.exit("API 키가 유효하지 않습니다. ANTHROPIC_API_KEY를 확인하세요.")
-    except anthropic.APIConnectionError:
-        sys.exit("네트워크 오류입니다. 연결을 확인하고 다시 시도하세요.")
-    except anthropic.APIStatusError as e:
-        sys.exit(f"API 오류 ({e.status_code}): {e.message}")
+    main()
