@@ -22,6 +22,8 @@ PROMPT_DIR = Path(__file__).parent / "prompts"
 QUESTIONER_PROMPT_FILE = PROMPT_DIR / "questioner_system.md"
 GRADER_HOLISTIC_PROMPT_FILE = PROMPT_DIR / "grader_holistic_system.md"
 GRADER_CHECKLIST_PROMPT_FILE = PROMPT_DIR / "grader_checklist_system.md"
+PROPOSER_PROMPT_FILE = PROMPT_DIR / "proposer_system.md"      # 시뮬레이션용
+SYNTHESIZER_PROMPT_FILE = PROMPT_DIR / "synthesizer_system.md"  # 재판장
 
 DEFAULT_WEIGHTS = {"originality": 0.35, "practicality": 0.35, "acceptance": 0.30}
 CRITERIA = ("originality", "practicality", "acceptance")
@@ -57,27 +59,63 @@ STAGES = [
     ),
 ]
 
-# 체크리스트 항목 — "이 사건이 대화에 있었는가"로 판정 가능한 10개 이진 항목.
+# 기준별 체크리스트 — "이 사건이 대화에 있었는가"로 판정 가능한 이진 항목 10개씩.
 # 충족 개수가 그대로 기준별 체크리스트 점수(0~10)가 된다.
-CHECKLIST_ITEMS = [
-    ("S1", "수치·고유명사 제시", "이 기준과 관련해 구체적 수치, 이름, 범위를 제시했다"),
-    ("S2", "사례·경험 인용", "실제 사례나 직접 경험을 근거로 들었다"),
-    ("S3", "근거 출처 구분", "직접 확인한 것과 추측을 구분해서 말했다"),
-    ("S4", "검증 가능한 진술", "제3자가 사실 여부를 확인할 수 있는 형태로 주장했다"),
-    ("C1", "무모순", "이 기준과 관련한 답변이 이전 답변과 모순되지 않는다"),
-    ("C2", "반례 대응", "반례·전제 검증 질문에 논리적으로 대응했다"),
-    ("C3", "정면 응답", "질문이 묻는 바에 회피 없이 직접 답했다"),
-    ("A1", "약점 인정", "이 기준과 관련한 약점이나 한계를 스스로 인정했다"),
-    ("A2", "개선안 제시", "인정한 약점에 대한 보완·개선 방향을 제시했다"),
-    ("A3", "전제 명시", "아이디어가 성립하기 위한 전제·조건을 스스로 밝혔다"),
-]
-CHECKLIST_LABELS = {i: label for i, label, _ in CHECKLIST_ITEMS}
+# 항목별 이론적 근거는 docs/checklist-rationale.md 참고:
+# 독창성 = 창의성 표준 정의(Runco & Jaeger) + 아이디어 평가 구인(Dean et al. 2006)
+# 실용성 = TELOS 타당성 프레임워크 + Real-Win-Worth(Day, HBR 2007) + 린 스타트업 MVP
+# 수용태도 = 혁신 확산 이론(Rogers) 5속성 + 기술수용모형 TAM(Davis)
+CHECKLIST_ITEMS = {
+    "originality": [
+        ("O1", "기존 해법 식별", "기존 해법이나 유사 시도를 구체적으로 언급했다"),
+        ("O2", "차별점 명시", "기존 해법과의 차이를 구체적으로 진술했다"),
+        ("O3", "차별점의 검증 가능성", "차별점을 제3자가 확인 가능한 형태(기능·구조·수치)로 제시했다"),
+        ("O4", "공백의 설명", "왜 아직 없는지 또는 왜 지금 가능해졌는지를 설명했다"),
+        ("O5", "모방 장벽", "차별점이 쉽게 모방되지 않는 이유를 제시했다"),
+        ("O6", "관점 전환", "문제를 다르게 정의하거나 기존 프레임을 벗어난 요소가 있다"),
+        ("O7", "새로움-가치 연결", "새로움이 사용자 가치로 이어짐을 설명했다"),
+        ("O8", "유사 사례 반례 대응", "'이미 있지 않나' 류의 반례 질문에 정면 대응했다"),
+        ("O9", "독창성 한계 인정", "독창성의 한계(부분적 새로움)를 스스로 인정했다"),
+        ("O10", "무모순", "독창성 주장이 대화 전체에서 모순되지 않는다"),
+    ],
+    "practicality": [
+        ("P1", "자원 구체화", "필요 인력·기술·예산을 수치나 구체 항목으로 제시했다"),
+        ("P2", "MVP 정의", "최소 실행 버전의 범위를 구체적으로 한정했다"),
+        ("P3", "핵심 장애물 식별", "실행의 가장 큰 장애물을 스스로 특정했다"),
+        ("P4", "장애물 대응책", "그 장애물에 대한 현실적 대응 방안을 제시했다"),
+        ("P5", "구현 경로", "핵심 기능의 구현 방법(데이터·기술·절차)을 설명했다"),
+        ("P6", "비용 대비 효과", "비용과 기대 효과를 비교하는 논리를 제시했다"),
+        ("P7", "운영 주체 특정", "누가 실행·운영하는지를 특정했다"),
+        ("P8", "단계적 경로", "시작에서 확장으로 가는 단계적 실행 순서를 제시했다"),
+        ("P9", "실행 리스크 인정", "실행상 리스크나 불확실성을 스스로 인정했다"),
+        ("P10", "무모순", "실용성 주장이 대화 전체에서 모순되지 않는다"),
+    ],
+    "acceptance": [
+        ("A1", "수용 주체 특정", "사용자와 이해관계자를 구체적으로 특정했다"),
+        ("A2", "상대적 이점", "현재 방식 대비 사용자가 얻는 이점을 구체화했다"),
+        ("A3", "전환 비용", "갈아타는 데 드는 비용·노력·학습을 다뤘다"),
+        ("A4", "적합성", "사용자의 기존 습관·가치와의 정합을 설명했다"),
+        ("A5", "시험 가능성", "부담 없이 먼저 써볼 수 있는 경로를 제시했다"),
+        ("A6", "반대 세력 식별", "반대하거나 손해 보는 이해관계자를 식별했다"),
+        ("A7", "저항 대응", "반대·저항에 대한 대응 논리를 제시했다"),
+        ("A8", "확산 경로", "초기 사용자 확보와 확산 방법을 구체화했다"),
+        ("A9", "수용 리스크 인정", "수용되지 않을 가능성이나 조건을 스스로 인정했다"),
+        ("A10", "무모순", "수용태도 주장이 대화 전체에서 모순되지 않는다"),
+    ],
+}
+CHECKLIST_LABELS = {
+    c: {i: label for i, label, _ in items} for c, items in CHECKLIST_ITEMS.items()
+}
 
 
 def _checklist_format():
-    item_obj = ", ".join(f'"{i}": {{"met": false, "evidence": ""}}' for i, _, _ in CHECKLIST_ITEMS)
-    body = ",\n".join(f'  "{c}": {{{item_obj}}}' for c in CRITERIA)
-    return "{\n" + body + "\n}"
+    lines = []
+    for c in CRITERIA:
+        item_obj = ", ".join(
+            f'"{i}": {{"met": false, "evidence": ""}}' for i, _, _ in CHECKLIST_ITEMS[c]
+        )
+        lines.append(f'  "{c}": {{{item_obj}}}')
+    return "{\n" + ",\n".join(lines) + "\n}"
 
 
 HOLISTIC_FORMAT = """\
@@ -159,7 +197,7 @@ def _parse_checklist(text):
     parsed = {}
     for c in CRITERIA:
         parsed[c] = {}
-        for item_id, _, _ in CHECKLIST_ITEMS:
+        for item_id, _, _ in CHECKLIST_ITEMS[c]:
             entry = result[c][item_id]
             met = bool(entry["met"])
             evidence = str(entry.get("evidence", "")).strip()
@@ -197,13 +235,17 @@ def _call_and_parse(prompt, system_file, parser):
 
 
 def _grade_checklist(transcript):
-    items_desc = "\n".join(f"- {i} ({label}): {desc}" for i, label, desc in CHECKLIST_ITEMS)
+    items_desc = "\n\n".join(
+        f"[{c} ({CRITERIA_KO[c]}) 전용 항목]\n"
+        + "\n".join(f"- {i} ({label}): {desc}" for i, label, desc in CHECKLIST_ITEMS[c])
+        for c in CRITERIA
+    )
     prompt = (
         "다음 아이디어 평가 세션의 대화 로그를 체크리스트로 판정하라.\n\n"
         "<대화 로그>\n" + transcript + "\n</대화 로그>\n\n"
-        "<체크리스트 항목>\n" + items_desc + "\n</체크리스트 항목>\n\n"
-        "세 기준 originality(독창성), practicality(실용성), acceptance(수용태도) "
-        "각각에 대해 10개 항목 전부를 판정하라. met=true인 항목의 evidence에는 "
+        "<체크리스트 항목 — 기준마다 전용 항목 10개>\n" + items_desc
+        + "\n</체크리스트 항목>\n\n"
+        "각 기준의 전용 항목 10개 전부를 판정하라. met=true인 항목의 evidence에는 "
         "반드시 '턴 N: ...' 형태의 인용을 적어라.\n"
         "결과는 아래 형태의 JSON **하나만** 출력하라. 코드 펜스나 설명 없이 "
         "JSON으로 시작해서 JSON으로 끝나야 한다.\n" + _checklist_format()
@@ -247,3 +289,38 @@ def grade(transcript):
 def weighted_total(result, weights):
     """weights: {"originality": w1, "practicality": w2, "acceptance": w3}"""
     return sum(result["criteria"][c]["final"] * weights[c] for c in CRITERIA)
+
+
+def _parse_synthesis(text):
+    result = _extract_json(text)
+    for c in CRITERIA:
+        if c not in result["criterion_notes"]:
+            raise ValueError(f"criterion_notes.{c} 누락")
+    if "verdict" not in result:
+        raise ValueError("verdict 누락")
+    return result
+
+
+def synthesize(transcript, grade_result):
+    """재판장 호출: 두 심사위원 결과를 검토하고 최종 판정문을 쓴다."""
+    grader_summary = json.dumps(
+        {
+            c: {
+                "체크리스트": grade_result["criteria"][c]["checklist"],
+                "종합판단": grade_result["criteria"][c]["holistic"],
+                "최종(평균)": grade_result["criteria"][c]["final"],
+            }
+            for c in CRITERIA
+        },
+        ensure_ascii=False, indent=1,
+    )
+    prompt = (
+        "<대화 로그>\n" + transcript + "\n</대화 로그>\n\n"
+        "<두 심사위원의 결과>\n" + grader_summary + "\n</두 심사위원의 결과>\n\n"
+        "시스템 프롬프트의 임무에 따라 기준별 검토와 최종 판정문을 작성하라.\n"
+        "결과는 아래 형태의 JSON **하나만** 출력하라. 코드 펜스나 설명 없이 "
+        "JSON으로 시작해서 JSON으로 끝나야 한다.\n"
+        '{\n  "criterion_notes": {"originality": "...", "practicality": "...", '
+        '"acceptance": "..."},\n  "verdict": "..."\n}'
+    )
+    return _call_and_parse(prompt, SYNTHESIZER_PROMPT_FILE, _parse_synthesis)

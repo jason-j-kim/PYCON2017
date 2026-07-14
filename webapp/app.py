@@ -103,7 +103,7 @@ def _evaluation_payload(result, total, weights):
                 "items": [
                     {
                         "id": item_id,
-                        "label": engine.CHECKLIST_LABELS[item_id],
+                        "label": engine.CHECKLIST_LABELS[c][item_id],
                         "met": entry["met"],
                         "evidence": entry["evidence"],
                     }

@@ -39,7 +39,7 @@ def print_report(result, weights):
         print(f"  종합판단 근거: {d['holistic']['rationale']}")
         for item_id, entry in d["checklist"]["items"].items():
             mark = "O" if entry["met"] else "X"
-            print(f"  [{mark}] {engine.CHECKLIST_LABELS[item_id]} — {entry['evidence']}")
+            print(f"  [{mark}] {engine.CHECKLIST_LABELS[c][item_id]} — {entry['evidence']}")
     print(f"\n종합 점수 (가중 평균): {total_score:.1f}/10")
 
     print("\n[강점]")
