@@ -96,9 +96,19 @@ def _evaluation_payload(result, total, weights):
                 "key": c,
                 "label": engine.CRITERIA_KO[c],
                 "weight": weights[c],
-                "total": engine.criterion_total(result[c]),
-                **{s: result[c][s] for s in engine.SUBSCORES},
-                "evidence": result[c]["evidence"],
+                "final": result["criteria"][c]["final"],
+                "checklist_total": result["criteria"][c]["checklist"]["total"],
+                "holistic_score": result["criteria"][c]["holistic"]["score"],
+                "holistic_rationale": result["criteria"][c]["holistic"]["rationale"],
+                "items": [
+                    {
+                        "id": item_id,
+                        "label": engine.CHECKLIST_LABELS[item_id],
+                        "met": entry["met"],
+                        "evidence": entry["evidence"],
+                    }
+                    for item_id, entry in result["criteria"][c]["checklist"]["items"].items()
+                ],
             }
             for c in engine.CRITERIA
         ],

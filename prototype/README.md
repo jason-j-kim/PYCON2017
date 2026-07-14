@@ -10,10 +10,11 @@
 
 ```
 socratic/
-├── engine.py                  # 공유 엔진: 단계 정의, claude 호출, 채점 파싱
+├── engine.py                  # 공유 엔진: 단계 정의, claude 호출, 이원 채점
 └── prompts/
-    ├── questioner_system.md   # 질문자: 산파술 규칙, 6가지 질문 유형, 어조 규칙
-    └── grader_system.md       # 채점자: 루브릭, 턴 인용 강제, 격려 규칙
+    ├── questioner_system.md          # 질문자: 산파술 규칙, 6가지 질문 유형, 어조 규칙
+    ├── grader_checklist_system.md    # 규정 심사위원: 10개 이진 항목 사실 판정
+    └── grader_holistic_system.md     # 종합 심사위원: 점수 밴드 기반 전체 인상 채점
 prototype/
 ├── socratic_cli.py            # 전체 세션 실행 (문답 → 채점 → 리포트 → JSON 저장)
 └── README.md

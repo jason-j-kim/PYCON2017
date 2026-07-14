@@ -63,7 +63,14 @@
   .score-head b { font-size: 1.05rem; }
   .score-num { font-size: 1.3rem; font-weight: 700; }
   .subscores { color: var(--sub); font-size: .85rem; margin: 4px 0 8px; }
-  .evidence { font-size: .85rem; color: var(--sub); margin: 0; padding-left: 18px; }
+  .rationale { font-size: .88rem; color: var(--ink); background: var(--bg);
+               border-radius: 8px; padding: 10px 12px; margin: 8px 0; }
+  .check-list { list-style: none; margin: 8px 0 0; padding: 0; font-size: .85rem; }
+  .check-list li { padding: 3px 0; color: var(--sub); }
+  .check-list .ok { color: var(--good); font-weight: 700; }
+  .check-list .no { color: #b3261e; font-weight: 700; }
+  details summary { cursor: pointer; font-size: .85rem; color: var(--accent);
+                    margin-top: 8px; }
   .total { text-align: center; padding: 22px; }
   .total .num { font-size: 2.4rem; font-weight: 800; color: var(--accent); }
   ul { margin: 6px 0; padding-left: 20px; }
@@ -247,12 +254,22 @@ function renderResult(ev) {
     card.className = "card";
     card.innerHTML = `
       <div class="score-head"><b>${c.label}</b>
-        <span><span class="score-num">${c.total}</span><span style="color:var(--sub)">/10 · 가중치 ${c.weight}</span></span>
+        <span><span class="score-num">${c.final}</span><span style="color:var(--sub)">/10 · 가중치 ${c.weight}</span></span>
       </div>
-      <div class="subscores">구체성 ${c.specificity}/4 · 일관성 ${c.consistency}/3 · 자기 인식 ${c.self_awareness}/3</div>
-      <ul class="evidence">${c.evidence.map(e => `<li></li>`).join("")}</ul>`;
-    const lis = card.querySelectorAll(".evidence li");
-    c.evidence.forEach((e, i) => lis[i].textContent = e);
+      <div class="subscores">체크리스트 ${c.checklist_total}/10 · 종합판단 ${c.holistic_score}/10 → 평균 ${c.final}</div>
+      <div class="rationale"></div>
+      <details><summary>체크리스트 판정 상세 (${c.checklist_total}/10 충족)</summary>
+        <ul class="check-list">${c.items.map(() => `<li></li>`).join("")}</ul>
+      </details>`;
+    card.querySelector(".rationale").textContent = "종합판단 근거: " + c.holistic_rationale;
+    const lis = card.querySelectorAll(".check-list li");
+    c.items.forEach((it, i) => {
+      const mark = it.met ? '<span class="ok">✓</span>' : '<span class="no">✗</span>';
+      lis[i].innerHTML = mark + " ";
+      const span = document.createElement("span");
+      span.textContent = `${it.label} — ${it.evidence}`;
+      lis[i].appendChild(span);
+    });
     box.appendChild(card);
   }
   fillList("strengths", ev.strengths);

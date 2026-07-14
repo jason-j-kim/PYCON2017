@@ -26,22 +26,20 @@ from socratic import engine
 
 
 def print_report(result, weights):
-    scores = {
-        engine.CRITERIA_KO[c]: (engine.criterion_total(result[c]), weights[c], result[c])
-        for c in engine.CRITERIA
-    }
     total_score = engine.weighted_total(result, weights)
 
     print("\n" + "=" * 60)
     print("평가 결과")
     print("=" * 60)
-    for name, (total, w, detail) in scores.items():
-        print(f"\n[{name}] {total}/10 (가중치 {w})")
-        print(f"  구체성 {detail['specificity']}/4 · "
-              f"일관성 {detail['consistency']}/3 · "
-              f"자기 인식 {detail['self_awareness']}/3")
-        for ev in detail["evidence"]:
-            print(f"  - {ev}")
+    for c in engine.CRITERIA:
+        d = result["criteria"][c]
+        print(f"\n[{engine.CRITERIA_KO[c]}] {d['final']}/10 (가중치 {weights[c]})")
+        print(f"  체크리스트 {d['checklist']['total']}/10 · "
+              f"종합판단 {d['holistic']['score']}/10 → 평균 {d['final']}")
+        print(f"  종합판단 근거: {d['holistic']['rationale']}")
+        for item_id, entry in d["checklist"]["items"].items():
+            mark = "O" if entry["met"] else "X"
+            print(f"  [{mark}] {engine.CHECKLIST_LABELS[item_id]} — {entry['evidence']}")
     print(f"\n종합 점수 (가중 평균): {total_score:.1f}/10")
 
     print("\n[강점]")

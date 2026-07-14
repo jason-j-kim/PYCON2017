@@ -66,13 +66,23 @@ def render(c, sid):
         lines.append(f"평가 결과 · 종합 {ev['weighted_total']}/10")
         lines.append("=" * 64)
         for key, label in CRITERIA_KO.items():
-            d = result[key]
-            total = d["specificity"] + d["consistency"] + d["self_awareness"]
-            lines.append(f"\n[{label}] {total}/10 (가중치 {weights[key]})")
-            lines.append(f"  구체성 {d['specificity']}/4 · 일관성 {d['consistency']}/3 · "
-                         f"자기 인식 {d['self_awareness']}/3")
-            for e in d["evidence"]:
-                lines.append(f"  - {e}")
+            if result.get("version") == 2:
+                d = result["criteria"][key]
+                lines.append(f"\n[{label}] {d['final']}/10 (가중치 {weights[key]})")
+                lines.append(f"  체크리스트 {d['checklist']['total']}/10 · "
+                             f"종합판단 {d['holistic']['score']}/10 → 평균 {d['final']}")
+                lines.append(f"  종합판단 근거: {d['holistic']['rationale']}")
+                for item_id, entry in d["checklist"]["items"].items():
+                    mark = "O" if entry["met"] else "X"
+                    lines.append(f"  [{mark}] {item_id} — {entry['evidence']}")
+            else:  # 구버전(하위지표 척도) 세션 호환
+                d = result[key]
+                total = d["specificity"] + d["consistency"] + d["self_awareness"]
+                lines.append(f"\n[{label}] {total}/10 (가중치 {weights[key]})")
+                lines.append(f"  구체성 {d['specificity']}/4 · 일관성 {d['consistency']}/3 · "
+                             f"자기 인식 {d['self_awareness']}/3")
+                for e in d["evidence"]:
+                    lines.append(f"  - {e}")
         lines.append("\n[강점]")
         lines.extend(f"  - {s}" for s in result["strengths"])
         lines.append("\n[개선 제안]")

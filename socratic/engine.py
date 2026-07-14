@@ -20,54 +20,45 @@ PROMPT_DIR = Path(__file__).parent / "prompts"
 # 시스템 프롬프트는 파일 경로로 전달한다. 여러 줄 텍스트를 명령줄 인자로 넘기면
 # Windows에서 claude.cmd가 cmd.exe를 거치며 줄바꿈에서 인자가 깨진다.
 QUESTIONER_PROMPT_FILE = PROMPT_DIR / "questioner_system.md"
-GRADER_PROMPT_FILE = PROMPT_DIR / "grader_system.md"
+GRADER_HOLISTIC_PROMPT_FILE = PROMPT_DIR / "grader_holistic_system.md"
+GRADER_CHECKLIST_PROMPT_FILE = PROMPT_DIR / "grader_checklist_system.md"
 
 DEFAULT_WEIGHTS = {"originality": 0.35, "practicality": 0.35, "acceptance": 0.30}
 CRITERIA = ("originality", "practicality", "acceptance")
 CRITERIA_KO = {"originality": "독창성", "practicality": "실용성", "acceptance": "수용태도"}
-SUBSCORES = ("specificity", "consistency", "self_awareness")
-
-# 단계 정의: (내부 이름, 표시 이름, 질문 턴 수, 질문자에게 주입할 단계 지시)
-STAGES = [
-    (
-        "clarify", "명료화", 2,
-        "지금은 [명료화] 단계다. 아이디어를 한 문장 정의로 압축하도록 유도하라. "
-        "대상, 해결하는 문제, 방법이 그 한 문장에 드러나야 한다. "
-        "제안자의 표현이 이미 충분히 명확하면 합의된 정의를 짧게 되짚어 확인만 하라.",
-    ),
-    (
-        "originality", "독창성", 3,
-        "지금은 [독창성] 라운드다. 기존 해법과 무엇이 다른지, 비슷한 시도가 이미 "
-        "존재하지 않는지, 차별점이 모방하기 어려운 것인지를 검증하는 질문을 하라.",
-    ),
-    (
-        "practicality", "실용성", 3,
-        "지금은 [실용성] 라운드다. 구현에 무엇이 필요한지, 가장 큰 장애물이 "
-        "무엇인지, 최소 버전(MVP)은 무엇일지, 비용 대비 효과를 검증하는 질문을 하라.",
-    ),
-    (
-        "acceptance", "수용태도", 3,
-        "지금은 [수용태도] 라운드다. 누가 실제로 쓸 것인지, 그들이 지금 방식을 "
-        "버리고 갈아탈 이유가 있는지, 반대할 이해관계자는 누구인지 검증하는 질문을 하라.",
-    ),
-    (
-        "self_assess", "자기 평가", 1,
-        "지금은 [자기 평가] 단계다. 지금까지의 대화를 바탕으로 제안자가 스스로 "
-        "아이디어의 가장 큰 약점 하나를 꼽고, 그것을 어떻게 보완할지 말하게 하라. "
-        "이번이 마지막 질문이다.",
-    ),
+# 체크리스트 항목 — "이 사건이 대화에 있었는가"로 판정 가능한 10개 이진 항목.
+# 충족 개수가 그대로 기준별 체크리스트 점수(0~10)가 된다.
+CHECKLIST_ITEMS = [
+    ("S1", "수치·고유명사 제시", "이 기준과 관련해 구체적 수치, 이름, 범위를 제시했다"),
+    ("S2", "사례·경험 인용", "실제 사례나 직접 경험을 근거로 들었다"),
+    ("S3", "근거 출처 구분", "직접 확인한 것과 추측을 구분해서 말했다"),
+    ("S4", "검증 가능한 진술", "제3자가 사실 여부를 확인할 수 있는 형태로 주장했다"),
+    ("C1", "무모순", "이 기준과 관련한 답변이 이전 답변과 모순되지 않는다"),
+    ("C2", "반례 대응", "반례·전제 검증 질문에 논리적으로 대응했다"),
+    ("C3", "정면 응답", "질문이 묻는 바에 회피 없이 직접 답했다"),
+    ("A1", "약점 인정", "이 기준과 관련한 약점이나 한계를 스스로 인정했다"),
+    ("A2", "개선안 제시", "인정한 약점에 대한 보완·개선 방향을 제시했다"),
+    ("A3", "전제 명시", "아이디어가 성립하기 위한 전제·조건을 스스로 밝혔다"),
 ]
+CHECKLIST_LABELS = {i: label for i, label, _ in CHECKLIST_ITEMS}
 
-# 채점자가 반환해야 할 JSON 형태 (프롬프트로 강제하고 파싱 시 검증한다)
-GRADE_FORMAT = """\
+
+def _checklist_format():
+    item_obj = ", ".join(f'"{i}": {{"met": false, "evidence": ""}}' for i, _, _ in CHECKLIST_ITEMS)
+    body = ",\n".join(f'  "{c}": {{{item_obj}}}' for c in CRITERIA)
+    return "{\n" + body + "\n}"
+
+
+HOLISTIC_FORMAT = """\
 {
-  "originality":  {"specificity": 0, "consistency": 0, "self_awareness": 0, "evidence": ["턴 N: 근거"]},
-  "practicality": {"specificity": 0, "consistency": 0, "self_awareness": 0, "evidence": ["턴 N: 근거"]},
-  "acceptance":   {"specificity": 0, "consistency": 0, "self_awareness": 0, "evidence": ["턴 N: 근거"]},
+  "originality":  {"score": 0, "rationale": "턴 번호를 인용한 이유"},
+  "practicality": {"score": 0, "rationale": "..."},
+  "acceptance":   {"score": 0, "rationale": "..."},
   "strengths": ["..."],
   "suggestions": ["..."],
   "encouragement": "..."
 }"""
+
 
 
 def call_claude(prompt, system_prompt_file):
@@ -124,45 +115,104 @@ def ask_questioner(transcript_log, stage_directive):
     return call_claude(prompt, QUESTIONER_PROMPT_FILE)
 
 
-def parse_grade_json(text):
-    """응답에서 JSON을 추출·검증한다. 코드 펜스나 앞뒤 설명이 붙어도 견딘다."""
+def _extract_json(text):
     match = re.search(r"\{.*\}", text, re.DOTALL)
     if not match:
         raise ValueError("응답에서 JSON을 찾지 못함")
-    result = json.loads(match.group(0))
+    return json.loads(match.group(0))
+
+
+def _parse_checklist(text):
+    """규정 심사위원 응답 검증. met=true인데 근거 인용이 없으면 불충족 처리."""
+    result = _extract_json(text)
+    parsed = {}
     for c in CRITERIA:
-        for s in SUBSCORES:
-            if not isinstance(result[c][s], int):
-                raise ValueError(f"{c}.{s}가 정수가 아님")
-        result[c].setdefault("evidence", [])
+        parsed[c] = {}
+        for item_id, _, _ in CHECKLIST_ITEMS:
+            entry = result[c][item_id]
+            met = bool(entry["met"])
+            evidence = str(entry.get("evidence", "")).strip()
+            if met and not evidence:
+                met = False
+                evidence = "(근거 인용 누락으로 불충족 처리)"
+            parsed[c][item_id] = {"met": met, "evidence": evidence}
+    return parsed
+
+
+def _parse_holistic(text):
+    """종합 심사위원 응답 검증. 점수는 0~10 정수로 강제."""
+    result = _extract_json(text)
+    for c in CRITERIA:
+        score = result[c]["score"]
+        if not isinstance(score, int):
+            raise ValueError(f"{c}.score가 정수가 아님")
+        result[c]["score"] = max(0, min(10, score))
+        result[c].setdefault("rationale", "")
     for key in ("strengths", "suggestions", "encouragement"):
         if key not in result:
             raise ValueError(f"{key} 누락")
     return result
 
 
-def grade(transcript):
-    """채점자 호출. 대화 로그 전체를 넘기고 JSON으로 받는다. 파싱 실패 시 1회 재시도."""
-    prompt = (
-        "다음 아이디어 평가 세션의 대화 로그를 시스템 프롬프트의 루브릭에 따라 "
-        "채점하라.\n\n<대화 로그>\n" + transcript + "\n</대화 로그>\n\n"
-        "결과는 아래 형태의 JSON **하나만** 출력하라. 코드 펜스나 설명 없이 "
-        "JSON으로 시작해서 JSON으로 끝나야 한다.\n" + GRADE_FORMAT
-    )
+def _call_and_parse(prompt, system_file, parser):
     last_error = None
     for _ in range(2):
-        text = call_claude(prompt, GRADER_PROMPT_FILE)
+        text = call_claude(prompt, system_file)
         try:
-            return parse_grade_json(text)
-        except (ValueError, KeyError, json.JSONDecodeError) as e:
+            return parser(text)
+        except (ValueError, KeyError, TypeError, json.JSONDecodeError) as e:
             last_error = e
     raise RuntimeError(f"채점 결과 파싱 실패: {last_error}")
 
 
-def criterion_total(c):
-    return sum(c[s] for s in SUBSCORES)
+def _grade_checklist(transcript):
+    items_desc = "\n".join(f"- {i} ({label}): {desc}" for i, label, desc in CHECKLIST_ITEMS)
+    prompt = (
+        "다음 아이디어 평가 세션의 대화 로그를 체크리스트로 판정하라.\n\n"
+        "<대화 로그>\n" + transcript + "\n</대화 로그>\n\n"
+        "<체크리스트 항목>\n" + items_desc + "\n</체크리스트 항목>\n\n"
+        "세 기준 originality(독창성), practicality(실용성), acceptance(수용태도) "
+        "각각에 대해 10개 항목 전부를 판정하라. met=true인 항목의 evidence에는 "
+        "반드시 '턴 N: ...' 형태의 인용을 적어라.\n"
+        "결과는 아래 형태의 JSON **하나만** 출력하라. 코드 펜스나 설명 없이 "
+        "JSON으로 시작해서 JSON으로 끝나야 한다.\n" + _checklist_format()
+    )
+    return _call_and_parse(prompt, GRADER_CHECKLIST_PROMPT_FILE, _parse_checklist)
+
+
+def _grade_holistic(transcript):
+    prompt = (
+        "다음 아이디어 평가 세션의 대화 로그를 시스템 프롬프트의 점수 밴드에 따라 "
+        "종합 채점하라.\n\n<대화 로그>\n" + transcript + "\n</대화 로그>\n\n"
+        "결과는 아래 형태의 JSON **하나만** 출력하라. 코드 펜스나 설명 없이 "
+        "JSON으로 시작해서 JSON으로 끝나야 한다.\n" + HOLISTIC_FORMAT
+    )
+    return _call_and_parse(prompt, GRADER_HOLISTIC_PROMPT_FILE, _parse_holistic)
+
+
+def grade(transcript):
+    """이원 채점: 규정 심사위원(체크리스트)과 종합 심사위원(전체 인상)을 각각
+    호출하고, 기준별 최종 점수는 두 점수의 평균으로 한다."""
+    checklist = _grade_checklist(transcript)
+    holistic = _grade_holistic(transcript)
+    criteria = {}
+    for c in CRITERIA:
+        cl_total = sum(1 for item in checklist[c].values() if item["met"])
+        h_score = holistic[c]["score"]
+        criteria[c] = {
+            "checklist": {"items": checklist[c], "total": cl_total},
+            "holistic": {"score": h_score, "rationale": holistic[c]["rationale"]},
+            "final": round((cl_total + h_score) / 2, 1),
+        }
+    return {
+        "version": 2,
+        "criteria": criteria,
+        "strengths": holistic["strengths"],
+        "suggestions": holistic["suggestions"],
+        "encouragement": holistic["encouragement"],
+    }
 
 
 def weighted_total(result, weights):
     """weights: {"originality": w1, "practicality": w2, "acceptance": w3}"""
-    return sum(criterion_total(result[c]) * weights[c] for c in CRITERIA)
+    return sum(result["criteria"][c]["final"] * weights[c] for c in CRITERIA)
