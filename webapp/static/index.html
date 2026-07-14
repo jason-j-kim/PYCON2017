@@ -52,6 +52,7 @@
            border-bottom-right-radius: 4px; }
   .msg.sys { background: transparent; color: var(--sub); font-size: .82rem;
              text-align: center; max-width: 100%; }
+  .msg .who { display: block; font-size: .75rem; opacity: .75; margin-bottom: 2px; }
   #thinking { color: var(--sub); font-size: .85rem; padding: 6px 2px; }
   #composer { position: fixed; bottom: 0; left: 0; right: 0; background: var(--bg);
               border-top: 1px solid var(--line); padding: 12px 16px; }
@@ -123,6 +124,11 @@
     <div class="card"><b>강점</b><ul id="strengths"></ul></div>
     <div class="card"><b>개선 제안</b><ul id="suggestions"></ul></div>
     <div class="card"><b>격려</b><p class="encourage" id="encouragement"></p></div>
+    <div class="card">
+      <details><summary>대화 전문 보기 (전체 문답)</summary>
+        <div id="transcript"></div>
+      </details>
+    </div>
     <div class="row"><button id="btn-again" class="secondary">새 아이디어로 다시 시작</button></div>
   </div>
 </div>
@@ -275,8 +281,30 @@ function renderResult(ev) {
   fillList("strengths", ev.strengths);
   fillList("suggestions", ev.suggestions);
   $("encouragement").textContent = ev.encouragement;
+  loadTranscript();
   show("view-result");
   window.scrollTo({top: 0});
+}
+
+async function loadTranscript() {
+  const box = $("transcript");
+  box.innerHTML = "";
+  try {
+    const data = await api(`/api/sessions/${sessionId}`);
+    for (const t of data.turns) {
+      const div = document.createElement("div");
+      div.className = "msg " + (t.role === "questioner" ? "q" : "a");
+      const who = document.createElement("span");
+      who.className = "who";
+      who.textContent = t.role === "questioner"
+        ? `턴 ${t.seq} · 질문자(${t.stage})` : `턴 ${t.seq} · 제안자`;
+      div.appendChild(who);
+      div.appendChild(document.createTextNode(t.content));
+      box.appendChild(div);
+    }
+  } catch (e) {
+    box.textContent = "대화를 불러오지 못했습니다: " + e.message;
+  }
 }
 
 function fillList(id, items) {
