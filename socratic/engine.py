@@ -17,8 +17,10 @@ from pathlib import Path
 CLAUDE_BIN = shutil.which("claude") or "claude"
 
 PROMPT_DIR = Path(__file__).parent / "prompts"
-QUESTIONER_PROMPT = (PROMPT_DIR / "questioner_system.md").read_text(encoding="utf-8")
-GRADER_PROMPT = (PROMPT_DIR / "grader_system.md").read_text(encoding="utf-8")
+# 시스템 프롬프트는 파일 경로로 전달한다. 여러 줄 텍스트를 명령줄 인자로 넘기면
+# Windows에서 claude.cmd가 cmd.exe를 거치며 줄바꿈에서 인자가 깨진다.
+QUESTIONER_PROMPT_FILE = PROMPT_DIR / "questioner_system.md"
+GRADER_PROMPT_FILE = PROMPT_DIR / "grader_system.md"
 
 DEFAULT_WEIGHTS = {"originality": 0.35, "practicality": 0.35, "acceptance": 0.30}
 CRITERIA = ("originality", "practicality", "acceptance")
@@ -68,11 +70,15 @@ GRADE_FORMAT = """\
 }"""
 
 
-def call_claude(prompt, system_prompt):
-    """Claude Code CLI를 헤드리스로 호출한다. 도구를 모두 끄고 순수 대화만 시킨다."""
+def call_claude(prompt, system_prompt_file):
+    """Claude Code CLI를 헤드리스로 호출한다. 도구를 모두 끄고 순수 대화만 시킨다.
+
+    system_prompt_file: 시스템 프롬프트가 담긴 파일 경로 (인자 깨짐 방지).
+    사용자 프롬프트는 stdin으로 전달하므로 줄바꿈·한국어에 안전하다.
+    """
     cmd = [
         CLAUDE_BIN, "-p",
-        "--system-prompt", system_prompt,
+        "--system-prompt-file", str(system_prompt_file),
         "--tools", "",
         "--no-session-persistence",
         "--output-format", "text",
@@ -110,7 +116,7 @@ def ask_questioner(transcript_log, stage_directive):
         "위 대화에 이어서, 시스템 프롬프트의 규칙에 따라 질문자의 다음 발화를 "
         "출력하라. 발화 내용만 출력하고 다른 설명은 붙이지 마라."
     )
-    return call_claude(prompt, QUESTIONER_PROMPT)
+    return call_claude(prompt, QUESTIONER_PROMPT_FILE)
 
 
 def parse_grade_json(text):
@@ -140,7 +146,7 @@ def grade(transcript):
     )
     last_error = None
     for _ in range(2):
-        text = call_claude(prompt, GRADER_PROMPT)
+        text = call_claude(prompt, GRADER_PROMPT_FILE)
         try:
             return parse_grade_json(text)
         except (ValueError, KeyError, json.JSONDecodeError) as e:
