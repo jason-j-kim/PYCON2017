@@ -98,10 +98,15 @@ def call_claude(prompt, system_prompt_file):
         raise RuntimeError("claude 응답이 300초를 초과했습니다. 다시 시도하세요.")
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "원인 미상").strip()[:500]
-        raise RuntimeError(
-            f"claude CLI 오류: {detail}\n"
-            "(로그인이 안 된 경우 터미널에서 `claude`를 실행해 /login 하세요)"
-        )
+        hint = "(로그인이 안 된 경우 터미널에서 `claude`를 실행해 /login 하세요)"
+        if "401" in detail or "authentication" in detail.lower():
+            hint = (
+                "(인증 실패입니다. ① 터미널에서 `echo %ANTHROPIC_API_KEY%` 를 실행해 "
+                "값이 나오면 오래된 API 키가 로그인 계정을 가리는 것이니 "
+                "`set ANTHROPIC_API_KEY=` 로 지우고 서버를 재시작하세요. "
+                "② 값이 없으면 `claude` 실행 후 /login 으로 다시 로그인하세요)"
+            )
+        raise RuntimeError(f"claude CLI 오류: {detail}\n{hint}")
     return result.stdout.strip()
 
 
