@@ -64,10 +64,13 @@ def checklist_table(criterion):
     )
 
 
-def session_html(tag, record, holistic_only=False):
+def session_html(tag, record, holistic_only=False, transcript_only=False):
     parts = [f"<div class='pagebreak'></div><h1>세션 {tag} — 대화 전문</h1>"]
     parts.append(f"<div class='ideabox'><b>제안된 아이디어</b><br>{esc(record['idea'])}</div>")
     parts.append(transcript_html(record))
+
+    if transcript_only:
+        return "\n".join(parts)
 
     if holistic_only:
         parts.append(f"<div class='pagebreak'></div><h1>세션 {tag} — 채점표 (종합판단)</h1>")
@@ -128,7 +131,7 @@ def session_html(tag, record, holistic_only=False):
     return "\n".join(parts)
 
 
-def build(records, holistic_only=False):
+def build(records, holistic_only=False, transcript_only=False):
     style = """
     @page { size: A4; margin: 18mm 16mm; }
     body { font-family: "Batang", "Noto Serif KR", serif; color: #000;
@@ -163,6 +166,19 @@ def build(records, holistic_only=False):
     """
     tags = [chr(ord("A") + i) for i in range(len(records))]
     n, tag_str = len(records), "세션 " + ", ".join(tags)
+    if transcript_only:
+        cover = (
+            "<div class='cover'><h1>아이디어 평가 세션 — 대화 전문</h1>"
+            "<p>소크라테스 문답 기반 아이디어 평가 시스템</p>"
+            "<div class='inst'><p>제안자가 아이디어를 제출하고 AI 질문자의 질문 12개에 "
+            "답한 기록입니다. 명료화 → 독창성 → 실용성 → 수용태도 → 자기 평가 순서로 "
+            "진행되었습니다.</p></div></div>"
+        )
+        return ("<!DOCTYPE html><html lang='ko'><head><meta charset='utf-8'>"
+                "<title>대화 전문</title>"
+                f"<style>{style}</style></head><body>" + cover
+                + "".join(session_html(t, r, transcript_only=True) for t, r in zip(tags, records))
+                + "</body></html>")
     cover = f"""
     <div class="cover">
       <h1>아이디어 평가 세션 — 인간 심사위원 채점표</h1>
@@ -192,7 +208,7 @@ def build(records, holistic_only=False):
         "<title>인간 심사위원 채점표</title>"
         f"<style>{style}</style></head><body>"
         + cover
-        + "".join(session_html(t, r, holistic_only) for t, r in zip(tags, records))
+        + "".join(session_html(t, r, holistic_only, transcript_only) for t, r in zip(tags, records))
         + "</body></html>"
     )
 
@@ -204,11 +220,13 @@ def main():
     parser.add_argument("-o", "--out", default="simulation/judge_sheet.html")
     parser.add_argument("--holistic-only", action="store_true",
                         help="체크리스트 없이 종합판단(감) 채점표만 생성")
+    parser.add_argument("--transcript-only", action="store_true",
+                        help="채점란 없이 대화 전문만 생성")
     args = parser.parse_args()
 
     records = [json.loads(Path(p).read_text(encoding="utf-8")) for p in args.sessions]
     out = Path(args.out)
-    out.write_text(build(records, args.holistic_only), encoding="utf-8")
+    out.write_text(build(records, args.holistic_only, args.transcript_only), encoding="utf-8")
     print(f"생성 완료: {out}")
     for i, r in enumerate(records):
         print(f"세션 {chr(ord('A')+i)} = 시행 {r['trial']} ({r['label']}) — AI 점수는 문서에 없음")
