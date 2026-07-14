@@ -128,7 +128,7 @@ def session_html(tag, record, holistic_only=False):
     return "\n".join(parts)
 
 
-def build(record_a, record_b, holistic_only=False):
+def build(records, holistic_only=False):
     style = """
     @page { size: A4; margin: 18mm 16mm; }
     body { font-family: "Batang", "Noto Serif KR", serif; color: #000;
@@ -161,6 +161,8 @@ def build(record_a, record_b, holistic_only=False):
     .holistic { margin: 12px 0 20px; page-break-inside: avoid; }
     .writeline { border-bottom: 0.5px solid #555; height: 1.9em; }
     """
+    tags = [chr(ord("A") + i) for i in range(len(records))]
+    n, tag_str = len(records), "세션 " + ", ".join(tags)
     cover = f"""
     <div class="cover">
       <h1>아이디어 평가 세션 — 인간 심사위원 채점표</h1>
@@ -171,13 +173,13 @@ def build(record_a, record_b, holistic_only=False):
       <div class="inst">
         <h2>심사 지침</h2>
         <ol>
-          <li>이 채점표에는 서로 다른 아이디어 평가 세션 <b>2개(세션 A, 세션 B)</b>의
+          <li>이 채점표에는 서로 다른 아이디어 평가 세션 <b>{n}개({tag_str})</b>의
               대화 전문이 실려 있습니다. 각 세션은 제안자가 아이디어를 제출하고
               12개의 질문에 답한 기록입니다.</li>
           <li>채점 대상은 아이디어 자체가 아니라 <b>제안자가 질문에 얼마나 잘
               답했는가</b> — 방어의 성실성과 논리적 견고함 — 입니다.</li>
           <li>세션마다 <b>① 대화 전문 통독 → ② 채점표 기입</b> 순서로
-              진행하십시오. 세션 A를 끝낸 뒤 세션 B로 넘어가십시오.</li>
+              진행하십시오. 한 세션을 끝낸 뒤 다음 세션으로 넘어가십시오.</li>
           <li>다른 심사위원과 상의하지 마십시오.</li>
           <li>동일한 대화에 대한 AI의 채점 결과가 존재하지만 <b>비공개</b>입니다.
               모든 심사위원의 채점이 끝난 뒤 대조합니다.</li>
@@ -190,28 +192,26 @@ def build(record_a, record_b, holistic_only=False):
         "<title>인간 심사위원 채점표</title>"
         f"<style>{style}</style></head><body>"
         + cover
-        + session_html("A", record_a, holistic_only)
-        + session_html("B", record_b, holistic_only)
+        + "".join(session_html(t, r, holistic_only) for t, r in zip(tags, records))
         + "</body></html>"
     )
 
 
 def main():
     parser = argparse.ArgumentParser(description="인간 심사위원 채점표 생성")
-    parser.add_argument("--a", required=True, help="세션 A 시행 JSON")
-    parser.add_argument("--b", required=True, help="세션 B 시행 JSON")
+    parser.add_argument("--sessions", nargs="+", required=True,
+                        help="세션 순서대로 시행 JSON 경로들 (A, B, C, ...)")
     parser.add_argument("-o", "--out", default="simulation/judge_sheet.html")
     parser.add_argument("--holistic-only", action="store_true",
                         help="체크리스트 없이 종합판단(감) 채점표만 생성")
     args = parser.parse_args()
 
-    record_a = json.loads(Path(args.a).read_text(encoding="utf-8"))
-    record_b = json.loads(Path(args.b).read_text(encoding="utf-8"))
+    records = [json.loads(Path(p).read_text(encoding="utf-8")) for p in args.sessions]
     out = Path(args.out)
-    out.write_text(build(record_a, record_b, args.holistic_only), encoding="utf-8")
+    out.write_text(build(records, args.holistic_only), encoding="utf-8")
     print(f"생성 완료: {out}")
-    print(f"세션 A = 시행 {record_a['trial']} ({record_a['label']}) — AI 점수는 문서에 없음")
-    print(f"세션 B = 시행 {record_b['trial']} ({record_b['label']}) — AI 점수는 문서에 없음")
+    for i, r in enumerate(records):
+        print(f"세션 {chr(ord('A')+i)} = 시행 {r['trial']} ({r['label']}) — AI 점수는 문서에 없음")
 
 
 if __name__ == "__main__":
