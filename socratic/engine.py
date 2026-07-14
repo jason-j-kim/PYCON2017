@@ -77,11 +77,25 @@ def call_claude(prompt, system_prompt):
         "--no-session-persistence",
         "--output-format", "text",
     ]
-    result = subprocess.run(
-        cmd, input=prompt, capture_output=True, text=True, timeout=300,
-    )
+    try:
+        # encoding을 명시하지 않으면 한국어 Windows에서 cp949로 읽다가 깨진다
+        result = subprocess.run(
+            cmd, input=prompt, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=300,
+        )
+    except FileNotFoundError:
+        raise RuntimeError(
+            "claude CLI를 찾을 수 없습니다. Claude Code를 설치하고 "
+            "(npm install -g @anthropic-ai/claude-code) 새 터미널에서 서버를 다시 시작하세요."
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("claude 응답이 300초를 초과했습니다. 다시 시도하세요.")
     if result.returncode != 0:
-        raise RuntimeError(f"claude CLI 오류: {result.stderr.strip()[:500]}")
+        detail = (result.stderr or result.stdout or "원인 미상").strip()[:500]
+        raise RuntimeError(
+            f"claude CLI 오류: {detail}\n"
+            "(로그인이 안 된 경우 터미널에서 `claude`를 실행해 /login 하세요)"
+        )
     return result.stdout.strip()
 
 

@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>소크라테스 아이디어 평가 — AI가 평가하지 않는 평가 시스템</title>
+<meta name="description" content="AI가 아이디어를 심판하는 대신, 제안자가 소크라테스식 문답에 답하며 스스로 가치를 입증하는 평가 시스템">
+<style>
+  :root {
+    --bg: #f6f5f1; --card: #ffffff; --ink: #26241f; --sub: #6d6a61;
+    --line: #e3e0d8; --accent: #23639c; --accent-soft: #e8f0f7; --good: #2e7d4f;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); line-height: 1.7;
+         font-family: "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 0 20px; }
+  a { color: var(--accent); }
+
+  header { padding: 72px 0 56px; text-align: center; }
+  header h1 { font-size: 2rem; margin: 0 0 12px; }
+  header .lead { font-size: 1.08rem; color: var(--sub); max-width: 620px; margin: 0 auto 28px; }
+  .btns { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+  .btn { display: inline-block; padding: 11px 22px; border-radius: 8px; text-decoration: none;
+         background: var(--accent); color: #fff; font-weight: 600; }
+  .btn.ghost { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+
+  section { padding: 44px 0; }
+  section h2 { font-size: 1.35rem; margin: 0 0 6px; }
+  section .sec-sub { color: var(--sub); margin: 0 0 24px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px; }
+  .card h3 { margin: 0 0 8px; font-size: 1.02rem; }
+  .card p { margin: 0; font-size: .92rem; color: var(--sub); }
+
+  .flow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .step { background: var(--card); border: 1px solid var(--line); border-radius: 999px;
+          padding: 8px 16px; font-size: .9rem; }
+  .step b { color: var(--accent); }
+  .arrow { color: var(--sub); }
+
+  /* 데모 */
+  .demo-box { background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+              padding: 22px; }
+  .stagebar { font-size: .84rem; color: var(--sub); margin-bottom: 12px; display: flex;
+              gap: 8px; align-items: center; }
+  .stage-chip { background: var(--accent); color: #fff; border-radius: 999px; padding: 2px 12px;
+                font-size: .8rem; }
+  .msg { max-width: 88%; padding: 10px 14px; border-radius: 12px; margin: 10px 0;
+         white-space: pre-wrap; font-size: .95rem; animation: fadein .35s ease; }
+  @keyframes fadein { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; } }
+  .msg.q { background: var(--accent-soft); border: 1px solid var(--line);
+           border-bottom-left-radius: 4px; }
+  .msg.a { background: var(--accent); color: #fff; margin-left: auto;
+           border-bottom-right-radius: 4px; }
+  .msg .who { display: block; font-size: .75rem; opacity: .75; margin-bottom: 2px; }
+  .demo-controls { margin-top: 16px; display: flex; gap: 10px; align-items: center; }
+  button { border: 0; border-radius: 8px; padding: 10px 20px; font: inherit; cursor: pointer;
+           background: var(--accent); color: #fff; font-weight: 600; }
+  button:disabled { opacity: .4; cursor: default; }
+  .demo-note { font-size: .82rem; color: var(--sub); }
+
+  /* 결과 */
+  .total { text-align: center; padding: 18px 0 6px; }
+  .total .num { font-size: 2.2rem; font-weight: 800; color: var(--accent); }
+  .crit { border-top: 1px solid var(--line); padding: 14px 0; }
+  .crit-head { display: flex; justify-content: space-between; align-items: baseline; }
+  .crit-head .score { font-size: 1.15rem; font-weight: 700; }
+  .subscores { color: var(--sub); font-size: .85rem; }
+  .evidence { font-size: .85rem; color: var(--sub); margin: 6px 0 0; padding-left: 18px; }
+  .lists h4 { margin: 16px 0 4px; font-size: .95rem; }
+  .lists ul { margin: 4px 0; padding-left: 20px; font-size: .9rem; }
+  .encourage { border-left: 3px solid var(--good); padding-left: 12px; font-size: .9rem;
+               color: var(--ink); margin-top: 8px; }
+
+  pre { background: #2b2a26; color: #eceae3; border-radius: 10px; padding: 16px 18px;
+        overflow-x: auto; font-size: .87rem; line-height: 1.55; }
+  pre .c { color: #9a978c; }
+  .os-label { font-size: .85rem; font-weight: 700; color: var(--sub); margin: 18px 0 6px; }
+
+  footer { border-top: 1px solid var(--line); padding: 28px 0 48px; color: var(--sub);
+           font-size: .86rem; text-align: center; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <h1>소크라테스 아이디어 평가</h1>
+    <p class="lead">AI가 아이디어를 심판하지 않습니다. 제안자가 소크라테스식 질문에
+    답하며 <b>스스로 아이디어의 가치를 입증</b>하고, 결함이 있다면 스스로 깨닫게 하는
+    평가 시스템입니다.</p>
+    <div class="btns">
+      <a class="btn" href="#demo">데모 보기</a>
+      <a class="btn ghost" href="https://github.com/jason-j-kim/PYCON2017/tree/claude/ai-idea-evaluation-dialogue-qdqa09">GitHub 저장소</a>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<section>
+  <h2>핵심 설계</h2>
+  <p class="sec-sub">기존 평가 시스템과 무엇이 다른가</p>
+  <div class="cards">
+    <div class="card">
+      <h3>입증 책임의 전환</h3>
+      <p>AI는 판결하지 않고 질문만 합니다. 점수는 아이디어 자체가 아니라
+      <b>질문에 얼마나 구체적이고 일관되게 답했는가</b>에서 나옵니다.
+      약점을 스스로 인정하면 감점이 아니라 <b>가점</b>입니다.</p>
+    </div>
+    <div class="card">
+      <h3>소크라테스 문답법</h3>
+      <p>명료화 · 전제 검증 · 근거 요구 · 관점 전환 · 결과 탐색 · 반례 제시 —
+      6가지 질문 도구로 산파술을 현대화했습니다. 좋은 답변은 구체적으로
+      인정하고, 막히면 힌트를 주고 넘어갑니다.</p>
+    </div>
+    <div class="card">
+      <h3>설명 가능한 채점</h3>
+      <p>질문자와 채점자는 분리된 AI입니다. 채점자는 대화 로그만 보고
+      독창성 · 실용성 · 수용태도를 채점하며, <b>모든 점수에 대화 턴 번호
+      인용</b>을 강제합니다. 가중 평균은 코드가 계산합니다.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>진행 방식</h2>
+  <p class="sec-sub">단계 전이는 서버의 상태 머신이 강제합니다 — 총 12개 질문, 약 15분</p>
+  <div class="flow">
+    <span class="step"><b>명료화</b> ×2</span><span class="arrow">→</span>
+    <span class="step"><b>독창성</b> ×3</span><span class="arrow">→</span>
+    <span class="step"><b>실용성</b> ×3</span><span class="arrow">→</span>
+    <span class="step"><b>수용태도</b> ×3</span><span class="arrow">→</span>
+    <span class="step"><b>자기 평가</b> ×1</span><span class="arrow">→</span>
+    <span class="step">채점 · 리포트</span>
+  </div>
+</section>
+
+<section id="demo">
+  <h2>데모 — 실제 세션 재연</h2>
+  <p class="sec-sub">아래는 이 시스템으로 실제 진행한 테스트 세션과 실제 채점 결과입니다.
+  "다음"을 눌러 대화를 따라가 보세요. (제안자가 중간에 종료해 미답변 기준은 0점 처리된
+  사례입니다 — 로그에 없는 것은 채점하지 않는다는 원칙이 그대로 드러납니다)</p>
+
+  <div class="demo-box">
+    <div class="stagebar"><span class="stage-chip" id="d-stage">시작</span>
+      <span id="d-progress">아이디어 제출</span></div>
+    <div id="d-messages"></div>
+    <div class="demo-controls">
+      <button id="d-next">다음 ▶</button>
+      <span class="demo-note" id="d-note"></span>
+    </div>
+
+    <div id="d-result" class="hidden">
+      <div class="total">
+        <div>종합 점수 (가중 평균)</div>
+        <div class="num">1.75 <span style="font-size:1rem;color:var(--sub)">/ 10</span></div>
+        <div class="demo-note">독창성 0.35 · 실용성 0.35 · 수용태도 0.30 가중치 기준</div>
+      </div>
+      <div id="d-criteria"></div>
+      <div class="lists">
+        <h4>강점</h4><ul id="d-strengths"></ul>
+        <h4>개선 제안</h4><ul id="d-suggestions"></ul>
+        <h4>격려</h4><p class="encourage" id="d-encourage"></p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>직접 실행하기</h2>
+  <p class="sec-sub">이 페이지는 정적 데모입니다. 실제 문답은 로컬에서 서버를 띄워 사용합니다.
+  <b>API 키가 필요 없습니다</b> — 서버가 로컬의 Claude Code CLI를 호출하므로
+  Claude Pro/Max 구독 로그인만 있으면 됩니다.</p>
+
+  <div class="os-label">준비물 (최초 1회)</div>
+  <pre><span class="c"># Python, Git, Node.js 설치 후:</span>
+npm install -g @anthropic-ai/claude-code
+claude   <span class="c"># 실행 후 /login 입력 → 브라우저에서 Pro 계정 로그인</span></pre>
+
+  <div class="os-label">Windows (cmd)</div>
+  <pre>git clone https://github.com/jason-j-kim/PYCON2017.git
+cd PYCON2017
+git checkout claude/ai-idea-evaluation-dialogue-qdqa09
+pip install fastapi "uvicorn[standard]"
+python webapp\app.py   <span class="c"># → 브라우저에서 http://localhost:8000</span></pre>
+
+  <div class="os-label">macOS / Linux</div>
+  <pre>git clone https://github.com/jason-j-kim/PYCON2017.git
+cd PYCON2017
+git checkout claude/ai-idea-evaluation-dialogue-qdqa09
+pip install fastapi "uvicorn[standard]"
+python webapp/app.py   <span class="c"># → 브라우저에서 http://localhost:8000</span></pre>
+</section>
+
+</div>
+
+<footer>
+  <div class="wrap">
+    <a href="https://github.com/jason-j-kim/PYCON2017/blob/claude/ai-idea-evaluation-dialogue-qdqa09/docs/socratic-idea-evaluation-strategy.md">설계 전략 문서</a> ·
+    <a href="https://github.com/jason-j-kim/PYCON2017/tree/claude/ai-idea-evaluation-dialogue-qdqa09/webapp">웹 앱 소스</a> ·
+    <a href="https://github.com/jason-j-kim/PYCON2017/tree/claude/ai-idea-evaluation-dialogue-qdqa09/prototype">CLI 프로토타입</a>
+  </div>
+</footer>
+
+<script>
+// ── 실제 테스트 세션 데이터 (재연) ─────────────────────────────
+const SCRIPT = [
+  {role:"a", stage:"시작", prog:"아이디어 제출",
+   text:"동네 도서관의 남는 좌석을 실시간으로 보여주는 앱"},
+  {role:"q", stage:"명료화", prog:"질문 1/2 · 단계 1/5",
+   text:"이 앱이 해결하려는 문제를 겪는 사람은 구체적으로 누구인가요? 예를 들어 시험 기간에 자리를 찾아 헤매는 학생인지, 아니면 다른 대상인지 조금 더 좁혀서 말씀해 주시겠어요?"},
+  {role:"a", stage:"명료화", prog:"답변",
+   text:"시험 기간에 자리를 찾아 여러 도서관을 헛걸음하는 대학생과 취준생입니다. 제가 사는 구에는 구립도서관이 5곳 있는데 시험기간엔 오전 9시면 만석입니다."},
+  {role:"q", stage:"명료화", prog:"질문 2/2 · 단계 1/5",
+   text:"구립도서관 5곳이라는 구체적인 범위와 오전 9시 만석이라는 시점까지 짚어주셨네요. 그럼 이 내용을 \"누가, 무엇을, 어떻게\"가 드러나는 한 문장으로 정리하면 어떻게 표현하시겠어요?"},
+  {role:"a", stage:"명료화", prog:"답변",
+   text:"시험 기간에 좌석을 못 찾는 대학생과 취준생에게, 구립도서관 5곳의 실시간 잔여 좌석 수를 앱 하나로 보여줘서 헛걸음을 없애는 서비스입니다."},
+  {role:"q", stage:"독창성", prog:"질문 1/3 · 단계 2/5",
+   text:"한 문장으로 명확하게 정리해주셨네요. 그런데 이미 여러 공공도서관 앱이나 지자체 시스템에서 좌석 현황을 제공하는 경우가 있을 것 같은데, 그런 기존 서비스들과 비교했을 때 이 아이디어만의 차별점은 무엇인가요?"},
+];
+
+// 실제 채점 결과 (socratic/engine.py 채점자 출력 그대로)
+const EVAL = {
+  criteria: [
+    {label:"독창성", total:0, weight:0.35, sub:"구체성 0/4 · 일관성 0/3 · 자기 인식 0/3",
+     evidence:["턴 6: 기존 지자체 좌석 현황 서비스와의 차별점을 묻는 질문이 제기되었으나, 로그가 여기서 끝나 제안자의 답변이 존재하지 않음"]},
+    {label:"실용성", total:5, weight:0.35, sub:"구체성 3/4 · 일관성 2/3 · 자기 인식 0/3",
+     evidence:["턴 3: '구립도서관 5곳', '오전 9시면 만석'이라는 구체적 수치와 시점을 제시해 문제 상황을 검증 가능하게 뒷받침함",
+               "턴 5: 턴 3의 구체적 정보(5곳, 실시간 잔여 좌석 수)를 그대로 유지하며 한 문장으로 일관되게 재정리함"]},
+    {label:"수용태도", total:0, weight:0.30, sub:"구체성 0/4 · 일관성 0/3 · 자기 인식 0/3",
+     evidence:["수용태도 라운드에 도달하기 전에 세션이 종료되어 채점 근거 없음"]},
+  ],
+  strengths: [
+    "턴 3: 추상적 문제 제기에 그치지 않고 '구립도서관 5곳', '오전 9시 만석' 등 구체적 수치와 지역 범위를 제시함",
+    "턴 4-5: 질문자가 요구한 '누가·무엇을·어떻게' 형식에 맞춰 즉시 한 문장으로 아이디어를 재구성하는 유연성을 보임",
+    "턴 5: 대상(대학생·취준생), 문제(헛걸음), 해결책(실시간 잔여 좌석 앱)이 명확히 연결된 논리적 서술",
+  ],
+  suggestions: [
+    "턴 6에서 제기된 기존 지자체 좌석알림 시스템과의 차별점 질문에 아직 답하지 않았으므로, 최소 1~2개 실제 서비스(예: 지자체 도서관 앱, 스마트도서관 시스템)를 조사해 갱신 속도·UI·연동 범위 등 구체적 차이를 제시할 것",
+    "턴 3, 5에서 '실시간'이라는 표현을 반복 사용했지만 데이터 수집 방식(센서, 도서관 관리자 입력, 좌석 예약 시스템 API 연동 등)이 언급되지 않았으므로, 실현 가능성을 뒷받침할 구체적 구현 방식과 갱신 주기를 다음 답변에서 명시할 것",
+    "수용성(도서관 측 협조 여부, 사용자 설치 유인)에 대한 질문이 아직 나오지 않았으니, 관공서 협조 가능성과 초기 사용자 확보 전략을 미리 정리해 다음 라운드에 대비할 것",
+  ],
+  encouragement: "턴 4에서 질문자가 요구한 '누가·무엇을·어떻게' 구조를 턴 5에서 정확히 반영해 한 문장으로 재구성한 점은 논리적 정리 능력을 잘 보여줍니다. 또한 턴 3에서 막연히 '자리가 없다'고 하지 않고 '구립도서관 5곳', '오전 9시 만석'처럼 검증 가능한 수치를 제시한 태도는 앞으로 독창성 질문에도 같은 방식으로 구체적 근거를 들어 답할 수 있는 좋은 기반이 됩니다. 다만 턴 6의 차별점 질문에 대한 답변이 로그에 남아있지 않으므로, 이 부분을 놓치지 않고 성실히 답하면 훨씬 설득력 있는 제안이 될 것입니다.",
+};
+
+const $ = id => document.getElementById(id);
+let idx = 0;
+
+$("d-next").onclick = () => {
+  if (idx < SCRIPT.length) {
+    const m = SCRIPT[idx++];
+    const div = document.createElement("div");
+    div.className = "msg " + m.role;
+    div.innerHTML = `<span class="who">${m.role === "q" ? "질문자" : "제안자"}</span>`;
+    div.appendChild(document.createTextNode(m.text));
+    $("d-messages").appendChild(div);
+    $("d-stage").textContent = m.stage;
+    $("d-progress").textContent = m.prog;
+    if (idx === SCRIPT.length) {
+      $("d-note").textContent = "여기서 제안자가 조기 종료 → 채점";
+      $("d-next").textContent = "채점 결과 보기";
+    }
+  } else {
+    $("d-next").disabled = true;
+    $("d-note").textContent = "";
+    renderResult();
+  }
+};
+
+function renderResult() {
+  const box = $("d-criteria");
+  for (const c of EVAL.criteria) {
+    const div = document.createElement("div");
+    div.className = "crit";
+    div.innerHTML = `<div class="crit-head"><b>${c.label}</b>
+      <span><span class="score">${c.total}</span><span style="color:var(--sub)">/10 · 가중치 ${c.weight}</span></span></div>
+      <div class="subscores">${c.sub}</div>
+      <ul class="evidence">${c.evidence.map(() => "<li></li>").join("")}</ul>`;
+    const lis = div.querySelectorAll(".evidence li");
+    c.evidence.forEach((e, i) => lis[i].textContent = e);
+    box.appendChild(div);
+  }
+  fill("d-strengths", EVAL.strengths);
+  fill("d-suggestions", EVAL.suggestions);
+  $("d-encourage").textContent = EVAL.encouragement;
+  $("d-result").classList.remove("hidden");
+  $("d-result").scrollIntoView({behavior: "smooth", block: "start"});
+}
+
+function fill(id, items) {
+  const ul = $(id);
+  for (const item of items) {
+    const li = document.createElement("li");
+    li.textContent = item;
+    ul.appendChild(li);
+  }
+}
+</script>
+</body>
+</html>

@@ -14,8 +14,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
 from socratic import engine
@@ -29,6 +29,12 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 app = FastAPI(title="소크라테스 아이디어 평가")
 db.init()
+
+
+@app.exception_handler(RuntimeError)
+def runtime_error_handler(request: Request, exc: RuntimeError):
+    """엔진 오류(claude CLI 미설치/미로그인 등)를 사용자가 읽을 수 있는 메시지로 반환."""
+    return JSONResponse(status_code=502, content={"detail": str(exc)})
 
 
 class CreateRequest(BaseModel):
