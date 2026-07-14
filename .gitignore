@@ -171,3 +171,5 @@ GitHub.sublime-settings
 # Socratic idea evaluation
 webapp/sessions.db
 session_*.json
+
+transcript_*.txt
