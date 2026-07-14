@@ -9,8 +9,12 @@ Claude Pro/Max 구독 로그인만으로 동작하며 API 키가 필요 없다.
 
 import json
 import re
+import shutil
 import subprocess
 from pathlib import Path
+
+# Windows에서 npm으로 설치한 Claude Code는 claude.cmd라서 전체 경로로 찾아야 한다
+CLAUDE_BIN = shutil.which("claude") or "claude"
 
 PROMPT_DIR = Path(__file__).parent / "prompts"
 QUESTIONER_PROMPT = (PROMPT_DIR / "questioner_system.md").read_text(encoding="utf-8")
@@ -67,7 +71,7 @@ GRADE_FORMAT = """\
 def call_claude(prompt, system_prompt):
     """Claude Code CLI를 헤드리스로 호출한다. 도구를 모두 끄고 순수 대화만 시킨다."""
     cmd = [
-        "claude", "-p",
+        CLAUDE_BIN, "-p",
         "--system-prompt", system_prompt,
         "--tools", "",
         "--no-session-persistence",
