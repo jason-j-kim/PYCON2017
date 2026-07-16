@@ -116,10 +116,11 @@
       인정하고, 막히면 힌트를 주고 넘어갑니다.</p>
     </div>
     <div class="card">
-      <h3>설명 가능한 채점</h3>
-      <p>질문자와 채점자는 분리된 AI입니다. 채점자는 대화 로그만 보고
-      독창성 · 실용성 · 수용태도를 채점하며, <b>모든 점수에 대화 턴 번호
-      인용</b>을 강제합니다. 가중 평균은 코드가 계산합니다.</p>
+      <h3>이원 채점 (규정 + 종합)</h3>
+      <p>성격이 다른 두 심사위원 AI의 평균으로 채점합니다. <b>규정 심사위원</b>은
+      이론 기반 체크리스트 30항목(기준별 10개)을 예/아니오로 사실 판정하고 —
+      충족 판정에는 턴 인용 필수 — <b>종합 심사위원</b>은 점수 밴드에 따라
+      전체 인상으로 채점합니다. 평균과 가중 합산은 코드가 계산합니다.</p>
     </div>
   </div>
 </section>
@@ -137,11 +138,43 @@
   </div>
 </section>
 
+<section>
+  <h2>검증 실험 결과</h2>
+  <p class="sec-sub">5개의 독립 AI 에이전트(제안자 · 질문자 · 규정 심사위원 · 종합
+  심사위원 · 재판장)로 시스템 안정성을 검증했습니다</p>
+  <div class="cards">
+    <div class="card">
+      <h3>판별력 — 완전 분리</h3>
+      <p>진부/창의 아이디어를 5회씩, 각 12문답 완주로 시뮬레이션한 결과:
+      진부 그룹 평균 <b>4.23</b>(3.7~5.2) vs 창의 그룹 평균 <b>8.50</b>(8.0~8.8).
+      격차 +4.26점, 분포 겹침 0회.</p>
+    </div>
+    <div class="card">
+      <h3>안정성</h3>
+      <p>그룹 내 표준편차 0.32~0.67. 창의 그룹의 실용성 점수는 5회 모두
+      9.0으로 동일했습니다. 두 심사위원의 평균 절대 차이는 2.03점 —
+      서로 다른 것을 보는 상호 보완 구조가 작동합니다.</p>
+    </div>
+    <div class="card">
+      <h3>장황함에 속지 않음</h3>
+      <p>같은 진부한 아이디어의 답변을 "길지만 내용 없는" 버전으로 3배 부풀려
+      재채점한 조작 실험에서, AI 점수는 3/4/3으로 원본(3/5/2)과 사실상
+      동일했습니다. 분량과 유창함이 아니라 근거를 채점합니다.</p>
+    </div>
+  </div>
+  <p style="margin-top:14px">
+    <a href="https://github.com/jason-j-kim/PYCON2017/blob/claude/ai-idea-evaluation-dialogue-qdqa09/simulation/REPORT.md">전체 안정성 리포트</a> ·
+    <a href="https://github.com/jason-j-kim/PYCON2017/blob/claude/ai-idea-evaluation-dialogue-qdqa09/docs/checklist-rationale.md">체크리스트의 이론적 근거 (Dean et al., TELOS, Rogers, TAM)</a> ·
+    <a href="https://github.com/jason-j-kim/PYCON2017/tree/claude/ai-idea-evaluation-dialogue-qdqa09/simulation">인간 심사위원 실험 자료 (블라인드 채점표)</a>
+  </p>
+</section>
+
 <section id="demo">
   <h2>데모 — 실제 세션 재연</h2>
-  <p class="sec-sub">아래는 이 시스템으로 실제 진행한 테스트 세션과 실제 채점 결과입니다.
+  <p class="sec-sub">아래는 초기 프로토타입으로 진행한 테스트 세션과 당시 채점 결과입니다.
   "다음"을 눌러 대화를 따라가 보세요. (제안자가 중간에 종료해 미답변 기준은 0점 처리된
-  사례입니다 — 로그에 없는 것은 채점하지 않는다는 원칙이 그대로 드러납니다)</p>
+  사례 — 로그에 없는 것은 채점하지 않는다는 원칙이 드러납니다. 채점 형식은 이후
+  이원 채점으로 개편되었습니다)</p>
 
   <div class="demo-box">
     <div class="stagebar"><span class="stage-chip" id="d-stage">시작</span>
