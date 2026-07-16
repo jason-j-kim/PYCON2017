@@ -92,7 +92,6 @@
     평가 시스템입니다.</p>
     <div class="btns">
       <a class="btn" href="#demo">데모 보기</a>
-      <a class="btn ghost" href="https://github.com/jason-j-kim/PYCON2017/tree/claude/ai-idea-evaluation-dialogue-qdqa09">GitHub 저장소</a>
     </div>
   </div>
 </header>
@@ -162,11 +161,10 @@
       동일했습니다. 분량과 유창함이 아니라 근거를 채점합니다.</p>
     </div>
   </div>
-  <p style="margin-top:14px">
-    <a href="https://github.com/jason-j-kim/PYCON2017/blob/claude/ai-idea-evaluation-dialogue-qdqa09/simulation/REPORT.md">전체 안정성 리포트</a> ·
-    <a href="https://github.com/jason-j-kim/PYCON2017/blob/claude/ai-idea-evaluation-dialogue-qdqa09/docs/checklist-rationale.md">체크리스트의 이론적 근거 (Dean et al., TELOS, Rogers, TAM)</a> ·
-    <a href="https://github.com/jason-j-kim/PYCON2017/tree/claude/ai-idea-evaluation-dialogue-qdqa09/simulation">인간 심사위원 실험 자료 (블라인드 채점표)</a>
-  </p>
+  <p style="margin-top:14px" class="sec-sub">체크리스트는 창의성 연구의 표준 정의(Runco &amp; Jaeger),
+  아이디어 평가 구인(Dean et al. 2006), TELOS 타당성 프레임워크, Real-Win-Worth(HBR),
+  혁신확산이론(Rogers)과 기술수용모형(TAM)에 근거해 설계되었습니다.
+  전체 안정성 리포트와 실험 자료는 요청 시 제공합니다.</p>
 </section>
 
 <section id="demo">
@@ -202,38 +200,19 @@
 </section>
 
 <section>
-  <h2>직접 실행하기</h2>
-  <p class="sec-sub">이 페이지는 정적 데모입니다. 실제 문답은 로컬에서 서버를 띄워 사용합니다.
-  <b>API 키가 필요 없습니다</b> — 서버가 로컬의 Claude Code CLI를 호출하므로
-  Claude Pro/Max 구독 로그인만 있으면 됩니다.</p>
-
-  <div class="os-label">준비물 (최초 1회)</div>
-  <pre><span class="c"># Python, Git, Node.js 설치 후:</span>
-npm install -g @anthropic-ai/claude-code
-claude   <span class="c"># 실행 후 /login 입력 → 브라우저에서 Pro 계정 로그인</span></pre>
-
-  <div class="os-label">Windows (cmd)</div>
-  <pre>git clone https://github.com/jason-j-kim/PYCON2017.git
-cd PYCON2017
-git checkout claude/ai-idea-evaluation-dialogue-qdqa09
-pip install fastapi "uvicorn[standard]"
-python webapp\app.py   <span class="c"># → 브라우저에서 http://localhost:8000</span></pre>
-
-  <div class="os-label">macOS / Linux</div>
-  <pre>git clone https://github.com/jason-j-kim/PYCON2017.git
-cd PYCON2017
-git checkout claude/ai-idea-evaluation-dialogue-qdqa09
-pip install fastapi "uvicorn[standard]"
-python webapp/app.py   <span class="c"># → 브라우저에서 http://localhost:8000</span></pre>
+  <h2>시스템 구성</h2>
+  <p class="sec-sub">이 페이지는 소개용 정적 데모입니다. 실제 시스템은 웹 채팅
+  인터페이스(FastAPI + SQLite)로 구동되며, 질문자·규정 심사위원·종합 심사위원·재판장이
+  각각 독립된 AI 호출로 분리되어 있습니다. 진행 단계(명료화 → 독창성 → 실용성 →
+  수용태도 → 자기 평가)는 서버의 상태 머신이 강제합니다. 실행 코드, 안정성 리포트,
+  인간 심사위원 실험 자료(블라인드 채점표)는 요청 시 제공합니다.</p>
 </section>
 
 </div>
 
 <footer>
   <div class="wrap">
-    <a href="https://github.com/jason-j-kim/PYCON2017/blob/claude/ai-idea-evaluation-dialogue-qdqa09/docs/socratic-idea-evaluation-strategy.md">설계 전략 문서</a> ·
-    <a href="https://github.com/jason-j-kim/PYCON2017/tree/claude/ai-idea-evaluation-dialogue-qdqa09/webapp">웹 앱 소스</a> ·
-    <a href="https://github.com/jason-j-kim/PYCON2017/tree/claude/ai-idea-evaluation-dialogue-qdqa09/prototype">CLI 프로토타입</a>
+    소크라테스 문답 기반 아이디어 평가 시스템 — 설계 문서·실행 코드·실험 자료는 요청 시 제공
   </div>
 </footer>
 
