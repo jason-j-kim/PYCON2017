@@ -55,6 +55,15 @@ def create_session(idea, weights):
     return sid
 
 
+def count_sessions_today():
+    today = datetime.date.today().isoformat()
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM sessions WHERE created_at >= ?", (today,)
+        ).fetchone()
+    return row["n"]
+
+
 def get_session(sid):
     with _conn() as conn:
         row = conn.execute("SELECT * FROM sessions WHERE id = ?", (sid,)).fetchone()

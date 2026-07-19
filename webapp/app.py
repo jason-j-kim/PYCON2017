@@ -8,6 +8,7 @@
 """
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -30,6 +31,10 @@ STATIC_DIR = Path(__file__).parent / "static"
 app = FastAPI(title="소크라테스 아이디어 평가")
 db.init()
 
+# 외부 공개(터널) 시 안전장치 — 환경 변수로 설정
+ACCESS_CODE = os.environ.get("SOCRATIC_ACCESS_CODE", "").strip()
+MAX_SESSIONS_PER_DAY = int(os.environ.get("SOCRATIC_MAX_SESSIONS_PER_DAY", "30"))
+
 
 @app.exception_handler(RuntimeError)
 def runtime_error_handler(request: Request, exc: RuntimeError):
@@ -40,6 +45,7 @@ def runtime_error_handler(request: Request, exc: RuntimeError):
 class CreateRequest(BaseModel):
     idea: str
     weights: dict | None = None  # {"originality": w1, "practicality": w2, "acceptance": w3}
+    access_code: str | None = None
 
 
 class AnswerRequest(BaseModel):
@@ -124,8 +130,17 @@ def index():
     return FileResponse(STATIC_DIR / "index.html")
 
 
+@app.get("/api/config")
+def get_config():
+    return {"access_required": bool(ACCESS_CODE)}
+
+
 @app.post("/api/sessions")
 def create_session(req: CreateRequest):
+    if ACCESS_CODE and (req.access_code or "").strip() != ACCESS_CODE:
+        raise HTTPException(403, "초대 코드가 올바르지 않습니다.")
+    if db.count_sessions_today() >= MAX_SESSIONS_PER_DAY:
+        raise HTTPException(429, "오늘 사용 가능한 세션 수를 모두 사용했습니다. 내일 다시 시도해 주세요.")
     idea = req.idea.strip()
     if not idea:
         raise HTTPException(400, "아이디어가 비어 있습니다.")

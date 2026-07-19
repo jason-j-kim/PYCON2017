@@ -95,6 +95,11 @@
         <div><label>실용성 가중치</label><input id="w-prac" type="number" step="0.05" min="0" max="1" value="0.35"></div>
         <div><label>수용태도 가중치</label><input id="w-acc" type="number" step="0.05" min="0" max="1" value="0.30"></div>
       </div>
+      <div id="access-row" class="hidden" style="margin-top:14px">
+        <label for="access-code">초대 코드</label>
+        <input id="access-code" type="text" placeholder="안내받은 초대 코드를 입력하세요"
+               style="width:100%;border:1px solid var(--line);border-radius:8px;padding:10px 12px;font:inherit">
+      </div>
       <div class="row">
         <button id="btn-start">문답 시작</button>
         <span class="tagline" style="margin:0">총 12개 질문 · 약 15분</span>
@@ -145,6 +150,11 @@
 const $ = id => document.getElementById(id);
 let sessionId = null;
 let busy = false;
+
+// 서버가 초대 코드를 요구하면 입력란 표시
+fetch("/api/config").then(r => r.json()).then(cfg => {
+  if (cfg.access_required) $("access-row").classList.remove("hidden");
+}).catch(() => {});
 
 function show(view) {
   for (const v of ["view-start", "view-chat", "view-result"])
@@ -200,7 +210,8 @@ $("btn-start").onclick = async () => {
   $("btn-start").disabled = true;
   $("btn-start").textContent = "첫 질문 생성 중…";
   try {
-    const data = await api("/api/sessions", {idea, weights});
+    const data = await api("/api/sessions",
+      {idea, weights, access_code: $("access-code").value.trim()});
     sessionId = data.session_id;
     show("view-chat");
     addMsg("a", idea);
