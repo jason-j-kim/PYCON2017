@@ -170,10 +170,11 @@ def call_claude(prompt, system_prompt_file):
     return result.stdout.strip()
 
 
-def ask_questioner(transcript_log, stage_directive):
+def ask_questioner(transcript_log, stage_directive, system_file=None):
     """대화 로그 전체 + 현재 단계 지시를 넘겨 다음 질문 하나를 받는다.
 
     transcript_log: "[턴 N] 역할: 내용" 형태의 문자열 리스트.
+    system_file: 질문자 지침 파일 경로 (기본은 현행 지침; A/B 실험용 교체 가능).
     """
     prompt = (
         "<대화 기록>\n" + "\n\n".join(transcript_log) + "\n</대화 기록>\n\n"
@@ -181,7 +182,7 @@ def ask_questioner(transcript_log, stage_directive):
         "위 대화에 이어서, 시스템 프롬프트의 규칙에 따라 질문자의 다음 발화를 "
         "출력하라. 발화 내용만 출력하고 다른 설명은 붙이지 마라."
     )
-    return call_claude(prompt, QUESTIONER_PROMPT_FILE)
+    return call_claude(prompt, system_file or QUESTIONER_PROMPT_FILE)
 
 
 def _extract_json(text):
