@@ -12,9 +12,10 @@
 socratic/
 ├── engine.py                  # 공유 엔진: 단계 정의, claude 호출, 이원 채점
 └── prompts/
-    ├── questioner_system.md          # 질문자: 산파술 규칙, 6가지 질문 유형, 어조 규칙
-    ├── grader_checklist_system.md    # 규정 심사위원: 10개 이진 항목 사실 판정
-    └── grader_holistic_system.md     # 종합 심사위원: 점수 밴드 기반 전체 인상 채점
+    ├── questioner_system.md          # 질문자 기본 지침: 변증법 절차형 (3안 비교로 채택)
+    ├── grader_checklist_system.md    # 규정 심사위원: 기준별 이진 항목 사실 판정
+    ├── grader_holistic_system.md     # 종합 심사위원: 점수 밴드 기반 전체 인상 채점
+    └── variants/                     # 구 기본안(v0), 논박형(v1), 산파술형=교육 모드(v2), 채택 원본(v3)
 prototype/
 ├── socratic_cli.py            # 전체 세션 실행 (문답 → 채점 → 리포트 → JSON 저장)
 └── README.md
