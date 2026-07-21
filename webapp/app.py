@@ -126,12 +126,11 @@ def _evaluation_payload(result, total, weights, profile="원본"):
         "suggestions": result["suggestions"],
         "encouragement": result["encouragement"],
     }
-    # 수정판(정책)에서만 5문장 프레임·점수 범위·근거신뢰도를 얹는다.
-    # 전부 코드 계산 — 추가 Claude 호출 없음. 원본 payload는 그대로.
-    if profile == "정책":
-        payload["five_lines"] = engine.five_lines(result, weights)
-        payload["score_band"] = engine.score_band(result, weights)
-        payload["evidence_level"] = engine.evidence_level(result)
+    # 5문장 프레임·점수 범위·근거신뢰도는 원본·수정판 모두에 얹는다.
+    # 전부 코드 계산 — 추가 Claude 호출 없음. (프로필 차이는 A9 채점뿐.)
+    payload["five_lines"] = engine.five_lines(result, weights)
+    payload["score_band"] = engine.score_band(result, weights)
+    payload["evidence_level"] = engine.evidence_level(result)
     return payload
 
 

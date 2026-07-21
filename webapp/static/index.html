@@ -74,6 +74,16 @@
                     margin-top: 8px; }
   .total { text-align: center; padding: 22px; }
   .total .num { font-size: 2.4rem; font-weight: 800; color: var(--accent); }
+  .band { color: var(--sub); font-size: .9rem; margin-top: 6px; }
+  .ev-badge { display: inline-block; margin-top: 10px; background: var(--bg);
+              border: 1px solid var(--line); border-radius: 999px;
+              padding: 4px 12px; font-size: .82rem; color: var(--ink); }
+  .five { margin: 0; }
+  .five .fl { border-left: 3px solid var(--accent); padding: 6px 0 6px 12px;
+              margin: 10px 0; }
+  .five .fl b { display: block; font-size: .82rem; color: var(--accent);
+                margin-bottom: 2px; }
+  .five .fl span { font-size: .9rem; color: var(--ink); }
   ul { margin: 6px 0; padding-left: 20px; }
   .encourage { border-left: 3px solid var(--good); padding-left: 12px;
                color: var(--ink); }
@@ -124,6 +134,12 @@
     <div class="card total">
       <div>종합 점수 (가중 평균)</div>
       <div class="num"><span id="total-score"></span><span style="font-size:1.1rem;color:var(--sub)"> / 10</span></div>
+      <div class="band" id="score-band"></div>
+      <div><span class="ev-badge" id="evidence-badge"></span></div>
+    </div>
+    <div class="card" id="five-card">
+      <b>핵심 요약</b>
+      <div class="five" id="five-lines"></div>
     </div>
     <div id="criteria"></div>
     <div class="card"><b>강점</b><ul id="strengths"></ul></div>
@@ -262,8 +278,43 @@ $("btn-finish").onclick = async () => {
   }
 };
 
+const FIVE_ORDER = ["현재가치", "잠재가치", "핵심위험", "근거신뢰도", "다음검증행동"];
+const FIVE_LABEL = {현재가치: "현재 가치", 잠재가치: "잠재 가치", 핵심위험: "핵심 위험",
+                    근거신뢰도: "근거 신뢰도", 다음검증행동: "다음 검증 행동"};
+
 function renderResult(ev) {
   $("total-score").textContent = ev.weighted_total.toFixed(1);
+
+  const band = $("score-band");
+  if (ev.score_band) {
+    band.textContent = `평가 범위 ${ev.score_band.low} – ${ev.score_band.high} `
+      + `(두 심사위원의 괴리 ±${ev.score_band.radius})`;
+    band.classList.remove("hidden");
+  } else { band.classList.add("hidden"); }
+  const evb = $("evidence-badge");
+  if (ev.evidence_level) {
+    evb.textContent = `근거 신뢰도 ${ev.evidence_level.label} `
+      + `(E${ev.evidence_level.level} · ${ev.evidence_level.met}/${ev.evidence_level.total})`;
+    evb.classList.remove("hidden");
+  } else { evb.classList.add("hidden"); }
+
+  const fl = $("five-lines");
+  fl.innerHTML = "";
+  if (ev.five_lines) {
+    for (const key of FIVE_ORDER) {
+      if (!ev.five_lines[key]) continue;
+      const row = document.createElement("div");
+      row.className = "fl";
+      const b = document.createElement("b");
+      b.textContent = FIVE_LABEL[key];
+      const s = document.createElement("span");
+      s.textContent = ev.five_lines[key];
+      row.appendChild(b); row.appendChild(s);
+      fl.appendChild(row);
+    }
+    $("five-card").classList.remove("hidden");
+  } else { $("five-card").classList.add("hidden"); }
+
   const box = $("criteria");
   box.innerHTML = "";
   for (const c of ev.criteria) {
