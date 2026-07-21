@@ -12,16 +12,20 @@ if "%SOCRATIC_ACCESS_CODE%"=="" (
   exit /b 1
 )
 set SOCRATIC_MAX_SESSIONS_PER_DAY=30
+REM 연구자에게 수정판(/policy)만 노출: 루트(/)는 /policy로 자동 이동.
+set SOCRATIC_POLICY_ONLY=1
 
 echo.
 echo ===============================================================
 echo  서버를 시작합니다 (http://localhost:8000)
 echo  초대 비밀번호: %SOCRATIC_ACCESS_CODE%
 echo  하루 최대 세션: %SOCRATIC_MAX_SESSIONS_PER_DAY%
+echo  연구자 노출: 수정판(/policy)만 (루트는 자동 이동)
 echo.
 echo  ▶ 이 창은 그대로 두세요. (서버 로그가 여기 표시됩니다)
 echo  ▶ 두 번째 cmd 창을 열어 아래를 실행하면 외부 접속 주소가 나옵니다:
 echo        cloudflared tunnel --url http://localhost:8000
+echo  ▶ 연구자에게는 그 주소 끝에 /policy 를 붙여 전달하세요.
 echo  ▶ 종료: 이 창에서 Ctrl+C
 echo ===============================================================
 echo.

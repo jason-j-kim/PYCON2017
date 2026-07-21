@@ -37,9 +37,13 @@ cloudflared tunnel --url http://localhost:8000
 
 ## 연구자에게 전달할 것
 
-- 공개 주소: `https://....trycloudflare.com`
-- 그중 원본: `/` · 수정판(정책): `/policy`
+- 공개 주소(수정판): `https://....trycloudflare.com/policy`
 - **초대 비밀번호**: 방금 입력한 값 (별도 채널로 전달)
+
+`run_tunnel.bat` 은 `SOCRATIC_POLICY_ONLY=1` 로 켜지므로, 연구자가 주소를
+`.../policy` 없이 루트로 접속해도 **자동으로 `/policy` 로 이동**한다. 즉
+원본 화면은 연구자에게 노출되지 않는다. (교수님이 원본을 보려면 이 플래그
+없이 `python webapp\app.py` 로 로컬 실행하면 `/` 에서 원본이 열린다.)
 
 ## 비밀번호 변경
 

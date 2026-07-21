@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
 from socratic import engine
@@ -34,6 +34,8 @@ db.init()
 # 외부 공개(터널) 시 안전장치 — 환경 변수로 설정
 ACCESS_CODE = os.environ.get("SOCRATIC_ACCESS_CODE", "").strip()
 MAX_SESSIONS_PER_DAY = int(os.environ.get("SOCRATIC_MAX_SESSIONS_PER_DAY", "30"))
+# 1이면 루트(/)를 /policy로 리다이렉트 → 연구자에게 수정판만 노출.
+POLICY_ONLY = os.environ.get("SOCRATIC_POLICY_ONLY", "").strip() in ("1", "true", "True")
 
 
 @app.exception_handler(RuntimeError)
@@ -136,6 +138,9 @@ def _evaluation_payload(result, total, weights, profile="원본"):
 
 @app.get("/")
 def index():
+    # 터널 배포(SOCRATIC_POLICY_ONLY=1) 시 원본 대신 수정판으로 보낸다.
+    if POLICY_ONLY:
+        return RedirectResponse(url="/policy")
     return FileResponse(STATIC_DIR / "index.html")
 
 
