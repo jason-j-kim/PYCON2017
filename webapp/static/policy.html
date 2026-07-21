@@ -41,6 +41,25 @@
   .row { display: flex; gap: 8px; margin-top: 14px; align-items: center; }
   .hidden { display: none !important; }
 
+  /* 시작 화면 정보 카드 */
+  .card > b { font-size: .95rem; }
+  .steps { display: flex; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  .step { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 150px; }
+  .step-no { width: 26px; height: 26px; border-radius: 50%; background: var(--accent);
+             color: #fff; display: flex; align-items: center; justify-content: center;
+             font-size: .85rem; font-weight: 700; flex: 0 0 auto; }
+  .step b { display: block; font-size: .9rem; }
+  .step span { font-size: .78rem; color: var(--sub); }
+  .step-arrow { color: var(--sub); flex: 0 0 auto; }
+  .crit-chips { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  .chip { background: var(--bg); border: 1px solid var(--line); border-radius: 999px;
+          padding: 5px 14px; font-size: .85rem; }
+  .chip b { color: var(--accent); }
+  .note-sub { font-size: .8rem; color: var(--sub); margin-top: 8px; }
+  .principles { margin: 10px 0 0; padding-left: 20px; font-size: .88rem; color: var(--ink); }
+  .principles li { padding: 2px 0; }
+  .field-head { display: flex; justify-content: space-between; align-items: baseline; }
+
   /* 채팅 */
   #stagebar { position: sticky; top: 0; background: var(--bg); padding: 10px 0;
               font-size: .85rem; color: var(--sub); display: flex; gap: 8px;
@@ -101,9 +120,50 @@
 
   <!-- 시작 화면 -->
   <div id="view-start">
+    <!-- 진행 흐름 -->
     <div class="card">
-      <label for="idea">정책(아이디어)을 자유롭게 서술하세요</label>
-      <textarea id="idea" placeholder="예) 노후 경유차 조기폐차 보조금 — 배출가스 5등급 노후 경유차를 조기 폐차하는 차주에게 보조금을 지급해 미세먼지를 줄인다."></textarea>
+      <b>이렇게 진행됩니다</b>
+      <div class="steps">
+        <div class="step"><span class="step-no">1</span>
+          <div><b>소크라테스 문답</b><span>12개 질문 · 3단계</span></div></div>
+        <div class="step-arrow">→</div>
+        <div class="step"><span class="step-no">2</span>
+          <div><b>이원 채점</b><span>체크리스트 + 종합판단</span></div></div>
+        <div class="step-arrow">→</div>
+        <div class="step"><span class="step-no">3</span>
+          <div><b>5문장 결과</b><span>현재·잠재가치·위험·근거·다음행동</span></div></div>
+      </div>
+    </div>
+
+    <!-- 평가 기준 (읽기 전용) -->
+    <div class="card">
+      <b>평가 기준</b>
+      <div class="crit-chips">
+        <span class="chip">독창성 <b>35%</b></span>
+        <span class="chip">실용성 <b>35%</b></span>
+        <span class="chip">수용태도 <b>30%</b></span>
+      </div>
+      <div class="note-sub">세 기준의 가중 평균으로 종합 점수가 산출됩니다. (가중치 고정)</div>
+    </div>
+
+    <!-- 답변 안내 -->
+    <div class="card">
+      <b>답변 안내</b>
+      <ul class="principles">
+        <li>구체적인 사례와 숫자를 포함하세요.</li>
+        <li>모르는 부분은 “모른다”고 적어도 됩니다.</li>
+        <li>의견과 관찰된 사실을 구분하세요.</li>
+        <li>판단이 바뀔 조건(반증 기준)을 밝히면 좋습니다.</li>
+      </ul>
+    </div>
+
+    <!-- 입력 -->
+    <div class="card">
+      <div class="field-head">
+        <label for="idea" style="margin:0">정책(아이디어)을 자유롭게 서술하세요</label>
+        <button class="secondary" id="btn-example" style="padding:6px 12px">예시 입력</button>
+      </div>
+      <textarea id="idea" placeholder="누구의 어떤 문제를, 어떤 방식으로 해결하는 정책인지 3~6문장으로 적어주세요."></textarea>
       <!-- 연구 세션은 가중치 고정(0.35/0.35/0.30). 화면에는 숨긴다. -->
       <div class="weights hidden">
         <div><label>독창성 가중치</label><input id="w-orig" type="number" step="0.05" min="0" max="1" value="0.35"></div>
@@ -217,6 +277,12 @@ async function api(path, body) {
   if (!res.ok) throw new Error(data.detail || `요청 실패 (${res.status})`);
   return data;
 }
+
+$("btn-example").onclick = () => {
+  $("idea").value = "노후 경유차 조기폐차 보조금 — 배출가스 5등급 노후 경유차를 "
+    + "조기 폐차하는 차주에게 보조금을 지급해 도심 미세먼지를 줄인다.";
+  $("idea").focus();
+};
 
 $("btn-start").onclick = async () => {
   const idea = $("idea").value.trim();
