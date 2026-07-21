@@ -107,6 +107,40 @@ CHECKLIST_LABELS = {
     c: {i: label for i, label, _ in items} for c, items in CHECKLIST_ITEMS.items()
 }
 
+# ── 수정판(정책 평가) 프로필 ──────────────────────────────────────────────
+# 원본은 손대지 않는다. 정책 프로필에서만 수용태도 A9를 "수용 리스크 인정"에서
+# "판단 갱신 조건 명시(반증 기준)"로 강화해 실제 채점에 반영한다. 항목 ID는
+# 그대로(A1~A10)이므로 포맷·파싱 로직은 두 프로필이 공유한다.
+POLICY_ACCEPTANCE = [
+    ("A1", "수용 주체 특정", "사용자와 이해관계자를 구체적으로 특정했다"),
+    ("A2", "상대적 이점", "현재 방식 대비 사용자가 얻는 이점을 구체화했다"),
+    ("A3", "전환 비용", "갈아타는 데 드는 비용·노력·학습을 다뤘다"),
+    ("A4", "적합성", "사용자의 기존 습관·가치와의 정합을 설명했다"),
+    ("A5", "시험 가능성", "부담 없이 먼저 써볼 수 있는 경로를 제시했다"),
+    ("A6", "반대 세력 식별", "반대하거나 손해 보는 이해관계자를 식별했다"),
+    ("A7", "저항 대응", "반대·저항에 대한 대응 논리를 제시했다"),
+    ("A8", "확산 경로", "초기 사용자 확보와 확산 방법을 구체화했다"),
+    ("A9", "판단 갱신 조건 명시",
+     "어떤 지표·수치·기간이 관측되면 이 정책을 수정·중단하겠는지 구체적 반증 "
+     "기준을 제시했다 (기준을 말한 턴을 인용해야 충족)"),
+    ("A10", "무모순", "수용태도 주장이 대화 전체에서 모순되지 않는다"),
+]
+
+PROFILES = ("원본", "정책")
+
+
+def _profile_items(profile):
+    """프로필별 체크리스트 항목 dict. 항목 ID는 동일, 정책은 A9만 강화된다."""
+    if profile == "정책":
+        return {**CHECKLIST_ITEMS, "acceptance": POLICY_ACCEPTANCE}
+    return CHECKLIST_ITEMS
+
+
+def checklist_labels(profile="원본"):
+    """프로필별 항목 라벨 (결과 화면 표시용)."""
+    items = _profile_items(profile)
+    return {c: {i: label for i, label, _ in its} for c, its in items.items()}
+
 
 def _checklist_format():
     lines = []
@@ -235,10 +269,12 @@ def _call_and_parse(prompt, system_file, parser):
     raise RuntimeError(f"채점 결과 파싱 실패: {last_error}")
 
 
-def _grade_checklist(transcript):
+def _grade_checklist(transcript, items=None):
+    if items is None:
+        items = CHECKLIST_ITEMS
     items_desc = "\n\n".join(
         f"[{c} ({CRITERIA_KO[c]}) 전용 항목]\n"
-        + "\n".join(f"- {i} ({label}): {desc}" for i, label, desc in CHECKLIST_ITEMS[c])
+        + "\n".join(f"- {i} ({label}): {desc}" for i, label, desc in items[c])
         for c in CRITERIA
     )
     prompt = (
@@ -264,10 +300,13 @@ def _grade_holistic(transcript):
     return _call_and_parse(prompt, GRADER_HOLISTIC_PROMPT_FILE, _parse_holistic)
 
 
-def grade(transcript):
+def grade(transcript, profile="원본"):
     """이원 채점: 규정 심사위원(체크리스트)과 종합 심사위원(전체 인상)을 각각
-    호출하고, 기준별 최종 점수는 두 점수의 평균으로 한다."""
-    checklist = _grade_checklist(transcript)
+    호출하고, 기준별 최종 점수는 두 점수의 평균으로 한다.
+
+    profile="원본"(기본)이면 현행 그대로. profile="정책"이면 수용태도 A9만
+    반증·판단갱신으로 강화된 체크리스트를 쓴다(추가 호출 없음)."""
+    checklist = _grade_checklist(transcript, _profile_items(profile))
     holistic = _grade_holistic(transcript)
     criteria = {}
     for c in CRITERIA:
@@ -290,6 +329,94 @@ def grade(transcript):
 def weighted_total(result, weights):
     """weights: {"originality": w1, "practicality": w2, "acceptance": w3}"""
     return sum(result["criteria"][c]["final"] * weights[c] for c in CRITERIA)
+
+
+# ── 수정판 표현 계층 ──────────────────────────────────────────────────────
+# 추가 Claude 호출 없이, 이미 나온 이원 채점 결과만으로 계산한다. 새 점수를
+# 만들지 않고 기존 숫자·근거 문장을 서술로 재조립한다.
+
+# 근거신뢰도(E0~E4) 산출에 쓰는 '검증 가능·수치·구체' 항목 5개.
+EVIDENCE_ITEMS = (
+    ("originality", "O3"),   # 차별점을 제3자 확인 가능한 형태(기능·구조·수치)로
+    ("practicality", "P1"),  # 필요 자원을 수치·구체 항목으로
+    ("practicality", "P5"),  # 구현을 데이터·기술·절차로
+    ("practicality", "P6"),  # 비용 대비 효과 비교 논리
+    ("acceptance", "A2"),    # 현재 대비 구체적 이점
+)
+
+_EVIDENCE_LABELS = {
+    0: "주장 중심", 1: "일화·부분 근거", 2: "자료 기반",
+    3: "실증 기반", 4: "행동·데이터 기반",
+}
+
+
+def evidence_level(result):
+    """근거신뢰도: 검증 가능·수치·구체 항목의 충족도를 E0~E4로 환산한다.
+    자기신고가 아니라 규정 심사위원의 대화 판정에서 산출한다."""
+    met = 0
+    for c, item_id in EVIDENCE_ITEMS:
+        entry = result["criteria"][c]["checklist"]["items"].get(item_id)
+        if entry and entry["met"]:
+            met += 1
+    total = len(EVIDENCE_ITEMS)
+    level = round(met / total * 4)
+    return {"level": level, "label": _EVIDENCE_LABELS[level],
+            "met": met, "total": total}
+
+
+def score_band(result, weights):
+    """점수 범위(불확실성 밴드): 두 심사위원(체크리스트↔종합)의 괴리를 폭으로.
+    최종 점수는 두 점수의 중점이므로, 괴리가 클수록 밴드가 넓어진다."""
+    total = weighted_total(result, weights)
+    radius = 0.0
+    for c in CRITERIA:
+        cl = result["criteria"][c]["checklist"]["total"]
+        h = result["criteria"][c]["holistic"]["score"]
+        radius += weights[c] * abs(cl - h) / 2
+    return {
+        "low": round(max(0.0, total - radius), 1),
+        "high": round(min(10.0, total + radius), 1),
+        "radius": round(radius, 1),
+    }
+
+
+def five_lines(result, weights):
+    """5문장 프레임: 현재가치·잠재가치·핵심위험·근거신뢰도·다음검증행동.
+    새 숫자·새 호출 없이 이원 채점 결과를 서술로 묶는다."""
+    total = round(weighted_total(result, weights), 1)
+    crit = result["criteria"]
+    ranked = sorted(CRITERIA, key=lambda c: crit[c]["final"])
+    weak, strong = ranked[0], ranked[-1]
+    ev = evidence_level(result)
+    band = score_band(result, weights)
+    sugg = [s for s in result.get("suggestions", []) if s]
+    strong_r = crit[strong]["holistic"]["rationale"]
+    unmet = sum(1 for c in CRITERIA
+                for it in crit[c]["checklist"]["items"].values() if not it["met"])
+    orig_final = crit["originality"]["final"]
+    return {
+        "현재가치": (
+            f"현재 근거로 방어 가능한 종합 수준은 {total}/10입니다"
+            f"(범위 {band['low']}–{band['high']}). 가장 탄탄히 입증된 축은 "
+            f"'{CRITERIA_KO[strong]}'({crit[strong]['final']}/10)이며, {strong_r}"
+        ),
+        "잠재가치": (
+            f"독창성 {orig_final}/10을 축으로, 아직 입증되지 않은 항목 "
+            f"{unmet}개가 근거로 채워지면 상방이 열립니다."
+        ),
+        "핵심위험": (
+            f"가장 취약한 축은 '{CRITERIA_KO[weak]}'({crit[weak]['final']}/10)입니다."
+            + (f" {sugg[0]}" if sugg else "")
+        ),
+        "근거신뢰도": (
+            f"제시된 근거는 {ev['label']}(E{ev['level']}) 수준입니다"
+            f"({ev['met']}/{ev['total']} 근거 항목이 검증 가능한 형태로 충족)."
+        ),
+        "다음검증행동": (
+            "다음으로 확인할 것 — "
+            + ("; ".join(sugg[:3]) if sugg else "핵심 가정을 검증할 최소 실험을 정하세요.")
+        ),
+    }
 
 
 def _parse_synthesis(text):

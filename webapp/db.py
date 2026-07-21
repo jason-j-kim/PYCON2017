@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     stage_index   INTEGER NOT NULL DEFAULT 0,
     q_in_stage    INTEGER NOT NULL DEFAULT 0,  -- 현재 단계에서 던진 질문 수
     status        TEXT NOT NULL DEFAULT 'active',  -- active | graded
+    profile       TEXT NOT NULL DEFAULT '원본',    -- 원본 | 정책 (수정판)
     created_at    TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS turns (
@@ -43,14 +44,22 @@ def _conn():
 def init():
     with _conn() as conn:
         conn.executescript(SCHEMA)
+        # 기존 DB 마이그레이션: profile 컬럼이 없으면 추가(기존 행은 '원본').
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(sessions)")}
+        if "profile" not in cols:
+            conn.execute(
+                "ALTER TABLE sessions ADD COLUMN profile TEXT NOT NULL DEFAULT '원본'"
+            )
 
 
-def create_session(idea, weights):
+def create_session(idea, weights, profile="원본"):
     sid = uuid.uuid4().hex[:12]
     with _conn() as conn:
         conn.execute(
-            "INSERT INTO sessions (id, idea, weights, created_at) VALUES (?, ?, ?, ?)",
-            (sid, idea, json.dumps(weights), datetime.datetime.now().isoformat()),
+            "INSERT INTO sessions (id, idea, weights, profile, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (sid, idea, json.dumps(weights), profile,
+             datetime.datetime.now().isoformat()),
         )
     return sid
 

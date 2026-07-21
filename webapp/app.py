@@ -46,6 +46,7 @@ class CreateRequest(BaseModel):
     idea: str
     weights: dict | None = None  # {"originality": w1, "practicality": w2, "acceptance": w3}
     access_code: str | None = None
+    profile: str | None = None   # 원본 | 정책 (수정판). 없으면 원본.
 
 
 class AnswerRequest(BaseModel):
@@ -86,17 +87,19 @@ def _ask_and_store(sid, stage_index):
     return question
 
 
-def _grade_session(sid, weights):
+def _grade_session(sid, weights, profile="원본"):
     """대화 로그를 채점하고 결과를 저장한다."""
-    result = engine.grade("\n\n".join(_transcript_log(sid)))
+    result = engine.grade("\n\n".join(_transcript_log(sid)), profile)
     total = round(engine.weighted_total(result, weights), 2)
     db.save_evaluation(sid, result, total)
     db.set_status(sid, "graded")
-    return _evaluation_payload(result, total, weights)
+    return _evaluation_payload(result, total, weights, profile)
 
 
-def _evaluation_payload(result, total, weights):
-    return {
+def _evaluation_payload(result, total, weights, profile="원본"):
+    labels = engine.checklist_labels(profile)
+    payload = {
+        "profile": profile,
         "criteria": [
             {
                 "key": c,
@@ -109,7 +112,7 @@ def _evaluation_payload(result, total, weights):
                 "items": [
                     {
                         "id": item_id,
-                        "label": engine.CHECKLIST_LABELS[c][item_id],
+                        "label": labels[c][item_id],
                         "met": entry["met"],
                         "evidence": entry["evidence"],
                     }
@@ -123,11 +126,24 @@ def _evaluation_payload(result, total, weights):
         "suggestions": result["suggestions"],
         "encouragement": result["encouragement"],
     }
+    # 수정판(정책)에서만 5문장 프레임·점수 범위·근거신뢰도를 얹는다.
+    # 전부 코드 계산 — 추가 Claude 호출 없음. 원본 payload는 그대로.
+    if profile == "정책":
+        payload["five_lines"] = engine.five_lines(result, weights)
+        payload["score_band"] = engine.score_band(result, weights)
+        payload["evidence_level"] = engine.evidence_level(result)
+    return payload
 
 
 @app.get("/")
 def index():
     return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/policy")
+def policy():
+    """수정판(정책 평가) — 5문장 프레임·점수 범위·강화 A9 채점."""
+    return FileResponse(STATIC_DIR / "policy.html")
 
 
 @app.get("/api/config")
@@ -149,8 +165,11 @@ def create_session(req: CreateRequest):
         raise HTTPException(400, "가중치 키가 올바르지 않습니다.")
     if abs(sum(weights.values()) - 1.0) > 1e-6:
         raise HTTPException(400, f"가중치의 합은 1이어야 합니다 (현재 {sum(weights.values()):.2f})")
+    profile = (req.profile or "원본").strip()
+    if profile not in engine.PROFILES:
+        raise HTTPException(400, "알 수 없는 평가 프로필입니다.")
 
-    sid = db.create_session(idea, weights)
+    sid = db.create_session(idea, weights, profile)
     db.add_turn(sid, 1, "proposer", None, idea)
     question = _ask_and_store(sid, 0)
     db.update_progress(sid, 0, 1)
@@ -179,7 +198,7 @@ def answer(sid: str, req: AnswerRequest):
 
     if stage_index >= len(engine.STAGES):
         weights = json.loads(session["weights"])
-        evaluation = _grade_session(sid, weights)
+        evaluation = _grade_session(sid, weights, session["profile"])
         return {"done": True, "evaluation": evaluation}
 
     question = _ask_and_store(sid, stage_index)
@@ -198,7 +217,7 @@ def finish(sid: str):
     if session["status"] != "active":
         raise HTTPException(400, "이미 채점이 끝난 세션입니다.")
     weights = json.loads(session["weights"])
-    evaluation = _grade_session(sid, weights)
+    evaluation = _grade_session(sid, weights, session["profile"])
     return {"done": True, "evaluation": evaluation}
 
 
@@ -218,7 +237,7 @@ def get_session(sid: str):
     ev = db.get_evaluation(sid)
     if ev:
         payload["evaluation"] = _evaluation_payload(
-            ev["result"], ev["weighted_total"], weights
+            ev["result"], ev["weighted_total"], weights, session["profile"]
         )
     return payload
 
