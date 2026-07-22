@@ -62,6 +62,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("session", help="세션 ID 또는 앞부분")
     ap.add_argument("--runs", type=int, default=3, help="재채점 횟수 (기본 3)")
+    ap.add_argument("--text", action="store_true",
+                    help="근거 문장까지 회차별 동일 여부 비교 (결정론 vs 안정판단 구분)")
     args = ap.parse_args()
 
     import json
@@ -80,13 +82,19 @@ def main():
         print(f"[{i+1}/{args.runs}] 채점 중… (체크리스트 + 종합판단)", flush=True)
         result = engine.grade(transcript, profile)
         total = engine.weighted_total(result, weights)
-        row = {"total": round(total, 2)}
+        row = {"total": round(total, 2), "text": {}}
         for c in engine.CRITERIA:
             d = result["criteria"][c]
             row[c] = {
                 "checklist": d["checklist"]["total"],
                 "holistic": d["holistic"]["score"],
                 "final": d["final"],
+            }
+            row["text"][c] = {
+                "rationale": d["holistic"]["rationale"],
+                "evidence": json.dumps(
+                    {i: it["evidence"] for i, it in d["checklist"]["items"].items()},
+                    ensure_ascii=False, sort_keys=True),
             }
         runs.append(row)
 
@@ -101,6 +109,31 @@ def main():
         print(stats_line("최종(평균)", [r[c]["final"] for r in runs]))
     print("\n[종합 점수]")
     print(stats_line("가중종합", [r["total"] for r in runs]))
+
+    if args.text and len(runs) > 1:
+        print("\n" + "=" * 66)
+        print("텍스트 재현성 — 근거 문장이 회차마다 같은가")
+        print("=" * 66)
+        all_identical = True
+        for c in engine.CRITERIA:
+            rats = [r["text"][c]["rationale"] for r in runs]
+            evs = [r["text"][c]["evidence"] for r in runs]
+            r_same = len(set(rats)) == 1
+            e_same = len(set(evs)) == 1
+            all_identical = all_identical and r_same and e_same
+            print(f"\n[{labels[c]}] 종합판단 근거: {'동일' if r_same else '다름'} "
+                  f"· 체크리스트 근거: {'동일' if e_same else '다름'}")
+            if not r_same:
+                for i, txt in enumerate(rats):
+                    print(f"  ({i+1}회) {txt[:200]}")
+        print("\n" + "-" * 66)
+        if all_identical:
+            print("판정: 모든 근거 문장이 회차마다 완전히 동일 → **완전 결정론**")
+            print("      (모델이 같은 입력에 같은 출력을 그대로 재생. 채점 자체의")
+            print("       강건성은 이 테스트로 알 수 없음 → 표현 불변성 테스트 필요.)")
+        else:
+            print("판정: 점수는 같지만 근거 문장은 회차마다 다름 → **안정 판단 + 표현 변주**")
+            print("      (표현은 자연스럽게 흔들려도 숫자 판단은 일관됨. 더 이상적인 신호.)")
 
     spreads = [max(r[c]["final"] for r in runs) - min(r[c]["final"] for r in runs)
                for c in engine.CRITERIA]
