@@ -278,6 +278,22 @@ async function api(path, body) {
   return data;
 }
 
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// 최종 채점이 길어져 터널이 524로 끊겨도, 서버 채점이 끝나면 결과를 받아온다.
+// 문답 중이었다면 서버가 만들어 둔 다음 질문을 이어서 보여준다.
+async function recover(sid) {
+  for (let i = 0; i < 36; i++) {           // 최대 약 3분
+    let d;
+    try { d = await api(`/api/sessions/${sid}`); } catch (_) { await sleep(4000); continue; }
+    if (d.status === "graded" && d.evaluation) { renderResult(d.evaluation); return true; }
+    const last = d.turns && d.turns[d.turns.length - 1];
+    if (last && last.role === "questioner") { addMsg("q", last.content); return true; }
+    await sleep(4000);                      // 아직 채점 중 — 기다린다
+  }
+  return false;
+}
+
 $("btn-example").onclick = () => {
   $("idea").value = "노후 경유차 조기폐차 보조금 — 배출가스 5등급 노후 경유차를 "
     + "조기 폐차하는 차주에게 보조금을 지급해 도심 미세먼지를 줄인다.";
@@ -325,8 +341,11 @@ async function send() {
     addMsg("q", data.question);
     setProgress(data.progress);
   } catch (e) {
-    addMsg("sys", "오류: " + e.message + " — 다시 보내주세요.");
-    $("answer").value = text;
+    setBusy(true, "응답이 지연되어 결과를 확인하는 중… (최대 3분)");
+    if (!await recover(sessionId)) {
+      addMsg("sys", "오류: " + e.message + " — 다시 보내주세요.");
+      $("answer").value = text;
+    }
   } finally {
     setBusy(false);
   }
@@ -343,7 +362,8 @@ $("btn-finish").onclick = async () => {
     const data = await api(`/api/sessions/${sessionId}/finish`, {});
     renderResult(data.evaluation);
   } catch (e) {
-    addMsg("sys", "오류: " + e.message);
+    setBusy(true, "채점 결과를 기다리는 중… (최대 3분)");
+    if (!await recover(sessionId)) addMsg("sys", "오류: " + e.message);
   } finally {
     setBusy(false);
   }
