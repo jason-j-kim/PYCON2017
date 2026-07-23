@@ -3,14 +3,16 @@
 
 사용법 (저장소 루트에서):
     python webapp/show_session.py            # 가장 최근 세션의 전체 문답 + 평가
-    python webapp/show_session.py --list        # 저장된 세션 목록(점수 포함)
-    python webapp/show_session.py --list score  # 점수 낮은 순 정렬
-    python webapp/show_session.py <세션ID>      # 특정 세션
+    python webapp/show_session.py --list                  # 목록(프로필·점수 포함)
+    python webapp/show_session.py --list score            # 점수 낮은 순 정렬
+    python webapp/show_session.py --list 2026-07-23 정책  # 날짜·프로필 필터
+    python webapp/show_session.py <세션ID>                # 특정 세션
 
 화면 출력과 동시에 transcript_<세션ID>.txt 파일(UTF-8)로도 저장한다.
 """
 
 import json
+import re
 import sqlite3
 import sys
 from pathlib import Path
@@ -26,13 +28,20 @@ def conn():
     return c
 
 
-def list_sessions(c, by_score=False):
+def list_sessions(c, by_score=False, day=None, profile=None):
+    cols = {row[1] for row in c.execute("PRAGMA table_info(sessions)")}
+    psel = "s.profile" if "profile" in cols else "'원본' AS profile"
     rows = [dict(r) for r in c.execute(
-        "SELECT s.id, s.idea, s.status, s.created_at, e.weighted_total AS score "
+        f"SELECT s.id, s.idea, s.status, s.created_at, {psel}, "
+        "e.weighted_total AS score "
         "FROM sessions s LEFT JOIN evaluations e ON e.session_id = s.id"
     ).fetchall()]
+    if day:
+        rows = [r for r in rows if r["created_at"][:10] == day]
+    if profile:
+        rows = [r for r in rows if r["profile"] == profile]
     if not rows:
-        print("저장된 세션이 없습니다.")
+        print("조건에 맞는 세션이 없습니다.")
         return
     if by_score:
         graded = sorted((r for r in rows if r["score"] is not None), key=lambda r: r["score"])
@@ -42,9 +51,10 @@ def list_sessions(c, by_score=False):
     else:
         rows.sort(key=lambda r: r["created_at"], reverse=True)
     for r in rows:
-        idea = r["idea"][:38] + ("…" if len(r["idea"]) > 38 else "")
+        idea = r["idea"][:36] + ("…" if len(r["idea"]) > 36 else "")
         score = f"{r['score']:>5.2f}" if r["score"] is not None else "  –  "
-        print(f"{r['id']}  [{r['status']:>6}]  점수 {score}  {r['created_at'][:19]}  {idea}")
+        print(f"{r['id']}  [{r['status']:>6}]  {r['profile']:>2}  점수 {score}  "
+              f"{r['created_at'][:19]}  {idea}")
 
 
 def render(c, sid):
@@ -117,8 +127,11 @@ def main():
     c = conn()
     args = sys.argv[1:]
     if args and args[0] == "--list":
-        by_score = len(args) > 1 and args[1] in ("score", "low", "--low")
-        list_sessions(c, by_score)
+        rest = args[1:]
+        by_score = any(a in ("score", "low", "--low") for a in rest)
+        profile = next((a for a in rest if a in ("정책", "원본")), None)
+        day = next((a for a in rest if re.match(r"^\d{4}-\d{2}-\d{2}$", a)), None)
+        list_sessions(c, by_score, day, profile)
         return
     if args:
         render(c, args[0])
