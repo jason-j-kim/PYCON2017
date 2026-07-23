@@ -3,8 +3,9 @@
 
 사용법 (저장소 루트에서):
     python webapp/show_session.py            # 가장 최근 세션의 전체 문답 + 평가
-    python webapp/show_session.py --list     # 저장된 세션 목록
-    python webapp/show_session.py <세션ID>   # 특정 세션
+    python webapp/show_session.py --list        # 저장된 세션 목록(점수 포함)
+    python webapp/show_session.py --list score  # 점수 낮은 순 정렬
+    python webapp/show_session.py <세션ID>      # 특정 세션
 
 화면 출력과 동시에 transcript_<세션ID>.txt 파일(UTF-8)로도 저장한다.
 """
@@ -25,16 +26,25 @@ def conn():
     return c
 
 
-def list_sessions(c):
-    rows = c.execute(
-        "SELECT id, idea, status, created_at FROM sessions ORDER BY created_at DESC"
-    ).fetchall()
+def list_sessions(c, by_score=False):
+    rows = [dict(r) for r in c.execute(
+        "SELECT s.id, s.idea, s.status, s.created_at, e.weighted_total AS score "
+        "FROM sessions s LEFT JOIN evaluations e ON e.session_id = s.id"
+    ).fetchall()]
     if not rows:
         print("저장된 세션이 없습니다.")
         return
+    if by_score:
+        graded = sorted((r for r in rows if r["score"] is not None), key=lambda r: r["score"])
+        ungraded = [r for r in rows if r["score"] is None]
+        rows = graded + ungraded
+        print("(점수 낮은 순 — 채점 안 된 세션은 맨 아래)\n")
+    else:
+        rows.sort(key=lambda r: r["created_at"], reverse=True)
     for r in rows:
-        idea = r["idea"][:40] + ("…" if len(r["idea"]) > 40 else "")
-        print(f"{r['id']}  [{r['status']:>6}]  {r['created_at'][:19]}  {idea}")
+        idea = r["idea"][:38] + ("…" if len(r["idea"]) > 38 else "")
+        score = f"{r['score']:>5.2f}" if r["score"] is not None else "  –  "
+        print(f"{r['id']}  [{r['status']:>6}]  점수 {score}  {r['created_at'][:19]}  {idea}")
 
 
 def render(c, sid):
@@ -105,7 +115,8 @@ def main():
     c = conn()
     args = sys.argv[1:]
     if args and args[0] == "--list":
-        list_sessions(c)
+        by_score = len(args) > 1 and args[1] in ("score", "low", "--low")
+        list_sessions(c, by_score)
         return
     if args:
         render(c, args[0])
