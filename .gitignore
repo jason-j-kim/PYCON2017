@@ -173,3 +173,4 @@ webapp/sessions.db
 session_*.json
 
 transcript_*.txt
+transcripts/

@@ -104,7 +104,9 @@ def render(c, sid):
     print(text.encode(sys.stdout.encoding or "utf-8", errors="replace")
               .decode(sys.stdout.encoding or "utf-8", errors="replace"))
 
-    out = Path(f"transcript_{sid}.txt")
+    out_dir = Path(__file__).resolve().parent.parent / "transcripts"
+    out_dir.mkdir(exist_ok=True)
+    out = out_dir / f"transcript_{sid}.txt"
     out.write_text(text, encoding="utf-8")
     print(f"\n(전문을 {out} 파일로도 저장했습니다 — 메모장에서 열어보세요)")
 
