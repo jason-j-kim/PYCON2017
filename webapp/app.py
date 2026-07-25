@@ -433,6 +433,12 @@ PRISM_START = os.environ.get("PRISM_START", "20180101")
 PRISM_END = os.environ.get("PRISM_END", "20261231")
 
 
+def _decode_key(key):
+    """data.go.kr 키를 raw로 정규화한다. Encoding 키(%2B·%2F·%3D 포함)든 Decoding
+    키든 넣을 수 있게 unquote로 통일 → urlencode가 다시 정확히 인코딩한다."""
+    return urllib.parse.unquote(key or "")
+
+
 def _prism_lookup(query):
     if not DATA_GO_KR_KEY:
         return []
@@ -441,7 +447,7 @@ def _prism_lookup(query):
         return []
     toks = [t for t in q.split() if t]
     try:
-        params = {"serviceKey": DATA_GO_KR_KEY, "type": "json",
+        params = {"serviceKey": _decode_key(DATA_GO_KR_KEY), "type": "json",
                   "start_date": PRISM_START, "end_date": PRISM_END,
                   "numOfRows": 100, "pageNo": 1}
         data = _http_get_json(PRISM_BASE + "?" + urllib.parse.urlencode(params))
