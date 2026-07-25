@@ -281,7 +281,7 @@ ERACO_TERMS = [t.strip() for t in os.environ.get(
 # BILL_ID로 받아온다(인증키 불필요, 공개 웹). 상위 5건만 조회한다.
 LIKMS_SUMMARY_BASE = os.environ.get(
     "LIKMS_SUMMARY_BASE", "https://likms.assembly.go.kr/bill/summaryPopup.do")
-BILL_SUMMARY_MAXLEN = int(os.environ.get("BILL_SUMMARY_MAXLEN", "400"))  # 본문 앞에서 자름
+BILL_SUMMARY_MAXLEN = int(os.environ.get("BILL_SUMMARY_MAXLEN", "500"))  # 본문 앞에서 500자
 FISCAL_JSON = ROOT / "data" / "fiscal.json"
 _TIMEOUT = 8
 _fiscal_cache = None
