@@ -564,8 +564,9 @@ def originality_axis(transcript, fiscal_fn=None, prism_fn=None, bill_fn=None):
     hits = None
     fns = {"fiscal": fiscal_fn, "prism": prism_fn, "bill": bill_fn}
     on = {k: v is not None for k, v in fns.items()}
-    # 선례가 확실하면(has_precedent) 조회하지 않는다. 없음/불확실 + 소스 하나 이상.
-    if any(on.values()) and judge["verdict"] in ("no_precedent", "uncertain"):
+    # 소스가 하나라도 있으면 항상 조회한다. 기억으로 선례가 확실하다(has_precedent)고
+    # 보이더라도, 제목·메타데이터를 실제로 대조해 A급 근거를 확보하고 확신도를 올린다.
+    if any(on.values()):
         qk = {"fiscal": "fiscal", "prism": "prism", "bill": "bill"}
         queries = {s: (list(spec["queries"].get(qk[s], []))[:3] if on[s] else [])
                    for s in fns}
