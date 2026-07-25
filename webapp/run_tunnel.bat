@@ -14,12 +14,12 @@ if "%SOCRATIC_ACCESS_CODE%"=="" (
 set SOCRATIC_MAX_SESSIONS_PER_DAY=30
 REM 연구자에게 수정판(/policy)만 노출: 루트(/)는 /policy로 자동 이동.
 set SOCRATIC_POLICY_ONLY=1
-REM 선례 조사 축(축 B) — 공공데이터포털 키 하나로 PRISM·국회 의안을 쓴다.
-REM 값을 발급받은 키로 채우세요(코드/저장소엔 넣지 않음). 없으면 판정 보류로 동작.
-REM 재정(세출예산)은 data\fiscal.json 로컬 파일이라 키가 필요 없습니다.
-REM PRISM=공공데이터포털 키, 국회 의안=열린국회정보(open.assembly.go.kr) 별도 키.
-set DATA_GO_KR_KEY=
-set ASSEMBLY_KEY=
+REM 선례 조사 축(축 B) 키는 저장소에 넣지 않는다 — keys.local.bat(gitignore)에서 불러온다.
+REM   keys.local.bat 예시 (저장소 루트에 만들 것):
+REM       set DATA_GO_KR_KEY=공공데이터포털키   (PRISM)
+REM       set ASSEMBLY_KEY=열린국회정보키       (국회 의안)
+REM 재정(세출예산)은 data\fiscal.json 로컬 파일이라 키가 필요 없다.
+if exist keys.local.bat call keys.local.bat
 
 echo.
 echo ===============================================================

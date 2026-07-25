@@ -175,3 +175,5 @@ session_*.json
 transcript_*.txt
 transcripts/
 node_modules/
+keys.local.bat
+*.local.bat
