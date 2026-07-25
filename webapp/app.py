@@ -12,6 +12,7 @@ import os
 import re
 import sys
 import threading
+import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -286,19 +287,35 @@ _TIMEOUT = 8
 _fiscal_cache = None
 
 
+def _redact(url):
+    """로그용: 인증키 값을 가린다(경로·나머지 파라미터는 보이게)."""
+    return re.sub(r"([?&](?:serviceKey|ServiceKey|KEY)=)[^&]+", r"\1***", url)
+
+
+def _urlopen_read(url, accept):
+    """공통 GET. HTTPError면 응답 본문(진짜 사유)까지 담아 RuntimeError로 올린다."""
+    req = urllib.request.Request(url, headers={"Accept": accept})
+    try:
+        with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
+            return resp.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        body = ""
+        try:
+            body = e.read().decode("utf-8", "replace")
+        except Exception:
+            pass
+        raise RuntimeError(
+            f"HTTP {e.code} {e.reason} | URL {_redact(url)} | 본문 {body[:400]}")
+
+
 def _http_get_json(url):
-    req = urllib.request.Request(url, headers={"Accept": "application/json"})
-    with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
-        return json.loads(resp.read().decode("utf-8", "replace"))
+    return json.loads(_urlopen_read(url, "application/json"))
 
 
 def _http_get_data(url):
     """JSON이면 json, XML이면 dict/list로 변환해 반환한다. data.go.kr 일부
     오퍼레이션은 XML만 주므로, 어느 쪽이 와도 _find_key·_pick으로 다루게 만든다."""
-    req = urllib.request.Request(
-        url, headers={"Accept": "application/json, application/xml"})
-    with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
-        raw = resp.read().decode("utf-8", "replace")
+    raw = _urlopen_read(url, "application/json, application/xml")
     s = raw.lstrip("﻿ \t\r\n")
     if s[:1] in ("{", "["):
         return json.loads(raw)
