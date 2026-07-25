@@ -337,21 +337,34 @@ def _fiscal_local_search(query):
 
 
 # ── PRISM: 정책연구 과제 (API) ──
+# getResearchList_v2에는 키워드 파라미터가 없다(조회는 기관·날짜 범위 기준).
+# 그래서 날짜 범위로 목록을 받아 과제명·연구개요를 로컬에서 키워드 매칭한다.
+PRISM_START = os.environ.get("PRISM_START", "20180101")
+PRISM_END = os.environ.get("PRISM_END", "20261231")
+
+
 def _prism_lookup(query):
     if not DATA_GO_KR_KEY:
         return []
+    q = (query or "").strip()
+    if not q:
+        return []
+    toks = [t for t in q.split() if t]
     try:
-        params = {"serviceKey": DATA_GO_KR_KEY, "type": "json", "numOfRows": 10,
-                  "pageNo": 1, "searchword": query}
+        params = {"serviceKey": DATA_GO_KR_KEY, "type": "json",
+                  "start_date": PRISM_START, "end_date": PRISM_END,
+                  "numOfRows": 100, "pageNo": 1}
         rows = _find_rows(_http_get_json(PRISM_BASE + "?" + urllib.parse.urlencode(params)))
         out = []
         for r in rows:
-            title = _pick(r, "bizTitle", "과제명", "title", "researchTitle")
-            if not title:
+            title = _pick(r, "과제명", "researchTitle", "bizTitle", "title", "bsnsNm")
+            summary = _pick(r, "연구개요", "researchAbstract", "abstract", "개요") or ""
+            hay = f"{title or ''} {summary}"
+            if not (q in hay or any(t in hay for t in toks)):
                 continue
             out.append({"title": title,
-                        "org": _pick(r, "reschOrgn", "수행기관", "org", "orgName"),
-                        "period": _pick(r, "reschPd", "연구기간", "period")})
+                        "org": _pick(r, "수행기관", "reschInstNm", "org", "orgName"),
+                        "period": _pick(r, "연구기간", "reschPd", "period")})
         return out[:5]
     except Exception as e:
         print("prism lookup 실패:", e, file=sys.stderr)
