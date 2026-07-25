@@ -263,25 +263,20 @@ def get_session(sid: str):
 
 # ── 선례 조사 축(축 B) ────────────────────────────────────────────────────
 # 세 소스는 서로 다른 질문에 답한다: 재정(집행)·PRISM(검토)·국회 의안(입법).
-# 재정은 로컬 정적 파일(연 1회 갱신)이라 키·프록시가 없다. PRISM·의안은
-# DATA_GO_KR_KEY로 apis.data.go.kr를 호출한다. 필드명은 실제 응답을 받아
-# 확정해야 한다(현재 초안). 실패/키 없음이면 해당 소스를 건너뛰고, 미조회는
+# 재정은 로컬 정적 파일(연 1회 갱신)이라 키가 없다. PRISM은 DATA_GO_KR_KEY로
+# apis.data.go.kr를, 국회 의안은 ASSEMBLY_KEY로 열린국회정보(open.assembly.go.kr,
+# ALLBILLV2)를 호출한다. 실패/키 없음이면 해당 소스를 건너뛰고, 미조회는
 # 미발견으로 처리하지 않는다(profile 비트에서 None → 화면 '-').
 PRISM_BASE = os.environ.get(
     "PRISM_BASE", "https://apis.data.go.kr/1741000/prism_v2/getResearchList_v2")
+# 국회 의안: 열린국회정보 '의안정보 통합 API'(ALLBILLV2). ASSEMBLY_KEY를 쓴다.
+# 필수 파라미터: KEY·Type·pIndex·pSize + ERACO(대수). 검색은 BILL_NM(의안명).
 ALLBILL_BASE = os.environ.get(
-    "ALLBILL_BASE", "https://open.assembly.go.kr/portal/openapi/ALLBILL")
-# 국회 의안(본문): BillInfoService2 — 목록검색(getBillInfoList)으로 billId를 얻고
-# 제안이유·주요내용 오퍼레이션으로 본문을 받는 2단계. data.go.kr 키(DATA_GO_KR_KEY)
-# 를 쓴다. 서버가 직접 호출하므로 http여도 혼합 콘텐츠·프록시 문제는 없다.
-BILLINFO2_BASE = os.environ.get(
-    "BILLINFO2_BASE", "http://apis.data.go.kr/9710000/BillInfoService2")
-# 2단계 오퍼레이션명은 스펙 표를 못 볼 때를 대비해 후보를 차례로 탐침한다(성공하면 캐시).
-BILL_REASON_OPS = [op for op in os.environ.get(
-    "BILL_REASON_OPS",
-    "getBillDetailInfo,getBillReasonList,getBillDetailInfoList,getBillContentList"
-    ).split(",") if op.strip()]
-BILL_SUMMARY_MAXLEN = int(os.environ.get("BILL_SUMMARY_MAXLEN", "400"))  # 앞에서 자름(300~500)
+    "ALLBILL_BASE", "https://open.assembly.go.kr/portal/openapi/ALLBILLV2")
+# ERACO(대수)가 필수라 대수별로 조회한다. 최근 대수 위주(연구 목적상 최근 선례가 중요).
+ERACO_TERMS = [t.strip() for t in os.environ.get(
+    "ERACO_TERMS", "제22대,제21대").split(",") if t.strip()]
+BILL_SUMMARY_MAXLEN = int(os.environ.get("BILL_SUMMARY_MAXLEN", "400"))  # 본문 있으면 앞에서 자름
 FISCAL_JSON = ROOT / "data" / "fiscal.json"
 _TIMEOUT = 8
 _fiscal_cache = None
@@ -463,21 +458,16 @@ def _prism_lookup(query):
         return []
 
 
-# ── 국회 의안: BillInfoService2(본문 확보) 2단계 + ALLBILL(제목·결과) 폴백 ──
-# 세 소스 중 유일하게 본문(제안이유·주요내용)을 받을 수 있는 소스다.
-#   1) getBillInfoList(bill_name) → 의안 목록 → 상위 5건 + billId
-#   2) billId → 제안이유·주요내용 오퍼레이션 → 본문 → 앞에서 자름 → summary
-# 스펙 표(요청변수·출력결과)를 못 볼 때를 대비해:
-#   · 오퍼레이션명은 후보를 차례로 탐침하고 성공하면 캐시한다.
-#   · 필드명은 후보 여러 개로 관대하게 찾는다.
-#   · 본문은 "응답에서 가장 긴 문자열"로도 잡는다(제안이유는 수천 자라 필드명 몰라도 됨).
-#   · 첫 실행에서 못 찾으면 응답 구조를 서버 콘솔에 한 번 찍는다(_debug_once).
-_BILL_OP = {"win": None}  # 발견한 본문 오퍼레이션 캐시("" = 본문 소스 없음으로 확정)
+# ── 국회 의안: 열린국회정보 '의안정보 통합 API'(ALLBILLV2), ASSEMBLY_KEY ──
+# 필수: KEY·Type·pIndex·pSize + ERACO(대수). 검색은 BILL_NM(의안명, 서버측 부분일치).
+# 응답은 열린국회 표준({"ALLBILLV2":[{head},{row}]})이라 row 컨테이너를 꺼낸다.
+# ERACO가 필수라 최근 대수별로 조회해 합친다. 목록 API라 제안이유 본문은 없을 수
+# 있다 — 본문 필드가 있으면 summary에 담고(있는 데까지), 없으면 제목·결과만.
 _DEBUG_SEEN = set()
 
 
 def _debug_once(tag, obj):
-    """미지수 확정용: 처음 한 번만 응답 구조를 콘솔에 찍는다(교수님이 복사해 주면 파서 확정)."""
+    """미지수 확정용: 처음 한 번만 응답 구조를 콘솔에 찍는다(복사해 주면 필드 확정)."""
     if tag in _DEBUG_SEEN:
         return
     _DEBUG_SEEN.add(tag)
@@ -516,114 +506,56 @@ _ERR_TOKENS = ("SERVICE", "ERROR", "인증", "등록되지", "허용되지", "NO
 
 
 def _bill_body_text(obj):
-    """응답에서 제안이유·주요내용으로 보이는 본문을 뽑는다. 필드명을 몰라도 되게:
-    알려진 후보 → 없으면 가장 긴 문자열(오류 메시지는 제외)."""
-    known = _find_any(obj, "reason", "mainContents", "proposalReason", "billReason",
-                      "reasonContent", "summary", "content", "제안이유", "주요내용")
+    """의안 레코드에서 제안이유·주요내용 본문이 있으면 뽑는다(목록 API엔 없을 수 있음).
+    알려진 후보 필드 → 없으면 가장 긴 문자열(오류·URL·짧은 값 제외)."""
+    known = _find_any(obj, "SUMMARY", "MAIN_CONTENTS", "PROPOSAL_REASON", "BILL_GIST",
+                      "reason", "mainContents", "제안이유", "주요내용")
     if isinstance(known, str) and len(known.strip()) >= 40:
         return re.sub(r"\s+", " ", known).strip()
-    longest = _longest_text(obj)
-    if longest and len(longest) >= 80 and not any(t in longest for t in _ERR_TOKENS):
-        return re.sub(r"\s+", " ", longest).strip()
+    lt = (_longest_text(obj) or "").strip()
+    if (len(lt) >= 80 and not lt.startswith(("http", "www"))
+            and not any(t in lt for t in _ERR_TOKENS)):
+        return re.sub(r"\s+", " ", lt).strip()
     return ""
 
 
-def _bill_reason(bill_id):
-    """2단계: billId로 제안이유·주요내용 본문을 받아 앞에서 자른다.
-    오퍼레이션명이 불확실하므로 후보를 탐침하고, 전부 실패하면 이후엔 탐침을 멈춘다."""
-    if _BILL_OP["win"] == "":            # 본문 오퍼레이션 없음으로 이미 확정
-        return ""
-    ops = [_BILL_OP["win"]] if _BILL_OP["win"] else BILL_REASON_OPS
-    for op in ops:
-        try:
-            p = {"ServiceKey": DATA_GO_KR_KEY, "bill_id": bill_id, "billId": bill_id}
-            d = _http_get_data(f"{BILLINFO2_BASE}/{op}?" + urllib.parse.urlencode(p))
-            body = _bill_body_text(d)
-            if body:
-                _BILL_OP["win"] = op
-                return body[:BILL_SUMMARY_MAXLEN]
-            _debug_once(f"bill-reason-{op}", d)
-        except Exception:
-            continue
-    if not _BILL_OP["win"]:
-        _BILL_OP["win"] = ""             # 전 후보 실패 → 이후 탐침 중단(제목만 사용)
-    return ""
-
-
-def _billinfo2_lookup(query):
-    """1단계: 의안명 검색 → 상위 5건 + billId → 각 건에 본문(summary) 채움."""
-    if not DATA_GO_KR_KEY:
-        return []
-    q = (query or "").strip()
-    if not q:
-        return []
-    try:
-        p1 = {"ServiceKey": DATA_GO_KR_KEY, "bill_name": q, "numOfRows": 10, "pageNo": 1}
-        d1 = _http_get_data(f"{BILLINFO2_BASE}/getBillInfoList?" + urllib.parse.urlencode(p1))
-        rows = _as_rows(_find_key(d1, "item")) or _find_rows(d1)
-        if not rows:
-            _debug_once("bill-list", d1)
-            return []
-        out = []
-        for r in rows[:5]:
-            name = _pick(r, "billName", "BILL_NAME", "billNm", "BILL_NM")
-            if not name:
-                continue
-            bill_id = _pick(r, "billId", "BILL_ID", "billid")
-            out.append({
-                "name": name,
-                "proposer": _pick(r, "proposerKind", "proposer", "PROPOSER", "PPSR_NM"),
-                "date": _pick(r, "proposeDt", "PROPOSE_DT", "PPSL_DT"),
-                "committee": _pick(r, "committeeName", "COMMITTEE", "JRCMIT_NM"),
-                "result": _pick(r, "generalResult", "procResult", "RGS_CONF_RSLT") or "계류",
-                # 법률안만 제안이유가 온전. 예산안·동의안·결의안은 비거나 형식이 다르다.
-                "summary": _bill_reason(bill_id) if bill_id else "",
-                "link": _pick(r, "billLink", "linkUrl", "LINK_URL"),
-            })
-        return out
-    except Exception as e:
-        print("billinfo2 lookup 실패:", e, file=sys.stderr)
-        return []
-
-
-# ── ALLBILL 폴백: 열린국회정보(본문 없음, 제목·결과만) ──
-def _allbill_lookup(query):
+def _bill_lookup(query):
+    """의안명(BILL_NM)으로 ALLBILLV2를 대수별 조회해 합친다. 상위 5건 반환."""
     if not ASSEMBLY_KEY:
         return []
     q = (query or "").strip()
     if not q:
         return []
-    try:
-        params = {"KEY": ASSEMBLY_KEY, "Type": "json", "pIndex": 1, "pSize": 20,
-                  "BILL_NM": q}
-        data = _http_get_json(ALLBILL_BASE + "?" + urllib.parse.urlencode(params))
-        rows = _as_rows(_find_key(data, "row"))
-        out = []
-        for r in rows[:5]:
-            name = _pick(r, "BILL_NM")
-            if not name:
+    out, seen = [], set()
+    for eraco in ERACO_TERMS:
+        try:
+            params = {"KEY": ASSEMBLY_KEY, "Type": "json", "pIndex": 1, "pSize": 100,
+                      "ERACO": eraco, "BILL_NM": q}
+            data = _http_get_data(ALLBILL_BASE + "?" + urllib.parse.urlencode(params))
+            rows = _as_rows(_find_key(data, "row"))
+            if not rows:
+                _debug_once(f"bill-{eraco}", data)
                 continue
-            out.append({
-                "name": name,
-                "proposer": _pick(r, "PPSR_NM"),
-                "date": _pick(r, "PPSL_DT"),
-                "committee": _pick(r, "JRCMIT_NM"),
-                "result": _pick(r, "RGS_CONF_RSLT", "JRCMIT_PROC_RSLT") or "계류",
-                "summary": "",  # ALLBILL은 제안이유·주요내용 본문을 제공하지 않음
-                "link": _pick(r, "LINK_URL"),
-            })
-        return out
-    except Exception as e:
-        print("allbill lookup 실패:", e, file=sys.stderr)
-        return []
-
-
-def _bill_lookup(query):
-    """의안 소스: BillInfoService2(본문) 우선 → 결과 없으면 ALLBILL(제목·결과) 폴백."""
-    hits = _billinfo2_lookup(query)
-    if hits:
-        return hits
-    return _allbill_lookup(query)
+            for r in rows:
+                name = _pick(r, "BILL_NM", "BILL_NAME")
+                if not name or name in seen:
+                    continue
+                seen.add(name)
+                body = _bill_body_text(r)
+                out.append({
+                    "name": name,
+                    "proposer": _pick(r, "PROPOSER", "PPSR_NM", "RPPSR_NM"),
+                    "date": _pick(r, "PPSL_DT", "PROPOSE_DT", "PPSL_DATE"),
+                    "committee": _pick(r, "JRCMIT_NM", "CURR_COMMITTEE", "COMMITTEE_NM"),
+                    "result": _pick(r, "RGS_CONF_RSLT", "RGS_RSLT", "PROC_RESULT",
+                                    "JRCMIT_PROC_RSLT") or "계류",
+                    "summary": body[:BILL_SUMMARY_MAXLEN] if body else "",
+                    "link": _pick(r, "LINK_URL", "DETAIL_LINK"),
+                    "eraco": eraco,
+                })
+        except Exception as e:
+            print(f"allbillv2 lookup 실패({eraco}):", e, file=sys.stderr)
+    return out[:5]
 
 
 class LookupRequest(BaseModel):
@@ -664,7 +596,7 @@ def _run_originality_axis(sid):
         transcript = "\n\n".join(_transcript_log(sid))
         fiscal_fn = _fiscal_local_search if _fiscal_available() else None
         prism_fn = _prism_lookup if DATA_GO_KR_KEY else None
-        bill_fn = _bill_lookup if (DATA_GO_KR_KEY or ASSEMBLY_KEY) else None
+        bill_fn = _bill_lookup if ASSEMBLY_KEY else None
         result = engine.originality_axis(transcript, fiscal_fn, prism_fn, bill_fn)
         db.save_originality(sid, result)
     except Exception as e:
