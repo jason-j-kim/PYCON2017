@@ -107,6 +107,22 @@
   .five .fl b { display: block; font-size: .82rem; color: var(--accent);
                 margin-bottom: 2px; }
   .five .fl span { font-size: .9rem; color: var(--ink); }
+  /* 축 B — 실질 독창성 */
+  .axisb-status { color: var(--sub); font-size: .9rem; padding: 6px 0; }
+  .two-score { display: flex; gap: 16px; }
+  .two-score > div { flex: 1; padding: 14px; border: 1px solid var(--line);
+                     border-radius: 10px; background: var(--bg); }
+  .ts-label { display: block; font-size: .8rem; color: var(--sub); }
+  .ts-val { display: block; font-size: 1.3rem; font-weight: 700; margin-top: 4px; }
+  .ts-conf { display: block; font-size: .8rem; color: var(--sub); margin-top: 2px; }
+  .quadrant-now { font-size: 1.15rem; font-weight: 700; color: var(--accent); margin: 4px 0; }
+  .ev-list { list-style: none; margin: 6px 0 0; padding: 0; font-size: .88rem; }
+  .ev-list li { padding: 4px 0; }
+  .grade-A { display: inline-block; background: #1f6f43; color: #fff; border-radius: 5px;
+             padding: 1px 7px; font-size: .75rem; font-weight: 700; margin-right: 6px; }
+  .grade-B { display: inline-block; background: #8a7a2f; color: #fff; border-radius: 5px;
+             padding: 1px 7px; font-size: .75rem; font-weight: 700; margin-right: 6px; }
+  .limit .muted { font-size: .8rem; line-height: 1.55; }
   ul { margin: 6px 0; padding-left: 20px; }
   .encourage { border-left: 3px solid var(--good); padding-left: 12px;
                color: var(--ink); }
@@ -202,6 +218,7 @@
       <div class="band" id="score-band"></div>
       <div><span class="ev-badge" id="evidence-badge"></span></div>
     </div>
+    <div id="axis-b"></div>
     <div class="card">
       <b>핵심 요약</b>
       <div class="five" id="five-lines"></div>
@@ -375,6 +392,7 @@ const FIVE_LABEL = {현재가치: "현재 가치", 잠재가치: "잠재 가치"
 
 function renderResult(ev) {
   $("total-score").textContent = ev.weighted_total.toFixed(1);
+  window.__lastTotal = ev.weighted_total;
 
   // 점수 범위(불확실성 밴드) + 근거신뢰도 배지 (수정판 전용 필드)
   const band = $("score-band");
@@ -414,7 +432,7 @@ function renderResult(ev) {
     const card = document.createElement("div");
     card.className = "card";
     card.innerHTML = `
-      <div class="score-head"><b>${c.label}</b>
+      <div class="score-head"><b>${c.key === "originality" ? c.label + " — 방어력" : c.label}</b>
         <span><span class="score-num">${c.final}</span><span style="color:var(--sub)">/10 · 가중치 ${c.weight}</span></span>
       </div>
       <div class="subscores">체크리스트 ${c.checklist_total}/10 · 종합판단 ${c.holistic_score}/10 → 평균 ${c.final}</div>
@@ -439,6 +457,103 @@ function renderResult(ev) {
   loadTranscript();
   show("view-result");
   window.scrollTo({top: 0});
+  startOriginality(sessionId);   // 축 B — 문답 뒤 별도로 진행
+}
+
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"]/g, c =>
+    ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+}
+
+// 축 B(실질 독창성)를 백그라운드로 시작하고 완료될 때까지 폴링한다.
+async function startOriginality(sid) {
+  const box = $("axis-b");
+  box.innerHTML = '<div class="card"><b>실질 독창성 (선례 조사)</b>'
+    + '<div class="axisb-status">선례 조사 중… 문답 뒤 별도로 진행됩니다 (최대 2~3분). '
+    + '이 아래 결과는 준비되면 자동으로 나타납니다.</div></div>';
+  try {
+    await api(`/api/sessions/${sid}/originality`, {});
+  } catch (e) {
+    box.querySelector(".axisb-status").textContent = "선례 조사 시작 실패: " + e.message;
+    return;
+  }
+  for (let i = 0; i < 60; i++) {
+    await sleep(4000);
+    let d;
+    try { d = await api(`/api/sessions/${sid}/originality`); } catch (_) { continue; }
+    if (d.status === "done" && d.axis_b) { renderOriginality(d.axis_b); return; }
+    if (d.status === "error") {
+      box.querySelector(".axisb-status").textContent =
+        "선례 조사에 실패했습니다 — 방어력 결과만 사용하세요."; return;
+    }
+  }
+  box.querySelector(".axisb-status").textContent =
+    "선례 조사 시간이 초과됐습니다 — 방어력 결과만 사용하세요.";
+}
+
+function renderOriginality(b) {
+  const total = window.__lastTotal || 0;
+  const defHigh = total >= 6, origHigh = b.band === "계열 밖 시도";
+  const parts = [];
+
+  // 7-1 두 점수 병렬
+  parts.push('<div class="card two-score">'
+    + `<div><span class="ts-label">독창성 — 방어력</span>`
+    + `<span class="ts-val">${total.toFixed(1)}/10</span></div>`
+    + `<div><span class="ts-label">실질 독창성</span>`
+    + `<span class="ts-val">${esc(b.band)}</span>`
+    + `<span class="ts-conf">확신도 ${esc(b.confidence)}</span></div></div>`);
+
+  // 7-2 네 칸 위치 (판정 보류면 생략)
+  if (b.band !== "판정 보류") {
+    const cell = defHigh ? (origHigh ? "추진" : "기존 사업 개선으로 재포지셔닝")
+                         : (origHigh ? "보완 후 재문답" : "보류");
+    parts.push('<div class="card"><b>위치</b>'
+      + `<div class="quadrant-now">${cell}</div>`
+      + `<div class="subscores">방어 ${defHigh ? "높음" : "낮음"} · `
+      + `독창성 ${origHigh ? "높음" : "낮음"}</div></div>`);
+  }
+
+  // 7-3 근거 (A급/B급 배지)
+  if (b.evidence && b.evidence.length) {
+    parts.push('<div class="card"><b>근거</b><ul class="ev-list">'
+      + b.evidence.map(e =>
+          `<li><span class="grade-${e.grade === "A" ? "A" : "B"}">${esc(e.grade)}급</span>`
+          + `${esc(e.text)}</li>`).join("")
+      + '</ul></div>');
+  }
+  if (b.reasoning) {
+    parts.push(`<div class="card"><b>판정 근거</b><p class="subscores">${esc(b.reasoning)}</p></div>`);
+  }
+
+  // 7-4 커버리지
+  let cov;
+  if (b.lookup) {
+    const q = b.lookup.queries;
+    cov = `질의어 — 열린재정: ${esc((q.fiscal || []).join(", ") || "—")} · `
+      + `PRISM: ${esc((q.prism || []).join(", ") || "—")}<br>`
+      + `열린재정 ${b.lookup.fiscal.length}건 · PRISM ${b.lookup.prism.length}건`;
+  } else {
+    cov = "외부 조회 미실행 (모델 지식 기반 판정)";
+  }
+  parts.push(`<div class="card"><b>커버리지</b><div class="subscores">${cov}</div></div>`);
+
+  // 7-5 제안자 지목 (점수 미반영)
+  const claimed = b.claimed_precedents || [];
+  const acc = claimed.length
+    ? "지목: " + claimed.map(c => esc(c.name)).join(", ")
+    : "미지목";
+  parts.push(`<div class="card"><b>제안자 지목</b>`
+    + `<div class="subscores">${acc} · 점수 미반영(정보용)</div></div>`);
+
+  // 7-6 한계 문구 (고정)
+  parts.push('<div class="card limit"><div class="muted">'
+    + '실질 독창성 판정은 열린재정·PRISM 조회와 모델 지식에 근거합니다. 두 자료원은 '
+    + '대략 2000년대 후반 이후를 덮으므로 1990년대 선례는 발견되지 않습니다. 지자체 '
+    + '자체사업·기금사업의 포착은 불균등합니다. 이 점수는 정책 영역 간 비교에 '
+    + '사용하지 않습니다.</div></div>');
+
+  $("axis-b").innerHTML = parts.join("");
 }
 
 async function loadTranscript() {
@@ -476,6 +591,7 @@ $("btn-again").onclick = () => {
   sessionId = null;
   $("messages").innerHTML = "";
   $("idea").value = "";
+  $("axis-b").innerHTML = "";
   show("view-start");
 };
 </script>

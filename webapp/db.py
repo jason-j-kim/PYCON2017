@@ -17,6 +17,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     q_in_stage    INTEGER NOT NULL DEFAULT 0,  -- 현재 단계에서 던진 질문 수
     status        TEXT NOT NULL DEFAULT 'active',  -- active | graded
     profile       TEXT NOT NULL DEFAULT '원본',    -- 원본 | 정책 (수정판)
+    originality        TEXT,                        -- 축 B 결과 JSON (NULL=미실행)
+    originality_status TEXT NOT NULL DEFAULT 'none',-- none|pending|done|error
     created_at    TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS turns (
@@ -44,11 +46,20 @@ def _conn():
 def init():
     with _conn() as conn:
         conn.executescript(SCHEMA)
-        # 기존 DB 마이그레이션: profile 컬럼이 없으면 추가(기존 행은 '원본').
+        # 기존 DB 마이그레이션: 없는 컬럼을 추가한다(기존 행은 기본값).
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(sessions)")}
         if "profile" not in cols:
             conn.execute(
                 "ALTER TABLE sessions ADD COLUMN profile TEXT NOT NULL DEFAULT '원본'"
+            )
+        if "originality" not in cols:
+            # 축 B(선례 조사) 결과 JSON. NULL=미실행/진행중.
+            conn.execute("ALTER TABLE sessions ADD COLUMN originality TEXT")
+        if "originality_status" not in cols:
+            # none | pending | done | error
+            conn.execute(
+                "ALTER TABLE sessions ADD COLUMN originality_status TEXT "
+                "NOT NULL DEFAULT 'none'"
             )
 
 
@@ -117,6 +128,34 @@ def save_evaluation(sid, result, total):
             "VALUES (?, ?, ?)",
             (sid, json.dumps(result, ensure_ascii=False), total),
         )
+
+
+def set_originality_status(sid, status):
+    with _conn() as conn:
+        conn.execute(
+            "UPDATE sessions SET originality_status = ? WHERE id = ?", (status, sid)
+        )
+
+
+def save_originality(sid, data):
+    with _conn() as conn:
+        conn.execute(
+            "UPDATE sessions SET originality = ?, originality_status = 'done' "
+            "WHERE id = ?",
+            (json.dumps(data, ensure_ascii=False), sid),
+        )
+
+
+def get_originality(sid):
+    """{'status': ..., 'result': dict|None} 반환."""
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT originality, originality_status FROM sessions WHERE id = ?", (sid,)
+        ).fetchone()
+    if not row:
+        return None
+    result = json.loads(row["originality"]) if row["originality"] else None
+    return {"status": row["originality_status"], "result": result}
 
 
 def get_evaluation(sid):

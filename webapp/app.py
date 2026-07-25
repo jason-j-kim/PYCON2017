@@ -10,6 +10,9 @@
 import json
 import os
 import sys
+import threading
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -36,6 +39,9 @@ ACCESS_CODE = os.environ.get("SOCRATIC_ACCESS_CODE", "").strip()
 MAX_SESSIONS_PER_DAY = int(os.environ.get("SOCRATIC_MAX_SESSIONS_PER_DAY", "30"))
 # 1이면 루트(/)를 /policy로 리다이렉트 → 연구자에게 수정판만 노출.
 POLICY_ONLY = os.environ.get("SOCRATIC_POLICY_ONLY", "").strip() in ("1", "true", "True")
+# 선례 조사 축(축 B) — 정부 데이터 API 키. 없으면 조회를 건너뛰고 판정 보류.
+FISCAL_KEY = os.environ.get("FISCAL_KEY", "").strip()          # 열린재정
+DATA_GO_KR_KEY = os.environ.get("DATA_GO_KR_KEY", "").strip()  # 공공데이터포털(PRISM)
 
 
 @app.exception_handler(RuntimeError)
@@ -83,7 +89,11 @@ def _progress(stage_index, q_in_stage):
 
 def _ask_and_store(sid, stage_index):
     """현재 단계의 다음 질문을 생성해 저장하고 반환한다."""
-    _, label, _, directive = engine.STAGES[stage_index]
+    name, label, _, directive = engine.STAGES[stage_index]
+    # 정책 프로필의 독창성 라운드에만 선례 지목 유도문을 덧붙인다(원본 무영향).
+    session = db.get_session(sid)
+    if session and session["profile"] == "정책" and name == "originality":
+        directive = directive + " " + engine.PRECEDENT_ANCHOR_LINE
     question = engine.ask_questioner(_transcript_log(sid), directive)
     db.add_turn(sid, _next_seq(sid), "questioner", label, question)
     return question
@@ -243,6 +253,176 @@ def get_session(sid: str):
         payload["evaluation"] = _evaluation_payload(
             ev["result"], ev["weighted_total"], weights, session["profile"]
         )
+    return payload
+
+
+# ── 선례 조사 축(축 B) ────────────────────────────────────────────────────
+# 정부 데이터 API 초안 파서. 필드명은 실제 응답을 받아 확정해야 한다(열린재정·
+# PRISM 모두 문서 필드명과 실제 응답이 다른 경우가 흔함). 키가 없거나 오류면
+# []를 반환해 세션이 '판정 보류'로 끝까지 돌게 한다. 엔드포인트는 환경변수로
+# 덮어쓸 수 있어, 실응답 확인 후 코드 수정 없이 교정 가능하다.
+FISCAL_BASE = os.environ.get(
+    "FISCAL_BASE", "https://openapi.openfiscaldata.go.kr/ExpenditureBudgetFinExpenditure")
+PRISM_BASE = os.environ.get(
+    "PRISM_BASE", "https://apis.data.go.kr/1741000/PolicyRech/getPolicyRechList")
+_TIMEOUT = 8
+
+
+def _http_get_json(url):
+    req = urllib.request.Request(url, headers={"Accept": "application/json"})
+    with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
+        return json.loads(resp.read().decode("utf-8", "replace"))
+
+
+def _find_rows(obj):
+    """중첩 JSON에서 dict들의 리스트(레코드 집합)를 재귀로 찾는다."""
+    if isinstance(obj, list):
+        if obj and all(isinstance(x, dict) for x in obj):
+            return obj
+        for x in obj:
+            r = _find_rows(x)
+            if r:
+                return r
+    elif isinstance(obj, dict):
+        for v in obj.values():
+            r = _find_rows(v)
+            if r:
+                return r
+    return []
+
+
+def _pick(row, *keys):
+    for k in keys:
+        if k in row and row[k] not in (None, ""):
+            return row[k]
+    return None
+
+
+def _fiscal_lookup(query):
+    """열린재정 세출예산 세부사업 검색. → [{name, ministry, series:[{year,amount}]}]"""
+    if not FISCAL_KEY:
+        return []
+    try:
+        params = {"Key": FISCAL_KEY, "Type": "json", "pIndex": 1, "pSize": 30,
+                  "OFFC_NM": query}
+        rows = _find_rows(_http_get_json(FISCAL_BASE + "?" + urllib.parse.urlencode(params)))
+        grouped = {}
+        for r in rows:
+            name = _pick(r, "FSCL_NM", "BZ_CLS_NM", "DETAIL_BZ_NM", "OFFC_NM", "사업명")
+            if not name:
+                continue
+            year = _pick(r, "FSCL_YY", "회계연도", "YEAR")
+            amount = _pick(r, "Y_PRESENT_AMT", "예산현액", "BUDGET_AMT", "예산액")
+            ministry = _pick(r, "DEPT_NM", "소관부처", "MINISTRY")
+            g = grouped.setdefault(name, {"name": name, "ministry": ministry, "series": []})
+            if year is not None:
+                try:
+                    g["series"].append({"year": int(year),
+                                        "amount": int(float(amount)) if amount else 0})
+                except (ValueError, TypeError):
+                    pass
+        for g in grouped.values():
+            g["series"].sort(key=lambda s: s["year"])
+        return list(grouped.values())[:5]
+    except Exception as e:
+        print("fiscal lookup 실패:", e, file=sys.stderr)
+        return []
+
+
+def _prism_lookup(query):
+    """PRISM 정책연구 과제 검색. → [{title, org, period}]"""
+    if not DATA_GO_KR_KEY:
+        return []
+    try:
+        params = {"serviceKey": DATA_GO_KR_KEY, "type": "json", "numOfRows": 10,
+                  "pageNo": 1, "searchword": query}
+        rows = _find_rows(_http_get_json(PRISM_BASE + "?" + urllib.parse.urlencode(params)))
+        out = []
+        for r in rows:
+            title = _pick(r, "bizTitle", "과제명", "title", "researchTitle")
+            if not title:
+                continue
+            out.append({
+                "title": title,
+                "org": _pick(r, "reschOrgn", "수행기관", "org", "orgName"),
+                "period": _pick(r, "reschPd", "연구기간", "period"),
+            })
+        return out[:5]
+    except Exception as e:
+        print("prism lookup 실패:", e, file=sys.stderr)
+        return []
+
+
+class LookupRequest(BaseModel):
+    query: str
+    years: list | None = None
+
+
+@app.post("/api/fiscal")
+def api_fiscal(req: LookupRequest):
+    return {"hits": _fiscal_lookup(req.query.strip())}
+
+
+@app.post("/api/prism")
+def api_prism(req: LookupRequest):
+    return {"hits": _prism_lookup(req.query.strip())}
+
+
+def _originality_payload(result):
+    o = result["originality"]
+    spec, judge, lookup = result["spec"], result["judge"], result.get("lookup")
+    return {
+        "band": o["band"], "confidence": o["confidence"],
+        "evidence": o["evidence"], "reasoning": o["reasoning"],
+        "retraction_condition": o.get("retraction_condition", ""),
+        "policy_type": spec.get("policy_type"),
+        "verdict": judge.get("verdict"),
+        "claimed_precedents": spec.get("claimed_precedents", []),
+        "lookup": None if lookup is None else {
+            "quadrant": lookup["quadrant"], "queries": lookup["queries"],
+            "fiscal": lookup["fiscal"], "prism": lookup["prism"],
+        },
+    }
+
+
+def _run_originality_axis(sid):
+    """백그라운드 스레드: 축 B를 돌려 결과를 DB에 저장한다.
+    call_claude가 블로킹이므로 asyncio 대신 스레드로 격리한다."""
+    try:
+        transcript = "\n\n".join(_transcript_log(sid))
+        fiscal_fn = _fiscal_lookup if FISCAL_KEY else None
+        prism_fn = _prism_lookup if DATA_GO_KR_KEY else None
+        result = engine.originality_axis(transcript, fiscal_fn, prism_fn)
+        db.save_originality(sid, result)
+    except Exception as e:
+        db.set_originality_status(sid, "error")
+        print("originality axis 실패:", e, file=sys.stderr)
+
+
+@app.post("/api/sessions/{sid}/originality")
+def start_originality(sid: str):
+    """축 B를 백그라운드로 시작한다(정책 프로필 전용). 즉시 pending 반환."""
+    session = db.get_session(sid)
+    if not session:
+        raise HTTPException(404, "세션이 없습니다.")
+    if session["profile"] != "정책":
+        raise HTTPException(400, "정책 프로필 세션에서만 선례 조사를 실행합니다.")
+    cur = db.get_originality(sid)
+    if cur and cur["status"] in ("pending", "done"):
+        return {"status": cur["status"]}
+    db.set_originality_status(sid, "pending")
+    threading.Thread(target=_run_originality_axis, args=(sid,), daemon=True).start()
+    return {"status": "pending"}
+
+
+@app.get("/api/sessions/{sid}/originality")
+def poll_originality(sid: str):
+    o = db.get_originality(sid)
+    if o is None:
+        raise HTTPException(404, "세션이 없습니다.")
+    payload = {"status": o["status"]}
+    if o["result"]:
+        payload["axis_b"] = _originality_payload(o["result"])
     return payload
 
 

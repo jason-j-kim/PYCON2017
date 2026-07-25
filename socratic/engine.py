@@ -24,6 +24,17 @@ GRADER_HOLISTIC_PROMPT_FILE = PROMPT_DIR / "grader_holistic_system.md"
 GRADER_CHECKLIST_PROMPT_FILE = PROMPT_DIR / "grader_checklist_system.md"
 PROPOSER_PROMPT_FILE = PROMPT_DIR / "proposer_system.md"      # 시뮬레이션용
 SYNTHESIZER_PROMPT_FILE = PROMPT_DIR / "synthesizer_system.md"  # 재판장
+# 선례 조사 축(축 B) — 정책 프로필 전용, 문답 뒤 별도 단계
+SPEC_EXTRACTOR_PROMPT_FILE = PROMPT_DIR / "spec_extractor_system.md"
+PRECEDENT_JUDGE_PROMPT_FILE = PROMPT_DIR / "precedent_judge_system.md"
+ORIGINALITY_GRADER_PROMPT_FILE = PROMPT_DIR / "originality_grader_system.md"
+# 정책 프로필의 독창성 라운드에만 덧붙이는 선례 지목 유도문(축 B 앵커).
+# 원본 STAGES는 손대지 않고, app 계층에서 정책일 때만 이 줄을 지시문에 붙인다.
+PRECEDENT_ANCHOR_LINE = (
+    "이 라운드의 1문은 반드시 다음 취지로 묻는다: '이 정책과 가장 가까운 기존 "
+    "사업·제도를 하나 지목해 주십시오. 사업명과 대략의 시기까지 밝혀 주시면 됩니다. "
+    "없다고 판단하신다면 그 근거를 말씀해 주십시오.'"
+)
 
 DEFAULT_WEIGHTS = {"originality": 0.35, "practicality": 0.35, "acceptance": 0.30}
 CRITERIA = ("originality", "practicality", "acceptance")
@@ -452,3 +463,130 @@ def synthesize(transcript, grade_result):
         '"acceptance": "..."},\n  "verdict": "..."\n}'
     )
     return _call_and_parse(prompt, SYNTHESIZER_PROMPT_FILE, _parse_synthesis)
+
+
+# ── 선례 조사 축(축 B) ────────────────────────────────────────────────────
+# 문답이 끝난 뒤 별도로 도는 단계다. 대화 로그는 Stage 3에서 한 번만 읽고,
+# 이후 단계는 명세만 평가한다(사람이 아니라 산출물을 평가). 기존 채점 경로
+# (grade 등)와 완전히 분리되어 있으며 추가 Claude 호출은 3회(명세·판정·독창성).
+_BANDS = ("선례 명확", "계열 내 변형", "계열 밖 시도", "판정 보류")
+
+
+def extract_spec(transcript):
+    """Stage 3: 로그를 명세·유형·질의어로 구조화한다(채점 아님)."""
+    prompt = ("<대화 로그>\n" + transcript + "\n</대화 로그>\n\n"
+              "시스템 프롬프트의 형식에 따라 JSON 하나만 출력하라.")
+
+    def parse(text):
+        r = _extract_json(text)
+        for k in ("spec", "policy_type", "claimed_precedents", "queries"):
+            if k not in r:
+                raise ValueError(f"{k} 누락")
+        r["queries"].setdefault("fiscal", [])
+        r["queries"].setdefault("prism", [])
+        return r
+
+    return _call_and_parse(prompt, SPEC_EXTRACTOR_PROMPT_FILE, parse)
+
+
+def judge_by_knowledge(spec_result):
+    """Stage 4: 모델 지식만으로 선례 유무를 판정한다(검색 0)."""
+    payload = json.dumps({
+        "spec": spec_result["spec"],
+        "policy_type": spec_result["policy_type"],
+        "claimed_precedents": spec_result.get("claimed_precedents", []),
+    }, ensure_ascii=False, indent=1)
+    prompt = ("<정책 명세>\n" + payload + "\n</정책 명세>\n\n"
+              "시스템 프롬프트의 형식에 따라 JSON 하나만 출력하라.")
+
+    def parse(text):
+        r = _extract_json(text)
+        if r.get("verdict") not in ("has_precedent", "no_precedent", "uncertain"):
+            raise ValueError("verdict 값 오류")
+        r.setdefault("recalled", [])
+        r.setdefault("reasoning", "")
+        r.setdefault("retraction_condition", "")
+        return r
+
+    return _call_and_parse(prompt, PRECEDENT_JUDGE_PROMPT_FILE, parse)
+
+
+def grade_originality(spec_result, judge, hits=None):
+    """Stage 6: 4구간 + 확신도로 실질 독창성을 판정한다(로그 미투입)."""
+    payload = {
+        "spec": spec_result["spec"],
+        "policy_type": spec_result["policy_type"],
+        "knowledge_verdict": judge,
+        "lookup": hits if hits is not None else "미실행",
+    }
+    prompt = ("<입력>\n" + json.dumps(payload, ensure_ascii=False, indent=1)
+              + "\n</입력>\n\n시스템 프롬프트의 형식에 따라 JSON 하나만 출력하라.")
+
+    def parse(text):
+        r = _extract_json(text)
+        if r.get("band") not in _BANDS:
+            raise ValueError("band 값 오류")
+        r.setdefault("confidence", "하")
+        r.setdefault("evidence", [])
+        r.setdefault("reasoning", "")
+        r.setdefault("retraction_condition", "")
+        return r
+
+    return _call_and_parse(prompt, ORIGINALITY_GRADER_PROMPT_FILE, parse)
+
+
+def _quadrant(fiscal_hits, prism_hits):
+    f, p = bool(fiscal_hits), bool(prism_hits)
+    if p and f:
+        return "researched_and_funded"
+    if p and not f:
+        return "researched_not_funded"
+    if f and not p:
+        return "funded_without_research"
+    return "none_found"
+
+
+def _dedup(items, key):
+    seen, out = set(), []
+    for it in items:
+        k = it.get(key)
+        if k and k not in seen:
+            seen.add(k)
+            out.append(it)
+    return out
+
+
+def originality_axis(transcript, fiscal_fn=None, prism_fn=None):
+    """축 B 전체: Stage 3 → 4 → (조건부 5) → 6. fiscal_fn/prism_fn은
+    query 문자열을 받아 히트 리스트를 반환하는 호출체(키 없으면 None)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    spec = extract_spec(transcript)
+    judge = judge_by_knowledge(spec)
+    hits = None
+    can_lookup = fiscal_fn is not None and prism_fn is not None
+    # 선례가 확실하면(has_precedent) 조회하지 않는다. 없음/불확실일 때만 조회.
+    if can_lookup and judge["verdict"] in ("no_precedent", "uncertain"):
+        fq = list(spec["queries"].get("fiscal", []))[:3]
+        pq = list(spec["queries"].get("prism", []))[:3]
+
+        def _safe(fn, q):
+            try:
+                return fn(q) or []
+            except Exception:
+                return []
+
+        with ThreadPoolExecutor(max_workers=6) as ex:
+            ff = [ex.submit(_safe, fiscal_fn, q) for q in fq]
+            pf = [ex.submit(_safe, prism_fn, q) for q in pq]
+            fiscal_hits = [h for fut in ff for h in fut.result()]
+            prism_hits = [h for fut in pf for h in fut.result()]
+        fiscal_hits = _dedup(fiscal_hits, "name")[:5]
+        prism_hits = _dedup(prism_hits, "title")[:5]
+        hits = {
+            "fiscal": fiscal_hits, "prism": prism_hits,
+            "quadrant": _quadrant(fiscal_hits, prism_hits),
+            "queries": {"fiscal": fq, "prism": pq},
+        }
+    grade = grade_originality(spec, judge, hits)
+    return {"spec": spec, "judge": judge, "lookup": hits, "originality": grade}

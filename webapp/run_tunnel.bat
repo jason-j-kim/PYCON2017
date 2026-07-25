@@ -14,6 +14,10 @@ if "%SOCRATIC_ACCESS_CODE%"=="" (
 set SOCRATIC_MAX_SESSIONS_PER_DAY=30
 REM 연구자에게 수정판(/policy)만 노출: 루트(/)는 /policy로 자동 이동.
 set SOCRATIC_POLICY_ONLY=1
+REM 선례 조사 축(축 B) 정부 데이터 API 키. 없으면 조회 없이 '판정 보류'로 동작.
+REM 아래 두 줄의 값을 발급받은 키로 채우세요(코드/저장소엔 넣지 않음).
+set FISCAL_KEY=
+set DATA_GO_KR_KEY=
 
 echo.
 echo ===============================================================
