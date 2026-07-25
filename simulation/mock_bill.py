@@ -94,7 +94,7 @@ if __name__ == "__main__":
     run("본문 실패 — likms 404",
         {"제22대": [R("PRC_B", "소상공인 디지털전환 촉진법안", result="부결")],
          "제21대": []},
-        {"PRC_B": None})
+        {"PRC_B": None}, query="소상공인 디지털전환")
 
     # 4) 의안 미발견(빈 결과)
     run("미발견 — 검색 결과 0",
@@ -104,7 +104,7 @@ if __name__ == "__main__":
     long_body = "제안이유 " + ("가나다라마바사아자차 " * 80)  # 약 800자
     hits = run("길이 제한 — 500자 컷",
                {"제22대": [R("PRC_C", "장문 제안이유 법안")], "제21대": []},
-               {"PRC_C": long_body})
+               {"PRC_C": long_body}, query="장문 제안이유")
     assert hits and len(hits[0]["summary"]) <= app.BILL_SUMMARY_MAXLEN, "500자 컷 실패"
     print(f"\n[검증] 최대 길이 {app.BILL_SUMMARY_MAXLEN}자 이하로 잘림 OK "
           f"(실제 {len(hits[0]['summary'])}자)")

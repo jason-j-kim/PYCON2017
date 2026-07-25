@@ -410,17 +410,36 @@ def _load_fiscal():
     return _fiscal_cache
 
 
+# 세 소스 공용 키워드 매칭. 흔한 일반어 단독 매칭을 막아 거짓 양성을 줄인다.
+# 규칙: 전체 문구가 통째로 들어있거나, '의미 있는' 토큰이 2개 이상 함께 겹칠 때만 히트.
+# (의미 있는 토큰이 하나뿐인 질의는 그 하나만 겹쳐도 히트 — 과소매칭 방지.)
+_STOPWORDS = frozenset({
+    "분석", "연구", "지원", "방안", "정책", "사업", "효과", "제도", "개선", "강화",
+    "관리", "활성화", "촉진", "계획", "전략", "체계", "현황", "실태", "평가", "도입",
+    "운영", "구축", "확대", "및", "등", "관한", "위한", "대한", "기반", "관련",
+})
+
+
+def _keyword_hit(query, *texts):
+    hay = " ".join(t for t in texts if t)
+    q = (query or "").strip()
+    if not q or not hay:
+        return False
+    if q in hay:
+        return True
+    meaningful = [t for t in q.split() if len(t) >= 2 and t not in _STOPWORDS]
+    if not meaningful:                       # 질의가 전부 일반어/단문자면 원래 토큰 사용
+        meaningful = [t for t in q.split() if t]
+    present = sum(1 for t in meaningful if t in hay)
+    return present >= 2 if len(meaningful) >= 2 else present >= 1
+
+
 def _fiscal_local_search(query):
-    """세부사업명 부분 문자열 매칭. 히트 과다 시 예산액 큰 순 5건."""
+    """세부사업명 매칭(공용 규칙). 히트 과다 시 예산액 큰 순 5건."""
     q = (query or "").strip()
     if not q:
         return []
-    toks = [t for t in q.split() if t]
-    out = []
-    for rec in _load_fiscal():
-        name = rec.get("name", "")
-        if q in name or (toks and any(t in name for t in toks)):
-            out.append(rec)
+    out = [rec for rec in _load_fiscal() if _keyword_hit(q, rec.get("name", ""))]
     out.sort(key=lambda r: max((s.get("amount", 0) for s in r.get("series", [])),
                                default=0), reverse=True)
     return out[:5]
@@ -445,7 +464,6 @@ def _prism_lookup(query):
     q = (query or "").strip()
     if not q:
         return []
-    toks = [t for t in q.split() if t]
     try:
         params = {"serviceKey": _decode_key(DATA_GO_KR_KEY), "type": "json",
                   "start_date": PRISM_START, "end_date": PRISM_END,
@@ -455,10 +473,9 @@ def _prism_lookup(query):
         out = []
         for r in rows:
             # 확정 필드: research_name(과제명)·organ_name(기관)·research_date(기간).
-            # 목록 응답에는 개요가 없어 과제명·사업명으로 키워드 매칭한다.
+            # 목록 응답에는 개요가 없어 과제명·사업명으로 키워드 매칭한다(공용 규칙).
             title = _pick(r, "research_name", "biz_name")
-            hay = f"{_pick(r, 'research_name') or ''} {_pick(r, 'biz_name') or ''}"
-            if not (q in hay or any(t in hay for t in toks)):
+            if not _keyword_hit(q, _pick(r, "research_name"), _pick(r, "biz_name")):
                 continue
             out.append({"title": title,
                         "org": _pick(r, "organ_name"),
@@ -535,6 +552,8 @@ def _bill_lookup(query):
             for r in rows:
                 name = _pick(r, "BILL_NM", "BILL_NAME")
                 if not name or name in seen:
+                    continue
+                if not _keyword_hit(q, name):   # 서버 검색을 공용 규칙으로 한번 더 조인다
                     continue
                 seen.add(name)
                 out.append({
