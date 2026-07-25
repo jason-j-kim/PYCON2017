@@ -1,39 +1,35 @@
-// build_fiscal.mjs — 세출예산 CSV → data/fiscal.json 전처리 (연 1회 수동 실행)
+// build_fiscal.mjs — 세출예산 xlsx/csv → data/fiscal.json 전처리 (연 1회 수동 실행)
 //
-// 원본: 공공데이터포털 '재정경제부_세목 예산편성현황(총지출)'
-//   https://www.data.go.kr/data/15083329/fileData.do  (CSV·XLSX, 인증키 불필요)
-// 세목 단위 행을 '세부사업명 + 연도'로 집계해 만 단위로 줄인다. 세목까지 내려가지 않는다.
+// 원본: 공공데이터포털 '재정경제부_세목 예산편성현황(총지출)' 등. 인증키 불필요.
+// 사업명+연도로 집계해 사업별 예산 시계열(series)을 만든다.
 //
-// 사용법 (저장소 루트에서, CSV로 내려받은 뒤):
-//   node scripts/build_fiscal.mjs 2022.csv 2023.csv 2024.csv 2025.csv 2026.csv
-//   → data/fiscal.json 생성
+// 준비 (최초 1회): xlsx 리더 설치
+//   npm install xlsx
 //
-// 컬럼명은 파일마다 다를 수 있다. 실제 헤더를 확인해 아래 후보를 조정하라.
-// 금액 단위(원/천원/백만원)도 원본에서 확인해 통일하고, AMOUNT_UNIT에 적어라.
+// 사용법 (저장소 루트에서, 파일을 그 폴더에 두고):
+//   node scripts/build_fiscal.mjs fiscal_by_project_2020.xlsx fiscal_by_project_2021.xlsx ^
+//        fiscal_by_project_2022.xlsx fiscal_by_project_2023.xlsx fiscal_by_project_2024.xlsx
+//   → data/fiscal.json 생성  (.csv 도 함께 지원)
 
 import fs from "node:fs";
 import path from "node:path";
+import { createRequire } from "node:module";
 
-// 실제 CSV 헤더에 맞춰 조정. 공백 무시 부분일치로 찾는다.
-const NAME_COLS = ["세부사업명", "세부사업", "detailBizNm", "BIZ_NM"];
-const MINISTRY_COLS = ["소관부처명", "소관부처", "부처명", "deptNm"];
-const YEAR_COLS = ["회계연도", "연도", "fyr", "YEAR"];
-// 예산구분이 여러 값이면 국회확정을 쓴다(정부안은 집행 증거가 아니다).
-const AMOUNT_COLS = ["국회확정", "확정액", "예산현액", "예산액", "amount"];
-const AMOUNT_UNIT = "원";  // 원본에서 확인해 맞출 것
+// 실제 헤더: 사업명 · 소관부처 · 연도 · 예산액. 공백 무시 부분일치로 찾는다.
+const NAME_COLS = ["사업명", "세부사업명", "세부사업", "detailBizNm"];
+const MINISTRY_COLS = ["소관부처", "소관부처명", "부처명", "deptNm"];
+const YEAR_COLS = ["연도", "회계연도", "fyr", "YEAR"];
+const AMOUNT_COLS = ["예산액", "국회확정", "확정액", "예산현액", "amount"];
+const AMOUNT_UNIT = "원";
 
-// 한국 정부 CSV는 CP949(euc-kr)인 경우가 흔하다. UTF-8로 읽어 깨지면 euc-kr로 재시도.
 function decodeSmart(buf) {
   let s = new TextDecoder("utf-8", {fatal: false}).decode(buf);
-  const bad = (s.match(/�/g) || []).length;
-  if (bad > 5) {
-    try { s = new TextDecoder("euc-kr").decode(buf); }
-    catch { /* euc-kr 미지원 시 utf-8 유지 */ }
+  if ((s.match(/�/g) || []).length > 5) {
+    try { s = new TextDecoder("euc-kr").decode(buf); } catch { /* keep */ }
   }
-  return s.replace(/^﻿/, "");  // BOM 제거
+  return s.replace(/^﻿/, "");
 }
 
-// ── 간단한 CSV 파서(따옴표·쉼표 처리) ──
 function parseCsv(text) {
   const rows = [];
   let row = [], field = "", q = false;
@@ -52,12 +48,26 @@ function parseCsv(text) {
   return rows;
 }
 
+let XLSX = null;
+function readRows(file) {
+  if (/\.(xlsx|xls)$/i.test(file)) {
+    if (!XLSX) {
+      try { XLSX = createRequire(import.meta.url)("xlsx"); }
+      catch { console.error("xlsx 모듈이 없습니다. 먼저 실행: npm install xlsx"); process.exit(1); }
+    }
+    const wb = XLSX.readFile(file);
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    return XLSX.utils.sheet_to_json(ws, {header: 1, raw: true, defval: ""});
+  }
+  return parseCsv(decodeSmart(fs.readFileSync(file))).filter(r => r.length > 1);
+}
+
 function colIndex(header, candidates) {
-  const norm = header.map(h => h.replace(/\s/g, ""));
+  const norm = header.map(h => String(h).replace(/\s/g, ""));
   for (const cand of candidates) {
     const c = cand.replace(/\s/g, "");
-    let i = norm.findIndex(h => h === c);      // 정확 일치 우선
-    if (i < 0) i = norm.findIndex(h => h.includes(c));  // 없으면 부분일치
+    let i = norm.findIndex(h => h === c);
+    if (i < 0) i = norm.findIndex(h => h.includes(c));
     if (i >= 0) return i;
   }
   return -1;
@@ -65,15 +75,14 @@ function colIndex(header, candidates) {
 
 const files = process.argv.slice(2);
 if (!files.length) {
-  console.error("사용법: node scripts/build_fiscal.mjs <csv...>");
+  console.error("사용법: node scripts/build_fiscal.mjs <xlsx|csv...>");
   process.exit(1);
 }
 
-const acc = new Map();  // name → {name, ministry, series: Map(year→amount)}
+const acc = new Map();
 for (const file of files) {
-  const raw = decodeSmart(fs.readFileSync(file));
-  const rows = parseCsv(raw).filter(r => r.length > 1);
-  if (!rows.length) continue;
+  const rows = readRows(file);
+  if (!rows.length) { console.error(`[비어있음] ${file}`); continue; }
   const header = rows[0];
   const iName = colIndex(header, NAME_COLS);
   const iMin = colIndex(header, MINISTRY_COLS);
@@ -85,12 +94,12 @@ for (const file of files) {
     continue;
   }
   for (const r of rows.slice(1)) {
-    const name = (r[iName] || "").trim();
+    const name = String(r[iName] ?? "").trim();
     if (!name) continue;
-    const year = parseInt((r[iYear] || "").replace(/\D/g, ""), 10);
-    const amount = parseInt((r[iAmt] || "0").replace(/[^\d-]/g, ""), 10) || 0;
+    const year = parseInt(String(r[iYear] ?? "").replace(/\D/g, ""), 10);
+    const amount = parseInt(String(r[iAmt] ?? "0").replace(/[^\d-]/g, ""), 10) || 0;
     if (!year) continue;
-    if (!acc.has(name)) acc.set(name, {name, ministry: (r[iMin] || "").trim(), series: new Map()});
+    if (!acc.has(name)) acc.set(name, {name, ministry: String(r[iMin] ?? "").trim(), series: new Map()});
     const g = acc.get(name);
     g.series.set(year, (g.series.get(year) || 0) + amount);
   }
@@ -103,8 +112,8 @@ const out = [...acc.values()].map(g => ({
     .map(([year, amount]) => ({year, amount})),
 }));
 
-const outPath = path.join("data", "fiscal.json");
 fs.mkdirSync("data", {recursive: true});
+const outPath = path.join("data", "fiscal.json");
 fs.writeFileSync(outPath, JSON.stringify(
   {unit: AMOUNT_UNIT, built: files, items: out}, null, 0), "utf-8");
 console.error(`\n완료: ${outPath} — 사업 ${out.length}개 (금액 단위 ${AMOUNT_UNIT})`);

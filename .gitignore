@@ -174,3 +174,4 @@ session_*.json
 
 transcript_*.txt
 transcripts/
+node_modules/
