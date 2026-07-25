@@ -263,7 +263,7 @@ def get_session(sid: str):
 # 확정해야 한다(현재 초안). 실패/키 없음이면 해당 소스를 건너뛰고, 미조회는
 # 미발견으로 처리하지 않는다(profile 비트에서 None → 화면 '-').
 PRISM_BASE = os.environ.get(
-    "PRISM_BASE", "https://apis.data.go.kr/1741000/PolicyRech/getPolicyRechList")
+    "PRISM_BASE", "https://apis.data.go.kr/1741000/prism_v2/getResearchList_v2")
 BILL_LIST_BASE = os.environ.get(
     "BILL_LIST_BASE", "https://apis.data.go.kr/9710000/BillInfoService2/getBillInfoList")
 BILL_SUMMARY_BASE = os.environ.get(
