@@ -303,6 +303,32 @@ def _pick(row, *keys):
     return None
 
 
+def _find_key(obj, key):
+    """중첩 JSON에서 특정 키의 값을 재귀로 찾는다(첫 번째)."""
+    if isinstance(obj, dict):
+        if key in obj:
+            return obj[key]
+        for v in obj.values():
+            r = _find_key(v, key)
+            if r is not None:
+                return r
+    elif isinstance(obj, list):
+        for x in obj:
+            r = _find_key(x, key)
+            if r is not None:
+                return r
+    return None
+
+
+def _as_rows(node):
+    """레코드 컨테이너를 dict 리스트로 정규화(단건이면 리스트로 감싼다)."""
+    if isinstance(node, list):
+        return [x for x in node if isinstance(x, dict)]
+    if isinstance(node, dict):
+        return [node]
+    return []
+
+
 # ── 재정: 로컬 정적 파일 검색 (API 아님) ──
 def _fiscal_available():
     return FISCAL_JSON.exists()
@@ -354,17 +380,19 @@ def _prism_lookup(query):
         params = {"serviceKey": DATA_GO_KR_KEY, "type": "json",
                   "start_date": PRISM_START, "end_date": PRISM_END,
                   "numOfRows": 100, "pageNo": 1}
-        rows = _find_rows(_http_get_json(PRISM_BASE + "?" + urllib.parse.urlencode(params)))
+        data = _http_get_json(PRISM_BASE + "?" + urllib.parse.urlencode(params))
+        rows = _as_rows(_find_key(data, "research"))
         out = []
         for r in rows:
-            title = _pick(r, "과제명", "researchTitle", "bizTitle", "title", "bsnsNm")
-            summary = _pick(r, "연구개요", "researchAbstract", "abstract", "개요") or ""
-            hay = f"{title or ''} {summary}"
+            # 확정 필드: research_name(과제명)·organ_name(기관)·research_date(기간).
+            # 목록 응답에는 개요가 없어 과제명·사업명으로 키워드 매칭한다.
+            title = _pick(r, "research_name", "biz_name")
+            hay = f"{_pick(r, 'research_name') or ''} {_pick(r, 'biz_name') or ''}"
             if not (q in hay or any(t in hay for t in toks)):
                 continue
             out.append({"title": title,
-                        "org": _pick(r, "수행기관", "reschInstNm", "org", "orgName"),
-                        "period": _pick(r, "연구기간", "reschPd", "period")})
+                        "org": _pick(r, "organ_name"),
+                        "period": _pick(r, "research_date")})
         return out[:5]
     except Exception as e:
         print("prism lookup 실패:", e, file=sys.stderr)
