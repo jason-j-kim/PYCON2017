@@ -7,6 +7,7 @@
     # 또는: uvicorn webapp.app:app --port 8000
 """
 
+import html
 import json
 import os
 import re
@@ -276,7 +277,11 @@ ALLBILL_BASE = os.environ.get(
 # ERACO(대수)가 필수라 대수별로 조회한다. 최근 대수 위주(연구 목적상 최근 선례가 중요).
 ERACO_TERMS = [t.strip() for t in os.environ.get(
     "ERACO_TERMS", "제22대,제21대").split(",") if t.strip()]
-BILL_SUMMARY_MAXLEN = int(os.environ.get("BILL_SUMMARY_MAXLEN", "400"))  # 본문 있으면 앞에서 자름
+# 제안이유·주요내용 본문: ALLBILLV2엔 없다. 의안정보시스템(likms)의 요약 팝업에서
+# BILL_ID로 받아온다(인증키 불필요, 공개 웹). 상위 5건만 조회한다.
+LIKMS_SUMMARY_BASE = os.environ.get(
+    "LIKMS_SUMMARY_BASE", "https://likms.assembly.go.kr/bill/summaryPopup.do")
+BILL_SUMMARY_MAXLEN = int(os.environ.get("BILL_SUMMARY_MAXLEN", "400"))  # 본문 앞에서 자름
 FISCAL_JSON = ROOT / "data" / "fiscal.json"
 _TIMEOUT = 8
 _fiscal_cache = None
@@ -478,49 +483,34 @@ def _debug_once(tag, obj):
     print(f"[축B 디버그:{tag}] {preview}", file=sys.stderr)
 
 
-def _find_any(obj, *keys):
-    for k in keys:
-        v = _find_key(obj, k)
-        if v not in (None, ""):
-            return v
-    return None
+def _strip_html(s):
+    """HTML을 순수 텍스트로. script/style 제거, 태그 제거, 엔티티 복원, 공백 정리."""
+    s = re.sub(r"(?is)<(script|style)\b.*?</\1>", " ", s)
+    s = re.sub(r"(?s)<[^>]+>", " ", s)
+    return re.sub(r"\s+", " ", html.unescape(s)).strip()
 
 
-def _longest_text(obj):
-    """중첩 구조에서 가장 긴 문자열을 찾는다(제안이유 본문 후보)."""
-    best = ""
-    stack = [obj]
-    while stack:
-        x = stack.pop()
-        if isinstance(x, str):
-            if len(x) > len(best):
-                best = x
-        elif isinstance(x, dict):
-            stack.extend(x.values())
-        elif isinstance(x, list):
-            stack.extend(x)
-    return best
-
-
-_ERR_TOKENS = ("SERVICE", "ERROR", "인증", "등록되지", "허용되지", "NORMAL_CODE")
-
-
-def _bill_body_text(obj):
-    """의안 레코드에서 제안이유·주요내용 본문이 있으면 뽑는다(목록 API엔 없을 수 있음).
-    알려진 후보 필드 → 없으면 가장 긴 문자열(오류·URL·짧은 값 제외)."""
-    known = _find_any(obj, "SUMMARY", "MAIN_CONTENTS", "PROPOSAL_REASON", "BILL_GIST",
-                      "reason", "mainContents", "제안이유", "주요내용")
-    if isinstance(known, str) and len(known.strip()) >= 40:
-        return re.sub(r"\s+", " ", known).strip()
-    lt = (_longest_text(obj) or "").strip()
-    if (len(lt) >= 80 and not lt.startswith(("http", "www"))
-            and not any(t in lt for t in _ERR_TOKENS)):
-        return re.sub(r"\s+", " ", lt).strip()
-    return ""
+def _bill_summary(bill_id):
+    """2단계: BILL_ID로 의안정보시스템(likms)에서 제안이유·주요내용 본문을 받아 자른다.
+    likms 요약 팝업은 인증키가 필요 없다. 실패하면 빈 문자열(제목·결과만 남는다)."""
+    if not bill_id:
+        return ""
+    try:
+        url = LIKMS_SUMMARY_BASE + "?" + urllib.parse.urlencode({"billId": bill_id})
+        text = _strip_html(_urlopen_read(url, "text/html"))
+        _debug_once("bill-summary", text[:400])
+        m = re.search(r"제안이유(?:\s*및\s*주요내용)?", text)
+        if m:
+            text = text[m.start():]
+        return text[:BILL_SUMMARY_MAXLEN] if len(text) >= 40 else ""
+    except Exception as e:
+        print("bill summary(likms) 실패:", e, file=sys.stderr)
+        return ""
 
 
 def _bill_lookup(query):
-    """의안명(BILL_NM)으로 ALLBILLV2를 대수별 조회해 합친다. 상위 5건 반환."""
+    """의안명(BILL_NM)으로 ALLBILLV2를 대수별 조회해 합치고, 상위 5건에 대해
+    likms에서 제안이유 본문을 채운다."""
     if not ASSEMBLY_KEY:
         return []
     q = (query or "").strip()
@@ -541,7 +531,6 @@ def _bill_lookup(query):
                 if not name or name in seen:
                     continue
                 seen.add(name)
-                body = _bill_body_text(r)
                 out.append({
                     "name": name,
                     "proposer": _pick(r, "PROPOSER", "PPSR_NM", "RPPSR_NM"),
@@ -549,13 +538,17 @@ def _bill_lookup(query):
                     "committee": _pick(r, "JRCMIT_NM", "CURR_COMMITTEE", "COMMITTEE_NM"),
                     "result": _pick(r, "RGS_CONF_RSLT", "RGS_RSLT", "PROC_RESULT",
                                     "JRCMIT_PROC_RSLT") or "계류",
-                    "summary": body[:BILL_SUMMARY_MAXLEN] if body else "",
+                    "summary": "",
                     "link": _pick(r, "LINK_URL", "DETAIL_LINK"),
                     "eraco": eraco,
+                    "_bill_id": _pick(r, "BILL_ID", "BILL_NO"),
                 })
         except Exception as e:
             print(f"allbillv2 lookup 실패({eraco}):", e, file=sys.stderr)
-    return out[:5]
+    out = out[:5]
+    for h in out:                       # 상위 5건만 본문 조회(호출 최소화)
+        h["summary"] = _bill_summary(h.pop("_bill_id", None))
+    return out
 
 
 class LookupRequest(BaseModel):
