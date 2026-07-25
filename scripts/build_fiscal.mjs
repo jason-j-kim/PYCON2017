@@ -14,12 +14,24 @@
 import fs from "node:fs";
 import path from "node:path";
 
+// 실제 CSV 헤더에 맞춰 조정. 공백 무시 부분일치로 찾는다.
 const NAME_COLS = ["세부사업명", "세부사업", "detailBizNm", "BIZ_NM"];
 const MINISTRY_COLS = ["소관부처명", "소관부처", "부처명", "deptNm"];
 const YEAR_COLS = ["회계연도", "연도", "fyr", "YEAR"];
 // 예산구분이 여러 값이면 국회확정을 쓴다(정부안은 집행 증거가 아니다).
 const AMOUNT_COLS = ["국회확정", "확정액", "예산현액", "예산액", "amount"];
 const AMOUNT_UNIT = "원";  // 원본에서 확인해 맞출 것
+
+// 한국 정부 CSV는 CP949(euc-kr)인 경우가 흔하다. UTF-8로 읽어 깨지면 euc-kr로 재시도.
+function decodeSmart(buf) {
+  let s = new TextDecoder("utf-8", {fatal: false}).decode(buf);
+  const bad = (s.match(/�/g) || []).length;
+  if (bad > 5) {
+    try { s = new TextDecoder("euc-kr").decode(buf); }
+    catch { /* euc-kr 미지원 시 utf-8 유지 */ }
+  }
+  return s.replace(/^﻿/, "");  // BOM 제거
+}
 
 // ── 간단한 CSV 파서(따옴표·쉼표 처리) ──
 function parseCsv(text) {
@@ -41,8 +53,11 @@ function parseCsv(text) {
 }
 
 function colIndex(header, candidates) {
+  const norm = header.map(h => h.replace(/\s/g, ""));
   for (const cand of candidates) {
-    const i = header.findIndex(h => h.trim() === cand);
+    const c = cand.replace(/\s/g, "");
+    let i = norm.findIndex(h => h === c);      // 정확 일치 우선
+    if (i < 0) i = norm.findIndex(h => h.includes(c));  // 없으면 부분일치
     if (i >= 0) return i;
   }
   return -1;
@@ -56,7 +71,7 @@ if (!files.length) {
 
 const acc = new Map();  // name → {name, ministry, series: Map(year→amount)}
 for (const file of files) {
-  const raw = fs.readFileSync(file, "utf-8");
+  const raw = decodeSmart(fs.readFileSync(file));
   const rows = parseCsv(raw).filter(r => r.length > 1);
   if (!rows.length) continue;
   const header = rows[0];
@@ -65,7 +80,8 @@ for (const file of files) {
   const iYear = colIndex(header, YEAR_COLS);
   const iAmt = colIndex(header, AMOUNT_COLS);
   if (iName < 0 || iYear < 0 || iAmt < 0) {
-    console.error(`[건너뜀] ${file}: 필요한 컬럼을 못 찾음. 헤더=`, header);
+    console.error(`[건너뜀] ${file}: 필요한 컬럼을 못 찾음.`);
+    console.error("  실제 헤더:", header.join(" | "));
     continue;
   }
   for (const r of rows.slice(1)) {
