@@ -17,7 +17,9 @@ set SOCRATIC_POLICY_ONLY=1
 REM 선례 조사 축(축 B) — 공공데이터포털 키 하나로 PRISM·국회 의안을 쓴다.
 REM 값을 발급받은 키로 채우세요(코드/저장소엔 넣지 않음). 없으면 판정 보류로 동작.
 REM 재정(세출예산)은 data\fiscal.json 로컬 파일이라 키가 필요 없습니다.
+REM PRISM=공공데이터포털 키, 국회 의안=열린국회정보(open.assembly.go.kr) 별도 키.
 set DATA_GO_KR_KEY=
+set ASSEMBLY_KEY=
 
 echo.
 echo ===============================================================

@@ -41,7 +41,9 @@ MAX_SESSIONS_PER_DAY = int(os.environ.get("SOCRATIC_MAX_SESSIONS_PER_DAY", "30")
 POLICY_ONLY = os.environ.get("SOCRATIC_POLICY_ONLY", "").strip() in ("1", "true", "True")
 # 선례 조사 축(축 B) — 공공데이터포털 키 하나로 PRISM·국회 의안을 함께 쓴다.
 # 재정(세출예산)은 API가 아니라 로컬 정적 파일(data/fiscal.json)이라 키가 필요 없다.
-DATA_GO_KR_KEY = os.environ.get("DATA_GO_KR_KEY", "").strip()
+DATA_GO_KR_KEY = os.environ.get("DATA_GO_KR_KEY", "").strip()      # PRISM
+# 국회 의안은 열린국회정보(open.assembly.go.kr) 별도 인증키를 쓴다.
+ASSEMBLY_KEY = os.environ.get("ASSEMBLY_KEY", "").strip()
 
 
 @app.exception_handler(RuntimeError)
@@ -264,10 +266,8 @@ def get_session(sid: str):
 # 미발견으로 처리하지 않는다(profile 비트에서 None → 화면 '-').
 PRISM_BASE = os.environ.get(
     "PRISM_BASE", "https://apis.data.go.kr/1741000/prism_v2/getResearchList_v2")
-BILL_LIST_BASE = os.environ.get(
-    "BILL_LIST_BASE", "https://apis.data.go.kr/9710000/BillInfoService2/getBillInfoList")
-BILL_SUMMARY_BASE = os.environ.get(
-    "BILL_SUMMARY_BASE", "https://apis.data.go.kr/9710000/BillInfoService2/getBillPetitionList")
+ALLBILL_BASE = os.environ.get(
+    "ALLBILL_BASE", "https://open.assembly.go.kr/portal/openapi/ALLBILL")
 FISCAL_JSON = ROOT / "data" / "fiscal.json"
 _TIMEOUT = 8
 _fiscal_cache = None
@@ -399,45 +399,36 @@ def _prism_lookup(query):
         return []
 
 
-# ── 국회 의안: 목록 + 제안이유·주요내용 (API, 두 오퍼레이션) ──
-def _bill_summary(bill_id):
-    if not bill_id:
-        return ""
-    try:
-        params = {"serviceKey": DATA_GO_KR_KEY, "type": "json", "bill_id": bill_id}
-        rows = _find_rows(_http_get_json(
-            BILL_SUMMARY_BASE + "?" + urllib.parse.urlencode(params)))
-        for r in rows:
-            txt = _pick(r, "summary", "제안이유및주요내용", "reason", "mainContent", "주요내용")
-            if txt:
-                return str(txt)[:200]
-    except Exception as e:
-        print("bill summary 실패:", e, file=sys.stderr)
-    return ""
-
-
+# ── 국회 의안: 열린국회정보 ALLBILL (의안명 서버측 검색) ──
+# 확정 필드: BILL_NM(의안명)·PPSR_NM(제안자)·PPSL_DT(제안일)·JRCMIT_NM(소관위)·
+# RGS_CONF_RSLT(본회의 심의결과=result). ALLBILL은 제안이유·주요내용 본문을
+# 제공하지 않으므로 summary는 비운다(결과 신호만 사용). 응답 형식은 열린국회
+# 표준({"ALLBILL":[{head},{row}]})이라 row 컨테이너를 꺼낸다.
 def _bill_lookup(query):
-    if not DATA_GO_KR_KEY:
+    if not ASSEMBLY_KEY:
+        return []
+    q = (query or "").strip()
+    if not q:
         return []
     try:
-        # 기본 최근 3대(20·21·22대)로 제한한다.
-        params = {"serviceKey": DATA_GO_KR_KEY, "numOfRows": 10, "pageNo": 1,
-                  "bill_name": query, "age": "22"}
-        rows = _find_rows(_http_get_json(
-            BILL_LIST_BASE + "?" + urllib.parse.urlencode(params)))
+        params = {"KEY": ASSEMBLY_KEY, "Type": "json", "pIndex": 1, "pSize": 20,
+                  "BILL_NM": q}
+        data = _http_get_json(ALLBILL_BASE + "?" + urllib.parse.urlencode(params))
+        rows = _as_rows(_find_key(data, "row"))
         out = []
         for r in rows[:5]:
-            name = _pick(r, "billName", "의안명", "billNm", "BILL_NAME")
+            name = _pick(r, "BILL_NM")
             if not name:
                 continue
-            bill_id = _pick(r, "billId", "의안ID", "billId", "BILL_ID")
             out.append({
                 "name": name,
-                "proposer": _pick(r, "proposer", "제안자", "proposerKind", "발의자"),
-                "date": _pick(r, "proposeDt", "제안일", "proposalDate"),
-                "committee": _pick(r, "committeeName", "소관위원회", "committee"),
-                "result": _pick(r, "procResult", "의결결과", "generalResult", "처리결과") or "계류",
-                "summary": _bill_summary(bill_id),
+                "proposer": _pick(r, "PPSR_NM"),
+                "date": _pick(r, "PPSL_DT"),
+                "committee": _pick(r, "JRCMIT_NM"),
+                # 본회의 결과 우선, 없으면 소관위 처리결과, 그도 없으면 계류.
+                "result": _pick(r, "RGS_CONF_RSLT", "JRCMIT_PROC_RSLT") or "계류",
+                "summary": "",  # ALLBILL은 제안이유·주요내용 본문을 제공하지 않음
+                "link": _pick(r, "LINK_URL"),
             })
         return out
     except Exception as e:
@@ -483,7 +474,7 @@ def _run_originality_axis(sid):
         transcript = "\n\n".join(_transcript_log(sid))
         fiscal_fn = _fiscal_local_search if _fiscal_available() else None
         prism_fn = _prism_lookup if DATA_GO_KR_KEY else None
-        bill_fn = _bill_lookup if DATA_GO_KR_KEY else None
+        bill_fn = _bill_lookup if ASSEMBLY_KEY else None
         result = engine.originality_axis(transcript, fiscal_fn, prism_fn, bill_fn)
         db.save_originality(sid, result)
     except Exception as e:
