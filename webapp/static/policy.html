@@ -122,6 +122,7 @@
              padding: 1px 7px; font-size: .75rem; font-weight: 700; margin-right: 6px; }
   .grade-B { display: inline-block; background: #8a7a2f; color: #fff; border-radius: 5px;
              padding: 1px 7px; font-size: .75rem; font-weight: 700; margin-right: 6px; }
+  .ev-src { display: inline-block; color: var(--sub); font-size: .75rem; margin-right: 5px; }
   .limit .muted { font-size: .8rem; line-height: 1.55; }
   ul { margin: 6px 0; padding-left: 20px; }
   .encourage { border-left: 3px solid var(--good); padding-left: 12px;
@@ -514,11 +515,13 @@ function renderOriginality(b) {
       + `독창성 ${origHigh ? "높음" : "낮음"}</div></div>`);
   }
 
-  // 7-3 근거 (A급/B급 배지)
+  // 7-3 근거 (A급/B급 배지 + 소스)
   if (b.evidence && b.evidence.length) {
+    const srcKo = {fiscal: "재정", prism: "연구", bill: "입법", knowledge: "기억"};
     parts.push('<div class="card"><b>근거</b><ul class="ev-list">'
       + b.evidence.map(e =>
           `<li><span class="grade-${e.grade === "A" ? "A" : "B"}">${esc(e.grade)}급</span>`
+          + (e.source ? `<span class="ev-src">${esc(srcKo[e.source] || e.source)}</span>` : "")
           + `${esc(e.text)}</li>`).join("")
       + '</ul></div>');
   }
@@ -526,13 +529,22 @@ function renderOriginality(b) {
     parts.push(`<div class="card"><b>판정 근거</b><p class="subscores">${esc(b.reasoning)}</p></div>`);
   }
 
-  // 7-4 커버리지
+  // 7-4 커버리지 (세 소스 + profile 비트 + 의안 result 내역)
   let cov;
   if (b.lookup) {
-    const q = b.lookup.queries;
-    cov = `질의어 — 열린재정: ${esc((q.fiscal || []).join(", ") || "—")} · `
-      + `PRISM: ${esc((q.prism || []).join(", ") || "—")}<br>`
-      + `열린재정 ${b.lookup.fiscal.length}건 · PRISM ${b.lookup.prism.length}건`;
+    const q = b.lookup.queries || {}, pf = b.lookup.profile || {};
+    const bit = v => (v == null ? "-" : v);
+    const bills = b.lookup.bill || [];
+    const rc = {};
+    bills.forEach(x => { const r = x.result || "계류"; rc[r] = (rc[r] || 0) + 1; });
+    const rcTxt = Object.keys(rc).length
+      ? " (" + Object.entries(rc).map(([k, v]) => `${k} ${v}`).join(", ") + ")" : "";
+    cov = `질의어 — 재정: ${esc((q.fiscal || []).join(", ") || "—")} · `
+      + `연구: ${esc((q.prism || []).join(", ") || "—")} · `
+      + `입법: ${esc((q.bill || []).join(", ") || "—")}<br>`
+      + `재정 ${b.lookup.fiscal.length}건 · PRISM ${b.lookup.prism.length}건 · `
+      + `국회 의안 ${bills.length}건${esc(rcTxt)}<br>`
+      + `집행/검토/입법 = ${bit(pf.exec)}/${bit(pf.review)}/${bit(pf.law)}`;
   } else {
     cov = "외부 조회 미실행 (모델 지식 기반 판정)";
   }
@@ -548,10 +560,13 @@ function renderOriginality(b) {
 
   // 7-6 한계 문구 (고정)
   parts.push('<div class="card limit"><div class="muted">'
-    + '실질 독창성 판정은 열린재정·PRISM 조회와 모델 지식에 근거합니다. 두 자료원은 '
-    + '대략 2000년대 후반 이후를 덮으므로 1990년대 선례는 발견되지 않습니다. 지자체 '
-    + '자체사업·기금사업의 포착은 불균등합니다. 이 점수는 정책 영역 간 비교에 '
-    + '사용하지 않습니다.</div></div>');
+    + '실질 독창성 판정은 세출예산(집행)·PRISM(연구)·국회 의안(입법) 자료와 모델 '
+    + '지식에 근거합니다. 세 자료원은 대략 2000년대 후반 이후를 덮으므로 1990년대 '
+    + '선례는 발견되지 않습니다. 법률안은 법 개정이 필요한 정책만 담으므로 예산사업·'
+    + '행정지침으로 실행되는 정책은 입법 소스에 잡히지 않습니다. 임기만료폐기는 '
+    + '아이디어의 기각을 뜻하지 않습니다. 지자체 자체사업·기금사업의 포착은 '
+    + '불균등합니다. 재정 자료는 최근 5개 연도만 담고 있습니다. 이 점수는 정책 '
+    + '영역 간 비교에 사용하지 않습니다.</div></div>');
 
   $("axis-b").innerHTML = parts.join("");
 }

@@ -484,6 +484,7 @@ def extract_spec(transcript):
                 raise ValueError(f"{k} 누락")
         r["queries"].setdefault("fiscal", [])
         r["queries"].setdefault("prism", [])
+        r["queries"].setdefault("bill", [])
         return r
 
     return _call_and_parse(prompt, SPEC_EXTRACTOR_PROMPT_FILE, parse)
@@ -535,17 +536,6 @@ def grade_originality(spec_result, judge, hits=None):
     return _call_and_parse(prompt, ORIGINALITY_GRADER_PROMPT_FILE, parse)
 
 
-def _quadrant(fiscal_hits, prism_hits):
-    f, p = bool(fiscal_hits), bool(prism_hits)
-    if p and f:
-        return "researched_and_funded"
-    if p and not f:
-        return "researched_not_funded"
-    if f and not p:
-        return "funded_without_research"
-    return "none_found"
-
-
 def _dedup(items, key):
     seen, out = set(), []
     for it in items:
@@ -556,19 +546,29 @@ def _dedup(items, key):
     return out
 
 
-def originality_axis(transcript, fiscal_fn=None, prism_fn=None):
-    """축 B 전체: Stage 3 → 4 → (조건부 5) → 6. fiscal_fn/prism_fn은
-    query 문자열을 받아 히트 리스트를 반환하는 호출체(키 없으면 None)."""
+def _profile_bits(hits, on):
+    """세 소스의 히트 여부를 3비트로. 미조회 소스는 None(화면에서 '-')."""
+    def bit(src):
+        return (1 if hits[src] else 0) if on[src] else None
+    return {"exec": bit("fiscal"), "review": bit("prism"), "law": bit("bill")}
+
+
+def originality_axis(transcript, fiscal_fn=None, prism_fn=None, bill_fn=None):
+    """축 B 전체: Stage 3 → 4 → (조건부 5) → 6. 세 소스는 서로 다른 질문에
+    답한다 — 재정(집행)·PRISM(검토)·의안(입법). 각 fn은 query→히트리스트 호출체
+    (해당 소스 미가용이면 None). 미조회 소스는 미발견으로 처리하지 않는다."""
     from concurrent.futures import ThreadPoolExecutor
 
     spec = extract_spec(transcript)
     judge = judge_by_knowledge(spec)
     hits = None
-    can_lookup = fiscal_fn is not None and prism_fn is not None
-    # 선례가 확실하면(has_precedent) 조회하지 않는다. 없음/불확실일 때만 조회.
-    if can_lookup and judge["verdict"] in ("no_precedent", "uncertain"):
-        fq = list(spec["queries"].get("fiscal", []))[:3]
-        pq = list(spec["queries"].get("prism", []))[:3]
+    fns = {"fiscal": fiscal_fn, "prism": prism_fn, "bill": bill_fn}
+    on = {k: v is not None for k, v in fns.items()}
+    # 선례가 확실하면(has_precedent) 조회하지 않는다. 없음/불확실 + 소스 하나 이상.
+    if any(on.values()) and judge["verdict"] in ("no_precedent", "uncertain"):
+        qk = {"fiscal": "fiscal", "prism": "prism", "bill": "bill"}
+        queries = {s: (list(spec["queries"].get(qk[s], []))[:3] if on[s] else [])
+                   for s in fns}
 
         def _safe(fn, q):
             try:
@@ -576,17 +576,16 @@ def originality_axis(transcript, fiscal_fn=None, prism_fn=None):
             except Exception:
                 return []
 
-        with ThreadPoolExecutor(max_workers=6) as ex:
-            ff = [ex.submit(_safe, fiscal_fn, q) for q in fq]
-            pf = [ex.submit(_safe, prism_fn, q) for q in pq]
-            fiscal_hits = [h for fut in ff for h in fut.result()]
-            prism_hits = [h for fut in pf for h in fut.result()]
-        fiscal_hits = _dedup(fiscal_hits, "name")[:5]
-        prism_hits = _dedup(prism_hits, "title")[:5]
-        hits = {
-            "fiscal": fiscal_hits, "prism": prism_hits,
-            "quadrant": _quadrant(fiscal_hits, prism_hits),
-            "queries": {"fiscal": fq, "prism": pq},
-        }
+        collected = {"fiscal": [], "prism": [], "bill": []}
+        with ThreadPoolExecutor(max_workers=9) as ex:
+            futs = {s: [ex.submit(_safe, fns[s], q) for q in queries[s]] if on[s] else []
+                    for s in fns}
+            for s in fns:
+                for fut in futs[s]:
+                    collected[s] += fut.result()
+        dedup_key = {"fiscal": "name", "prism": "title", "bill": "name"}
+        hits = {s: _dedup(collected[s], dedup_key[s])[:5] for s in fns}
+        hits["queries"] = queries
+        hits["profile"] = _profile_bits(hits, on)
     grade = grade_originality(spec, judge, hits)
     return {"spec": spec, "judge": judge, "lookup": hits, "originality": grade}

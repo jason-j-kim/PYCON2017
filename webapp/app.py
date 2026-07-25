@@ -39,9 +39,9 @@ ACCESS_CODE = os.environ.get("SOCRATIC_ACCESS_CODE", "").strip()
 MAX_SESSIONS_PER_DAY = int(os.environ.get("SOCRATIC_MAX_SESSIONS_PER_DAY", "30"))
 # 1이면 루트(/)를 /policy로 리다이렉트 → 연구자에게 수정판만 노출.
 POLICY_ONLY = os.environ.get("SOCRATIC_POLICY_ONLY", "").strip() in ("1", "true", "True")
-# 선례 조사 축(축 B) — 정부 데이터 API 키. 없으면 조회를 건너뛰고 판정 보류.
-FISCAL_KEY = os.environ.get("FISCAL_KEY", "").strip()          # 열린재정
-DATA_GO_KR_KEY = os.environ.get("DATA_GO_KR_KEY", "").strip()  # 공공데이터포털(PRISM)
+# 선례 조사 축(축 B) — 공공데이터포털 키 하나로 PRISM·국회 의안을 함께 쓴다.
+# 재정(세출예산)은 API가 아니라 로컬 정적 파일(data/fiscal.json)이라 키가 필요 없다.
+DATA_GO_KR_KEY = os.environ.get("DATA_GO_KR_KEY", "").strip()
 
 
 @app.exception_handler(RuntimeError)
@@ -257,15 +257,20 @@ def get_session(sid: str):
 
 
 # ── 선례 조사 축(축 B) ────────────────────────────────────────────────────
-# 정부 데이터 API 초안 파서. 필드명은 실제 응답을 받아 확정해야 한다(열린재정·
-# PRISM 모두 문서 필드명과 실제 응답이 다른 경우가 흔함). 키가 없거나 오류면
-# []를 반환해 세션이 '판정 보류'로 끝까지 돌게 한다. 엔드포인트는 환경변수로
-# 덮어쓸 수 있어, 실응답 확인 후 코드 수정 없이 교정 가능하다.
-FISCAL_BASE = os.environ.get(
-    "FISCAL_BASE", "https://openapi.openfiscaldata.go.kr/ExpenditureBudgetFinExpenditure")
+# 세 소스는 서로 다른 질문에 답한다: 재정(집행)·PRISM(검토)·국회 의안(입법).
+# 재정은 로컬 정적 파일(연 1회 갱신)이라 키·프록시가 없다. PRISM·의안은
+# DATA_GO_KR_KEY로 apis.data.go.kr를 호출한다. 필드명은 실제 응답을 받아
+# 확정해야 한다(현재 초안). 실패/키 없음이면 해당 소스를 건너뛰고, 미조회는
+# 미발견으로 처리하지 않는다(profile 비트에서 None → 화면 '-').
 PRISM_BASE = os.environ.get(
     "PRISM_BASE", "https://apis.data.go.kr/1741000/PolicyRech/getPolicyRechList")
+BILL_LIST_BASE = os.environ.get(
+    "BILL_LIST_BASE", "https://apis.data.go.kr/9710000/BillInfoService2/getBillInfoList")
+BILL_SUMMARY_BASE = os.environ.get(
+    "BILL_SUMMARY_BASE", "https://apis.data.go.kr/9710000/BillInfoService2/getBillPetitionList")
+FISCAL_JSON = ROOT / "data" / "fiscal.json"
 _TIMEOUT = 8
+_fiscal_cache = None
 
 
 def _http_get_json(url):
@@ -298,39 +303,41 @@ def _pick(row, *keys):
     return None
 
 
-def _fiscal_lookup(query):
-    """열린재정 세출예산 세부사업 검색. → [{name, ministry, series:[{year,amount}]}]"""
-    if not FISCAL_KEY:
-        return []
-    try:
-        params = {"Key": FISCAL_KEY, "Type": "json", "pIndex": 1, "pSize": 30,
-                  "OFFC_NM": query}
-        rows = _find_rows(_http_get_json(FISCAL_BASE + "?" + urllib.parse.urlencode(params)))
-        grouped = {}
-        for r in rows:
-            name = _pick(r, "FSCL_NM", "BZ_CLS_NM", "DETAIL_BZ_NM", "OFFC_NM", "사업명")
-            if not name:
-                continue
-            year = _pick(r, "FSCL_YY", "회계연도", "YEAR")
-            amount = _pick(r, "Y_PRESENT_AMT", "예산현액", "BUDGET_AMT", "예산액")
-            ministry = _pick(r, "DEPT_NM", "소관부처", "MINISTRY")
-            g = grouped.setdefault(name, {"name": name, "ministry": ministry, "series": []})
-            if year is not None:
-                try:
-                    g["series"].append({"year": int(year),
-                                        "amount": int(float(amount)) if amount else 0})
-                except (ValueError, TypeError):
-                    pass
-        for g in grouped.values():
-            g["series"].sort(key=lambda s: s["year"])
-        return list(grouped.values())[:5]
-    except Exception as e:
-        print("fiscal lookup 실패:", e, file=sys.stderr)
-        return []
+# ── 재정: 로컬 정적 파일 검색 (API 아님) ──
+def _fiscal_available():
+    return FISCAL_JSON.exists()
 
 
+def _load_fiscal():
+    global _fiscal_cache
+    if _fiscal_cache is None:
+        try:
+            data = json.loads(FISCAL_JSON.read_text(encoding="utf-8"))
+            # {unit, items:[...]} 래퍼 또는 [...] 배열 모두 허용.
+            _fiscal_cache = data["items"] if isinstance(data, dict) else data
+        except Exception:
+            _fiscal_cache = []
+    return _fiscal_cache
+
+
+def _fiscal_local_search(query):
+    """세부사업명 부분 문자열 매칭. 히트 과다 시 예산액 큰 순 5건."""
+    q = (query or "").strip()
+    if not q:
+        return []
+    toks = [t for t in q.split() if t]
+    out = []
+    for rec in _load_fiscal():
+        name = rec.get("name", "")
+        if q in name or (toks and any(t in name for t in toks)):
+            out.append(rec)
+    out.sort(key=lambda r: max((s.get("amount", 0) for s in r.get("series", [])),
+                               default=0), reverse=True)
+    return out[:5]
+
+
+# ── PRISM: 정책연구 과제 (API) ──
 def _prism_lookup(query):
-    """PRISM 정책연구 과제 검색. → [{title, org, period}]"""
     if not DATA_GO_KR_KEY:
         return []
     try:
@@ -342,30 +349,73 @@ def _prism_lookup(query):
             title = _pick(r, "bizTitle", "과제명", "title", "researchTitle")
             if not title:
                 continue
-            out.append({
-                "title": title,
-                "org": _pick(r, "reschOrgn", "수행기관", "org", "orgName"),
-                "period": _pick(r, "reschPd", "연구기간", "period"),
-            })
+            out.append({"title": title,
+                        "org": _pick(r, "reschOrgn", "수행기관", "org", "orgName"),
+                        "period": _pick(r, "reschPd", "연구기간", "period")})
         return out[:5]
     except Exception as e:
         print("prism lookup 실패:", e, file=sys.stderr)
         return []
 
 
+# ── 국회 의안: 목록 + 제안이유·주요내용 (API, 두 오퍼레이션) ──
+def _bill_summary(bill_id):
+    if not bill_id:
+        return ""
+    try:
+        params = {"serviceKey": DATA_GO_KR_KEY, "type": "json", "bill_id": bill_id}
+        rows = _find_rows(_http_get_json(
+            BILL_SUMMARY_BASE + "?" + urllib.parse.urlencode(params)))
+        for r in rows:
+            txt = _pick(r, "summary", "제안이유및주요내용", "reason", "mainContent", "주요내용")
+            if txt:
+                return str(txt)[:200]
+    except Exception as e:
+        print("bill summary 실패:", e, file=sys.stderr)
+    return ""
+
+
+def _bill_lookup(query):
+    if not DATA_GO_KR_KEY:
+        return []
+    try:
+        # 기본 최근 3대(20·21·22대)로 제한한다.
+        params = {"serviceKey": DATA_GO_KR_KEY, "numOfRows": 10, "pageNo": 1,
+                  "bill_name": query, "age": "22"}
+        rows = _find_rows(_http_get_json(
+            BILL_LIST_BASE + "?" + urllib.parse.urlencode(params)))
+        out = []
+        for r in rows[:5]:
+            name = _pick(r, "billName", "의안명", "billNm", "BILL_NAME")
+            if not name:
+                continue
+            bill_id = _pick(r, "billId", "의안ID", "billId", "BILL_ID")
+            out.append({
+                "name": name,
+                "proposer": _pick(r, "proposer", "제안자", "proposerKind", "발의자"),
+                "date": _pick(r, "proposeDt", "제안일", "proposalDate"),
+                "committee": _pick(r, "committeeName", "소관위원회", "committee"),
+                "result": _pick(r, "procResult", "의결결과", "generalResult", "처리결과") or "계류",
+                "summary": _bill_summary(bill_id),
+            })
+        return out
+    except Exception as e:
+        print("bill lookup 실패:", e, file=sys.stderr)
+        return []
+
+
 class LookupRequest(BaseModel):
     query: str
-    years: list | None = None
-
-
-@app.post("/api/fiscal")
-def api_fiscal(req: LookupRequest):
-    return {"hits": _fiscal_lookup(req.query.strip())}
 
 
 @app.post("/api/prism")
 def api_prism(req: LookupRequest):
     return {"hits": _prism_lookup(req.query.strip())}
+
+
+@app.post("/api/bill")
+def api_bill(req: LookupRequest):
+    return {"hits": _bill_lookup(req.query.strip())}
 
 
 def _originality_payload(result):
@@ -379,8 +429,8 @@ def _originality_payload(result):
         "verdict": judge.get("verdict"),
         "claimed_precedents": spec.get("claimed_precedents", []),
         "lookup": None if lookup is None else {
-            "quadrant": lookup["quadrant"], "queries": lookup["queries"],
-            "fiscal": lookup["fiscal"], "prism": lookup["prism"],
+            "profile": lookup["profile"], "queries": lookup["queries"],
+            "fiscal": lookup["fiscal"], "prism": lookup["prism"], "bill": lookup["bill"],
         },
     }
 
@@ -390,9 +440,10 @@ def _run_originality_axis(sid):
     call_claude가 블로킹이므로 asyncio 대신 스레드로 격리한다."""
     try:
         transcript = "\n\n".join(_transcript_log(sid))
-        fiscal_fn = _fiscal_lookup if FISCAL_KEY else None
+        fiscal_fn = _fiscal_local_search if _fiscal_available() else None
         prism_fn = _prism_lookup if DATA_GO_KR_KEY else None
-        result = engine.originality_axis(transcript, fiscal_fn, prism_fn)
+        bill_fn = _bill_lookup if DATA_GO_KR_KEY else None
+        result = engine.originality_axis(transcript, fiscal_fn, prism_fn, bill_fn)
         db.save_originality(sid, result)
     except Exception as e:
         db.set_originality_status(sid, "error")
