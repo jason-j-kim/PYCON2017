@@ -312,10 +312,10 @@ _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
 
 
-def _urlopen_read(url, accept, referer=None, data=None):
+def _urlopen_read(url, accept, referer=None, data=None, timeout=None):
     """공통 GET/POST. HTTPError면 응답 본문(진짜 사유)까지 담아 RuntimeError로 올린다.
     referer를 주면 헤더에 넣는다(likms처럼 Referer를 검사하는 사이트용).
-    data(bytes)를 주면 POST로 보낸다(폼 인코딩)."""
+    data(bytes)를 주면 POST로 보낸다(폼 인코딩). timeout으로 대기시간을 늘릴 수 있다."""
     headers = {"Accept": accept, "User-Agent": _UA, "Accept-Language": "ko,en;q=0.9"}
     if referer:
         headers["Referer"] = referer
@@ -324,7 +324,7 @@ def _urlopen_read(url, accept, referer=None, data=None):
         headers["X-Requested-With"] = "XMLHttpRequest"
     req = urllib.request.Request(url, data=data, headers=headers)
     try:
-        with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
+        with urllib.request.urlopen(req, timeout=timeout or _TIMEOUT) as resp:
             return resp.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as e:
         body = ""
@@ -336,8 +336,8 @@ def _urlopen_read(url, accept, referer=None, data=None):
             f"HTTP {e.code} {e.reason} | URL {_redact(url)} | 본문 {body[:400]}")
 
 
-def _http_get_json(url):
-    return json.loads(_urlopen_read(url, "application/json"))
+def _http_get_json(url, timeout=None):
+    return json.loads(_urlopen_read(url, "application/json", timeout=timeout))
 
 
 def _http_get_data(url):
@@ -478,6 +478,7 @@ def _fiscal_local_search(query):
 # 이고 searchword로 키워드 검색을 지원한다. 날짜(필수)+searchword(좁힘)를 함께 보낸다.
 PRISM_START = os.environ.get("PRISM_START", "20180101")
 PRISM_END = os.environ.get("PRISM_END", "20261231")
+PRISM_TIMEOUT = int(os.environ.get("PRISM_TIMEOUT", "25"))  # PRISM API가 느려 별도 대기
 
 
 def _decode_key(key):
@@ -507,7 +508,8 @@ def _prism_lookup(query):
             params = {"serviceKey": _decode_key(DATA_GO_KR_KEY), "type": "json",
                       "start_date": PRISM_START, "end_date": PRISM_END,
                       "numOfRows": 20, "pageNo": 1, "searchword": term}
-            data = _http_get_json(PRISM_BASE + "?" + urllib.parse.urlencode(params))
+            data = _http_get_json(PRISM_BASE + "?" + urllib.parse.urlencode(params),
+                                  timeout=PRISM_TIMEOUT)
             rows = _as_rows(_find_key(data, "research"))
             if not rows:
                 _debug_once(f"prism-{term}", data)
