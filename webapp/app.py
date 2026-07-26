@@ -288,10 +288,10 @@ ERACO_TERMS = [t.strip() for t in os.environ.get(
 BILL_PSIZE = int(os.environ.get("BILL_PSIZE", "5"))
 # 제안이유·주요내용 본문: ALLBILLV2엔 없다. 의안정보시스템(likms)의 요약 팝업에서
 # BILL_ID로 받아온다(인증키 불필요, 공개 웹). 상위 5건만 조회한다.
-LIKMS_SUMMARY_BASE = os.environ.get(
-    "LIKMS_SUMMARY_BASE", "https://likms.assembly.go.kr/bill/summaryPopup.do")
+# 새 의안정보시스템 상세 페이지(제안이유·주요내용이 HTML에 포함, "+더보기"로 클램프).
 LIKMS_DETAIL_BASE = os.environ.get(
-    "LIKMS_DETAIL_BASE", "https://likms.assembly.go.kr/bill/billDetail.do")
+    "LIKMS_DETAIL_BASE", "https://likms.assembly.go.kr/bill/bi/billDetailPage.do")
+LIKMS_MENU_NO = os.environ.get("LIKMS_MENU_NO", "2600044")
 BILL_SUMMARY_MAXLEN = int(os.environ.get("BILL_SUMMARY_MAXLEN", "500"))  # 본문 앞에서 500자
 FISCAL_JSON = ROOT / "data" / "fiscal.json"
 _TIMEOUT = 8
@@ -540,20 +540,19 @@ def _bill_summary(bill_id):
     시도하고, 실패/빈값이면 빈 문자열(제목·결과만 남는다). 인증키는 필요 없다."""
     if not bill_id:
         return ""
-    referer = LIKMS_DETAIL_BASE + "?" + urllib.parse.urlencode({"billId": bill_id})
-    for base in (LIKMS_SUMMARY_BASE, LIKMS_DETAIL_BASE):
-        tag = base.rsplit("/", 1)[-1]
-        try:
-            url = base + "?" + urllib.parse.urlencode({"billId": bill_id})
-            text = _strip_html(_urlopen_read(url, "text/html", referer=referer))
-            _debug_once(f"bill-summary::{tag}", text[:400])
-            m = re.search(r"제안이유(?:\s*및\s*주요내용)?", text)
-            if m:
-                body = text[m.start():]
-                if len(body) >= 40:
-                    return body[:BILL_SUMMARY_MAXLEN]
-        except Exception as e:
-            print(f"bill summary(likms {tag}) 실패:", e, file=sys.stderr)
+    try:
+        url = LIKMS_DETAIL_BASE + "?" + urllib.parse.urlencode(
+            {"billId": bill_id, "currMenuNo": LIKMS_MENU_NO})
+        text = _strip_html(_urlopen_read(url, "text/html", referer=url))
+        _debug_once("bill-summary", text[:500])
+        # '제안이유'부터 취해 앞에서 자른다(그 뒤에 주요내용이 이어짐).
+        m = re.search(r"제안이유", text)
+        if m:
+            body = text[m.start():].strip()
+            if len(body) >= 40:
+                return body[:BILL_SUMMARY_MAXLEN]
+    except Exception as e:
+        print("bill summary(likms) 실패:", e, file=sys.stderr)
     return ""
 
 
