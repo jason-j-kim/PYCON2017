@@ -581,8 +581,9 @@ def _bill_lookup(query):
             "proposer": _pick(r, "PROPOSER", "PPSR_NM", "RPPSR_NM"),
             "date": _pick(r, "PPSL_DT", "PROPOSE_DT", "PPSL_DATE"),
             "committee": _pick(r, "JRCMIT_NM", "CURR_COMMITTEE", "COMMITTEE_NM"),
-            "result": _pick(r, "RGS_CONF_RSLT", "RGS_RSLT", "PROC_RESULT",
-                            "JRCMIT_PROC_RSLT") or "계류",
+            # 본회의 결과 → 소관위 결과 → 처리단계 → 계류구분 순으로 가장 구체적인 값.
+            "result": _pick(r, "RGS_CONF_RSLT", "JRCMIT_PROC_RSLT", "PROC_STAGE_CD",
+                            "PASSGUBN") or "계류",
             "summary": body,
             "link": _pick(r, "LINK_URL", "DETAIL_LINK"),
             "eraco": _pick(r, "ERACO"),
