@@ -474,8 +474,12 @@ def _fiscal_local_search(query):
 
 
 # ── PRISM: 정책연구 과제 (API) ──
-# getResearchList_v2는 searchword로 키워드 검색을 지원한다(교수님 확인 URL). 날짜
-# 범위로 100건 받던 방식(느려서 timeout)을 버리고, 구체적 주제어로 검색해 좁힌다.
+# getResearchList_v2는 start_date·end_date가 필수(NO_MANDATORY_REQUEST_PARAMETERS_ERROR)
+# 이고 searchword로 키워드 검색을 지원한다. 날짜(필수)+searchword(좁힘)를 함께 보낸다.
+PRISM_START = os.environ.get("PRISM_START", "20180101")
+PRISM_END = os.environ.get("PRISM_END", "20261231")
+
+
 def _decode_key(key):
     """data.go.kr 키를 raw로 정규화한다. Encoding 키(%2B·%2F·%3D 포함)든 Decoding
     키든 넣을 수 있게 unquote로 통일 → urlencode가 다시 정확히 인코딩한다."""
@@ -501,6 +505,7 @@ def _prism_lookup(query):
     for term in terms:
         try:
             params = {"serviceKey": _decode_key(DATA_GO_KR_KEY), "type": "json",
+                      "start_date": PRISM_START, "end_date": PRISM_END,
                       "numOfRows": 20, "pageNo": 1, "searchword": term}
             data = _http_get_json(PRISM_BASE + "?" + urllib.parse.urlencode(params))
             rows = _as_rows(_find_key(data, "research"))
