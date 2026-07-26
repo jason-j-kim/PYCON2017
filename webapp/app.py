@@ -488,10 +488,11 @@ def _decode_key(key):
 
 
 def _prism_search_terms(query):
-    """PRISM searchword용 핵심어. 의미 있는 토큰 중 구체적인(긴) 것 최대 2개."""
-    toks = [t for t in (query or "").split() if len(t) >= 2 and t not in _STOPWORDS]
+    """PRISM searchword용 핵심어. 의안과 같은 '구체적 주제어'(일반어 제외) 최대 2개.
+    (_bill_distinct_tokens/_BILL_BROAD는 아래 의안 절에 정의 — 호출 시점엔 로드됨.)"""
+    toks = _bill_distinct_tokens(query)
     if not toks:
-        toks = [t for t in (query or "").split() if t]
+        toks = [t for t in (query or "").split() if len(t) >= 2 and t not in _STOPWORDS]
     return sorted(dict.fromkeys(toks), key=len, reverse=True)[:2]
 
 
@@ -502,6 +503,7 @@ def _prism_lookup(query):
     terms = _prism_search_terms(q)
     if not terms:
         return []
+    distinct = _bill_distinct_tokens(q)          # 구체적 주제어 하나만 맞아도 통과
     out, seen = [], set()
     for term in terms:
         try:
@@ -519,7 +521,11 @@ def _prism_lookup(query):
                 title = _pick(r, "research_name", "biz_name")
                 if not title or title in seen:
                     continue
-                if not _keyword_hit(q, _pick(r, "research_name"), _pick(r, "biz_name")):
+                hay = f"{_pick(r, 'research_name') or ''} {_pick(r, 'biz_name') or ''}"
+                if distinct:
+                    if not any(t in hay for t in distinct):
+                        continue
+                elif not _keyword_hit(q, _pick(r, "research_name"), _pick(r, "biz_name")):
                     continue
                 seen.add(title)
                 out.append({"title": title,
