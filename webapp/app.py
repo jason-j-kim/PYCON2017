@@ -288,9 +288,12 @@ ERACO_TERMS = [t.strip() for t in os.environ.get(
 BILL_PSIZE = int(os.environ.get("BILL_PSIZE", "5"))
 # 제안이유·주요내용 본문: ALLBILLV2엔 없다. 의안정보시스템(likms)의 요약 팝업에서
 # BILL_ID로 받아온다(인증키 불필요, 공개 웹). 상위 5건만 조회한다.
-# 새 의안정보시스템 상세 페이지(제안이유·주요내용이 HTML에 포함, "+더보기"로 클램프).
+# 새 의안정보시스템: 상세 페이지(껍데기)는 billDetailPage.do, 제안이유 본문은 그
+# 안에서 billInfo.do가 불러온다(DevTools로 확인). billInfo.do를 직접 호출한다.
 LIKMS_DETAIL_BASE = os.environ.get(
     "LIKMS_DETAIL_BASE", "https://likms.assembly.go.kr/bill/bi/billDetailPage.do")
+LIKMS_BILLINFO = os.environ.get(
+    "LIKMS_BILLINFO", "https://likms.assembly.go.kr/bill/bi/bill/detail/billInfo.do")
 LIKMS_MENU_NO = os.environ.get("LIKMS_MENU_NO", "2600044")
 BILL_SUMMARY_MAXLEN = int(os.environ.get("BILL_SUMMARY_MAXLEN", "500"))  # 본문 앞에서 500자
 FISCAL_JSON = ROOT / "data" / "fiscal.json"
@@ -309,13 +312,17 @@ _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
 
 
-def _urlopen_read(url, accept, referer=None):
-    """공통 GET. HTTPError면 응답 본문(진짜 사유)까지 담아 RuntimeError로 올린다.
-    referer를 주면 헤더에 넣는다(likms처럼 Referer를 검사하는 사이트용)."""
+def _urlopen_read(url, accept, referer=None, data=None):
+    """공통 GET/POST. HTTPError면 응답 본문(진짜 사유)까지 담아 RuntimeError로 올린다.
+    referer를 주면 헤더에 넣는다(likms처럼 Referer를 검사하는 사이트용).
+    data(bytes)를 주면 POST로 보낸다(폼 인코딩)."""
     headers = {"Accept": accept, "User-Agent": _UA, "Accept-Language": "ko,en;q=0.9"}
     if referer:
         headers["Referer"] = referer
-    req = urllib.request.Request(url, headers=headers)
+    if data is not None:
+        headers["Content-Type"] = "application/x-www-form-urlencoded; charset=UTF-8"
+        headers["X-Requested-With"] = "XMLHttpRequest"
+    req = urllib.request.Request(url, data=data, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
             return resp.read().decode("utf-8", "replace")
@@ -540,19 +547,23 @@ def _bill_summary(bill_id):
     시도하고, 실패/빈값이면 빈 문자열(제목·결과만 남는다). 인증키는 필요 없다."""
     if not bill_id:
         return ""
-    try:
-        url = LIKMS_DETAIL_BASE + "?" + urllib.parse.urlencode(
-            {"billId": bill_id, "currMenuNo": LIKMS_MENU_NO})
-        text = _strip_html(_urlopen_read(url, "text/html", referer=url))
-        _debug_once("bill-summary", text[:500])
-        # '제안이유'부터 취해 앞에서 자른다(그 뒤에 주요내용이 이어짐).
-        m = re.search(r"제안이유", text)
-        if m:
-            body = text[m.start():].strip()
+    referer = LIKMS_DETAIL_BASE + "?" + urllib.parse.urlencode(
+        {"billId": bill_id, "currMenuNo": LIKMS_MENU_NO})
+    qs = urllib.parse.urlencode({"billId": bill_id})
+    # billInfo.do를 GET(?billId=) → POST(billId=) 순으로 시도한다(요청 방식 불명).
+    for method, url, data in (("GET", LIKMS_BILLINFO + "?" + qs, None),
+                              ("POST", LIKMS_BILLINFO, qs.encode("utf-8"))):
+        try:
+            text = _strip_html(_urlopen_read(url, "text/html", referer=referer, data=data))
+            _debug_once(f"bill-summary-{method}", text[:500])
+            if "기본검색 문서검색" in text and "제안이유" not in text:
+                continue                      # 껍데기 페이지(본문 없음)
+            m = re.search(r"제안이유", text)
+            body = (text[m.start():] if m else text).strip()
             if len(body) >= 40:
                 return body[:BILL_SUMMARY_MAXLEN]
-    except Exception as e:
-        print("bill summary(likms) 실패:", e, file=sys.stderr)
+        except Exception as e:
+            print(f"bill summary(likms {method}) 실패:", e, file=sys.stderr)
     return ""
 
 
