@@ -474,44 +474,53 @@ def _fiscal_local_search(query):
 
 
 # ── PRISM: 정책연구 과제 (API) ──
-# getResearchList_v2에는 키워드 파라미터가 없다(조회는 기관·날짜 범위 기준).
-# 그래서 날짜 범위로 목록을 받아 과제명·연구개요를 로컬에서 키워드 매칭한다.
-PRISM_START = os.environ.get("PRISM_START", "20180101")
-PRISM_END = os.environ.get("PRISM_END", "20261231")
-
-
+# getResearchList_v2는 searchword로 키워드 검색을 지원한다(교수님 확인 URL). 날짜
+# 범위로 100건 받던 방식(느려서 timeout)을 버리고, 구체적 주제어로 검색해 좁힌다.
 def _decode_key(key):
     """data.go.kr 키를 raw로 정규화한다. Encoding 키(%2B·%2F·%3D 포함)든 Decoding
     키든 넣을 수 있게 unquote로 통일 → urlencode가 다시 정확히 인코딩한다."""
     return urllib.parse.unquote(key or "")
 
 
+def _prism_search_terms(query):
+    """PRISM searchword용 핵심어. 의미 있는 토큰 중 구체적인(긴) 것 최대 2개."""
+    toks = [t for t in (query or "").split() if len(t) >= 2 and t not in _STOPWORDS]
+    if not toks:
+        toks = [t for t in (query or "").split() if t]
+    return sorted(dict.fromkeys(toks), key=len, reverse=True)[:2]
+
+
 def _prism_lookup(query):
     if not DATA_GO_KR_KEY:
         return []
     q = (query or "").strip()
-    if not q:
+    terms = _prism_search_terms(q)
+    if not terms:
         return []
-    try:
-        params = {"serviceKey": _decode_key(DATA_GO_KR_KEY), "type": "json",
-                  "start_date": PRISM_START, "end_date": PRISM_END,
-                  "numOfRows": 100, "pageNo": 1}
-        data = _http_get_json(PRISM_BASE + "?" + urllib.parse.urlencode(params))
-        rows = _as_rows(_find_key(data, "research"))
-        out = []
-        for r in rows:
-            # 확정 필드: research_name(과제명)·organ_name(기관)·research_date(기간).
-            # 목록 응답에는 개요가 없어 과제명·사업명으로 키워드 매칭한다(공용 규칙).
-            title = _pick(r, "research_name", "biz_name")
-            if not _keyword_hit(q, _pick(r, "research_name"), _pick(r, "biz_name")):
+    out, seen = [], set()
+    for term in terms:
+        try:
+            params = {"serviceKey": _decode_key(DATA_GO_KR_KEY), "type": "json",
+                      "numOfRows": 20, "pageNo": 1, "searchword": term}
+            data = _http_get_json(PRISM_BASE + "?" + urllib.parse.urlencode(params))
+            rows = _as_rows(_find_key(data, "research"))
+            if not rows:
+                _debug_once(f"prism-{term}", data)
                 continue
-            out.append({"title": title,
-                        "org": _pick(r, "organ_name"),
-                        "period": _pick(r, "research_date")})
-        return out[:5]
-    except Exception as e:
-        print("prism lookup 실패:", e, file=sys.stderr)
-        return []
+            for r in rows:
+                # 확정 필드: research_name(과제명)·organ_name(기관)·research_date(기간).
+                title = _pick(r, "research_name", "biz_name")
+                if not title or title in seen:
+                    continue
+                if not _keyword_hit(q, _pick(r, "research_name"), _pick(r, "biz_name")):
+                    continue
+                seen.add(title)
+                out.append({"title": title,
+                            "org": _pick(r, "organ_name"),
+                            "period": _pick(r, "research_date")})
+        except Exception as e:
+            print(f"prism lookup 실패({term}):", e, file=sys.stderr)
+    return out[:5]
 
 
 # ── 국회 의안: 열린국회정보 '의안정보 통합 API'(ALLBILLV2), ASSEMBLY_KEY ──
