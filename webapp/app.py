@@ -45,9 +45,15 @@ MAX_SESSIONS_PER_DAY = int(os.environ.get("SOCRATIC_MAX_SESSIONS_PER_DAY", "30")
 POLICY_ONLY = os.environ.get("SOCRATIC_POLICY_ONLY", "").strip() in ("1", "true", "True")
 # 선례 조사 축(축 B) — 공공데이터포털 키 하나로 PRISM·국회 의안을 함께 쓴다.
 # 재정(세출예산)은 API가 아니라 로컬 정적 파일(data/fiscal.json)이라 키가 필요 없다.
-DATA_GO_KR_KEY = os.environ.get("DATA_GO_KR_KEY", "").strip()      # PRISM
+def _clean_key(name):
+    """환경변수 키에서 흔한 실수(따옴표·공백·개행)를 제거한다.
+    cmd에서 set KEY=\"abc\" 처럼 넣으면 따옴표가 값에 포함되어 400을 유발한다."""
+    return os.environ.get(name, "").strip().strip('"').strip("'").strip()
+
+
+DATA_GO_KR_KEY = _clean_key("DATA_GO_KR_KEY")      # PRISM
 # 국회 의안은 열린국회정보(open.assembly.go.kr) 별도 인증키를 쓴다.
-ASSEMBLY_KEY = os.environ.get("ASSEMBLY_KEY", "").strip()
+ASSEMBLY_KEY = _clean_key("ASSEMBLY_KEY")
 
 
 @app.exception_handler(RuntimeError)
