@@ -19,6 +19,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from webapp import app, db  # noqa: E402
 
 
+def _print_queries(spec):
+    """명세에서 뽑은 '검색어'를 세 소스별로 보여준다.
+    질의어(Claude가 뽑은 것) → 실제 API 조회어(코드가 변환한 것)."""
+    q = (spec or {}).get("queries", {})
+    print("\n── 지금 검색어 ──────────────────────────────")
+    print("[재정]  질의어(그대로 매칭):")
+    for x in q.get("fiscal", []):
+        print(f"        · {x}")
+    print("[PRISM] 질의어 → searchword:")
+    for x in q.get("prism", []):
+        print(f"        · {x}  →  {app._prism_search_terms(x)}")
+    print("[의안]  질의어 → BILL_NM 조회어:")
+    for x in q.get("bill", []):
+        print(f"        · {x}  →  {app._bill_search_terms(x)}")
+    print("────────────────────────────────────────────")
+
+
 def _latest_policy_sid():
     with db._conn() as conn:
         row = conn.execute(
@@ -59,14 +76,24 @@ def main():
     cache_dir = Path(__file__).resolve().parent / "spec_cache"
     cache_dir.mkdir(exist_ok=True)
     cache_fp = cache_dir / f"{sid}.json"
+
+    # "--show": 재채점 없이 저장된 검색어만 즉시 출력하고 끝낸다.
+    if "--show" in sys.argv:
+        if not cache_fp.exists():
+            print("저장된 명세가 없습니다. 먼저 (--show 없이) 한 번 실행하세요.")
+            return
+        _print_queries(json.loads(cache_fp.read_text(encoding="utf-8")).get("spec", {}))
+        return
+
     spec = judge = None
     if "--fresh" not in sys.argv and cache_fp.exists():
         cached = json.loads(cache_fp.read_text(encoding="utf-8"))
         spec, judge = cached.get("spec"), cached.get("judge")
         print(f"저장된 명세 재사용(재현성): {cache_fp.name}")
-        print(f"의안 질의어: {spec.get('queries', {}).get('bill')}")
     else:
         print("명세를 새로 추출합니다(첫 실행 또는 --fresh).")
+    if spec:
+        _print_queries(spec)
     print("재채점 중… (조회 + Claude 판정, 30초~2분)\n")
 
     result = app.engine.originality_axis(
@@ -77,6 +104,7 @@ def main():
             {"spec": result["spec"], "judge": result["judge"]},
             ensure_ascii=False, indent=1), encoding="utf-8")
         print(f"명세 저장됨(다음부터 재사용): {cache_fp.name}")
+        _print_queries(result["spec"])        # 새로 뽑은 검색어도 보여준다
 
     o, lk = result["originality"], result.get("lookup")
     print("=" * 60)
