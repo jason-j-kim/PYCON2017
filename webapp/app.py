@@ -531,48 +531,64 @@ def _bill_summary(bill_id):
         return ""
 
 
+def _bill_search_terms(query):
+    """열린국회 BILL_NM 검색용 '짧은 핵심어'. 긴 문구는 400을 유발하고, 설령
+    통과해도 의안명(법률명 형태)에 그 문구가 없어 0건이 된다. 그래서 의미 있는
+    토큰 중 구체적인(긴) 것 위주로 최대 2개만 검색어로 쓴다."""
+    toks = [t for t in (query or "").split() if len(t) >= 2 and t not in _STOPWORDS]
+    if not toks:
+        toks = [t for t in (query or "").split() if t]
+    toks = sorted(dict.fromkeys(toks), key=len, reverse=True)  # 순서 보존 + 긴 것 우선
+    return toks[:2]
+
+
 def _bill_lookup(query):
-    """의안명(BILL_NM)으로 ALLBILLV2를 대수별 조회해 합치고, 상위 5건에 대해
-    likms에서 제안이유 본문을 채운다."""
+    """짧은 핵심어로 ALLBILLV2를 대수별 조회해 후보를 모으고, 각 후보에 likms
+    제안이유 본문을 붙인 뒤, 원 질의어와 '이름+본문'으로 정밀 필터링한다.
+    (의안명은 법률명이라 제목만으로는 주제를 못 담으므로 본문까지 보고 판정한다.)"""
     if not ASSEMBLY_KEY:
         return []
     q = (query or "").strip()
-    if not q:
+    terms = _bill_search_terms(q)
+    if not terms:
         return []
-    out, seen = [], set()
-    for eraco in ERACO_TERMS:
-        try:
-            params = {"KEY": ASSEMBLY_KEY, "Type": "json", "pIndex": 1, "pSize": 100,
-                      "ERACO": eraco, "BILL_NM": q}
-            data = _http_get_data(ALLBILL_BASE + "?" + urllib.parse.urlencode(params))
-            rows = _as_rows(_find_key(data, "row"))
-            if not rows:
-                _debug_once(f"bill-{eraco}", data)
-                continue
-            for r in rows:
-                name = _pick(r, "BILL_NM", "BILL_NAME")
-                if not name or name in seen:
+    cand, seen = [], set()
+    for term in terms:
+        for eraco in ERACO_TERMS:
+            try:
+                params = {"KEY": ASSEMBLY_KEY, "Type": "json", "pIndex": 1,
+                          "pSize": 100, "ERACO": eraco, "BILL_NM": term}
+                data = _http_get_data(ALLBILL_BASE + "?" + urllib.parse.urlencode(params))
+                rows = _as_rows(_find_key(data, "row"))
+                if not rows:
+                    _debug_once(f"bill-{term}-{eraco}", data)
                     continue
-                if not _keyword_hit(q, name):   # 서버 검색을 공용 규칙으로 한번 더 조인다
-                    continue
-                seen.add(name)
-                out.append({
-                    "name": name,
-                    "proposer": _pick(r, "PROPOSER", "PPSR_NM", "RPPSR_NM"),
-                    "date": _pick(r, "PPSL_DT", "PROPOSE_DT", "PPSL_DATE"),
-                    "committee": _pick(r, "JRCMIT_NM", "CURR_COMMITTEE", "COMMITTEE_NM"),
-                    "result": _pick(r, "RGS_CONF_RSLT", "RGS_RSLT", "PROC_RESULT",
-                                    "JRCMIT_PROC_RSLT") or "계류",
-                    "summary": "",
-                    "link": _pick(r, "LINK_URL", "DETAIL_LINK"),
-                    "eraco": eraco,
-                    "_bill_id": _pick(r, "BILL_ID", "BILL_NO"),
-                })
-        except Exception as e:
-            print(f"allbillv2 lookup 실패({eraco}):", e, file=sys.stderr)
-    out = out[:5]
-    for h in out:                       # 상위 5건만 본문 조회(호출 최소화)
-        h["summary"] = _bill_summary(h.pop("_bill_id", None))
+                for r in rows:
+                    name = _pick(r, "BILL_NM", "BILL_NAME")
+                    if name and name not in seen:
+                        seen.add(name)
+                        cand.append(r)
+            except Exception as e:
+                print(f"allbillv2 lookup 실패({term}/{eraco}):", e, file=sys.stderr)
+    out = []
+    for r in cand[:12]:                     # 본문 조회 상한(호출 최소화)
+        name = _pick(r, "BILL_NM", "BILL_NAME")
+        body = _bill_summary(_pick(r, "BILL_ID", "BILL_NO"))
+        if not _keyword_hit(q, name, body):  # 이름+제안이유 본문으로 관련성 판정
+            continue
+        out.append({
+            "name": name,
+            "proposer": _pick(r, "PROPOSER", "PPSR_NM", "RPPSR_NM"),
+            "date": _pick(r, "PPSL_DT", "PROPOSE_DT", "PPSL_DATE"),
+            "committee": _pick(r, "JRCMIT_NM", "CURR_COMMITTEE", "COMMITTEE_NM"),
+            "result": _pick(r, "RGS_CONF_RSLT", "RGS_RSLT", "PROC_RESULT",
+                            "JRCMIT_PROC_RSLT") or "계류",
+            "summary": body,
+            "link": _pick(r, "LINK_URL", "DETAIL_LINK"),
+            "eraco": _pick(r, "ERACO"),
+        })
+        if len(out) >= 5:
+            break
     return out
 
 
