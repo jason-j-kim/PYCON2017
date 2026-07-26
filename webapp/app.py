@@ -531,15 +531,33 @@ def _bill_summary(bill_id):
         return ""
 
 
+# 의안 검색·매칭에서 빼는 '너무 흔한' 도메인 일반어(정책·교육 행정 어휘).
+# 이런 말로 의안명을 검색하면 무관한 개정안이 쏟아지므로 구체적 주제어만 쓴다.
+_BILL_BROAD = _STOPWORDS | frozenset({
+    "교육", "학교", "학생", "수업", "교과", "과정", "교육과정", "신설", "지정",
+    "필수", "의무", "의무화", "시행", "국가", "국민", "서비스", "정보", "프로그램",
+    "지자체", "활동", "확보", "마련", "추진", "조성",
+})
+
+
+def _is_lawname(tok):
+    return tok.endswith(("법", "법률", "법안", "법률안"))
+
+
+def _bill_distinct_tokens(query):
+    """의안 관련성 판정용 '구체적 주제어'. 법률명·일반어를 뺀 고유 명사류."""
+    toks = [t for t in (query or "").split()
+            if len(t) >= 2 and t not in _BILL_BROAD and not _is_lawname(t)]
+    return list(dict.fromkeys(toks))
+
+
 def _bill_search_terms(query):
-    """열린국회 BILL_NM 검색용 '짧은 핵심어'. 긴 문구는 400을 유발하고, 설령
-    통과해도 의안명(법률명 형태)에 그 문구가 없어 0건이 된다. 그래서 의미 있는
-    토큰 중 구체적인(긴) 것 위주로 최대 2개만 검색어로 쓴다."""
-    toks = [t for t in (query or "").split() if len(t) >= 2 and t not in _STOPWORDS]
+    """열린국회 BILL_NM 검색용 핵심어. 법률명(개정안 폭주)·일반어를 빼고 구체적
+    주제어를 우선 쓴다. 없으면 일반 의미어라도 사용(최대 2개)."""
+    toks = _bill_distinct_tokens(query)
     if not toks:
-        toks = [t for t in (query or "").split() if t]
-    toks = sorted(dict.fromkeys(toks), key=len, reverse=True)  # 순서 보존 + 긴 것 우선
-    return toks[:2]
+        toks = [t for t in (query or "").split() if len(t) >= 2 and t not in _STOPWORDS]
+    return sorted(dict.fromkeys(toks), key=len, reverse=True)[:2]
 
 
 def _bill_lookup(query):
@@ -552,6 +570,7 @@ def _bill_lookup(query):
     terms = _bill_search_terms(q)
     if not terms:
         return []
+    distinct = _bill_distinct_tokens(q)
     cand, seen = [], set()
     for term in terms:
         for eraco in ERACO_TERMS:
@@ -574,7 +593,13 @@ def _bill_lookup(query):
     for r in cand[:12]:                     # 본문 조회 상한(호출 최소화)
         name = _pick(r, "BILL_NM", "BILL_NAME")
         body = _bill_summary(_pick(r, "BILL_ID", "BILL_NO"))
-        if not _keyword_hit(q, name, body):  # 이름+제안이유 본문으로 관련성 판정
+        hay = f"{name} {body}"
+        # 구체적 주제어가 하나라도 이름·본문에 있으면 관련 의안으로 본다(등급기가
+        # 설계 차이를 판단). 구체어가 없는 질의면 공용 규칙으로 보수적으로 판정.
+        if distinct:
+            if not any(t in hay for t in distinct):
+                continue
+        elif not _keyword_hit(q, name, body):
             continue
         out.append({
             "name": name,
