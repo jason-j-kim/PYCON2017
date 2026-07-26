@@ -18,7 +18,8 @@ set SOCRATIC_MAX_SESSIONS_PER_DAY=30
 REM 연구자에게 수정판(/policy)만 노출: 루트(/)는 /policy로 자동 이동.
 set SOCRATIC_POLICY_ONLY=1
 REM 선례 조사 축(축 B) 키는 저장소에 넣지 않는다 — keys.local.bat(gitignore)에서 불러온다.
-REM   keys.local.bat 예시 (저장소 루트에 만들 것):
+REM   keys.local.bat 예시 (저장소 루트에 만들 것. 첫 줄 @echo off로 키 노출 방지):
+REM       @echo off
 REM       set DATA_GO_KR_KEY=공공데이터포털키   (PRISM)
 REM       set ASSEMBLY_KEY=열린국회정보키       (국회 의안)
 REM 재정(세출예산)은 data\fiscal.json 로컬 파일이라 키가 필요 없다.
