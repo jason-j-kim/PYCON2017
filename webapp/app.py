@@ -503,6 +503,9 @@ def _prism_lookup(query):
     terms = _prism_search_terms(q)
     if not terms:
         return []
+    # PRISM은 searchword를 무시하고 날짜순 결과를 주기도 한다. 그래서 구체적 주제어가
+    # 실제 과제명·사업명에 있는 것만 남긴다(무관한 결과 차단; 없으면 정직하게 0건).
+    distinct = _bill_distinct_tokens(q)
     out, seen = [], set()
     for term in terms:
         try:
@@ -517,11 +520,12 @@ def _prism_lookup(query):
                 continue
             for r in rows:
                 # 확정 필드: research_name(과제명)·organ_name(기관)·research_date(기간).
-                # searchword가 이미 관련성을 거른다(제목·개요까지 검색). 제목 재필터를
-                # 하지 않고 받아온 결과를 그대로 쓴다(제목엔 없고 개요에만 있는 연구 보존).
                 title = _pick(r, "research_name", "biz_name")
                 if not title or title in seen:
                     continue
+                hay = f"{_pick(r, 'research_name') or ''} {_pick(r, 'biz_name') or ''}"
+                if distinct and not any(t in hay for t in distinct):
+                    continue                 # 주제어가 과제명에 없으면 무관 → 제외
                 seen.add(title)
                 out.append({"title": title,
                             "org": _pick(r, "organ_name"),
