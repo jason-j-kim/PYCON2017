@@ -233,12 +233,20 @@ ul { margin: 6px 0; padding-left: 20px; }
       <div id="start-error" class="error hidden"></div>
     </div>
 
-    <!-- 선례 조사만 바로 테스트 (문답 생략) -->
+    <!-- 저장한 문답 불러와 수정·재평가 (문답 생략) -->
     <div class="card">
-      <div class="field-head"><b>선례 조사만 바로 확인 (문답 생략)</b></div>
-      <div class="note-sub">위 정책 설명과 Claude 키만으로 <b>재정·PRISM·국회 의안 조회 + 독창성 판정</b>을
-        즉시 실행합니다. 12문답·채점은 건너뜁니다 — 축 B(선례 조사)만 검증할 때 쓰세요.</div>
-      <div class="row"><button class="secondary" id="btn-testaxis">선례 조사 테스트</button>
+      <div class="field-head"><b>저장한 문답 불러와 수정·재평가 (창의성 · 선례 조사)</b></div>
+      <div class="note-sub">문답 없이, 아래 칸의 정책 설명(또는 저장해 둔 문답)만으로
+        <b>재정·PRISM·국회 의안 조회 + 독창성 판정</b>을 실행합니다. 저장한 파일을 불러와
+        <b>내용을 수정한 뒤 다시 평가</b>할 수 있습니다.</div>
+      <div class="row" style="margin-top:10px">
+        <button class="secondary" id="btn-load-file">저장 파일 불러오기</button>
+        <button class="secondary" id="btn-load-last">직전 결과 불러오기</button>
+        <button class="secondary" id="btn-axis-example">예시</button>
+        <input type="file" id="file-input" accept="application/json,.json" class="hidden">
+      </div>
+      <textarea id="axis-input" style="margin-top:10px" placeholder="정책 설명을 입력하거나, 저장한 문답을 불러와 수정하세요."></textarea>
+      <div class="row"><button id="btn-testaxis">창의성(선례 조사) 평가</button>
         <span class="tagline" style="margin:0">약 30초~1분</span></div>
       <div id="axisb-test" style="margin-top:12px"></div>
     </div>
@@ -275,7 +283,12 @@ ul { margin: 6px 0; padding-left: 20px; }
         <div id="transcript"></div>
       </details>
     </div>
-    <div class="row"><button id="btn-again" class="secondary">새 정책으로 다시 시작</button></div>
+    <div class="row">
+      <button id="btn-save">결과 저장 (.json 내려받기)</button>
+      <button id="btn-again" class="secondary">새 정책으로 다시 시작</button>
+    </div>
+    <div class="note-sub">저장한 파일은 시작 화면의 “저장한 문답 불러와 수정·재평가”에서 다시 열어
+      문답을 고친 뒤 창의성(선례 조사)을 재평가할 수 있습니다.</div>
   </div>
 </div>
 
@@ -784,13 +797,83 @@ $("btn-start").onclick = async () => {
   }
 };
 
-// 문답 없이 축 B(선례 조사)만 즉시 실행 — Vercel에서 조회·판정이 도는지 바로 확인용.
+// ── 저장/불러오기 ──────────────────────────────────────────────────────
+// 현재 세션(문답+채점+선례조사)을 하나의 객체로 만든다.
+function currentSaveObject() {
+  return {
+    version: 1,
+    saved_at: new Date().toISOString(),
+    idea: session && session.turns[0] ? session.turns[0].content : "",
+    turns: session ? session.turns : [],
+    transcript_text: session ? transcriptLog().join("\n\n") : "",
+    evaluation: window.__lastEval || null,   // 방어력 채점(12문답)
+    axis_b: window.__lastAxisB || null       // 창의성(선례 조사)
+  };
+}
+// 새로고침에도 남도록 직전 세션을 브라우저에 자동 저장.
+function autosave() {
+  try { localStorage.setItem("last_session", JSON.stringify(currentSaveObject())); }
+  catch (e) {}
+}
+// 결과를 .json 파일로 내려받는다(영구 보관·다른 기기 이동·수정용).
+function saveToFile() {
+  const obj = currentSaveObject();
+  const blob = new Blob([JSON.stringify(obj, null, 2)], {type: "application/json"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "정책평가_" + obj.saved_at.replace(/[:.]/g, "-").slice(0, 19) + ".json";
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+
+// 저장 객체에서 편집용 텍스트를 뽑는다(문답 전문 우선, 없으면 아이디어).
+function loadedText(obj) {
+  if (typeof obj === "string") return obj;
+  return (obj && (obj.transcript_text || obj.idea)) || "";
+}
+$("btn-load-file").onclick = () => $("file-input").click();
+$("file-input").onchange = (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    try {
+      const obj = JSON.parse(r.result);
+      $("axis-input").value = loadedText(obj);
+      $("axisb-test").innerHTML = '<div class="axisb-status">파일을 불러왔습니다. '
+        + '내용을 수정한 뒤 「창의성(선례 조사) 평가」를 누르세요.</div>';
+    } catch (err) {
+      $("axisb-test").innerHTML = '<div class="error">파일을 읽지 못했습니다(JSON 형식이 아닙니다).</div>';
+    }
+  };
+  r.readAsText(f);
+  e.target.value = "";           // 같은 파일을 다시 선택할 수 있게 초기화
+};
+$("btn-load-last").onclick = () => {
+  const raw = localStorage.getItem("last_session");
+  if (!raw) { $("axisb-test").innerHTML = '<div class="error">저장된 직전 결과가 없습니다.</div>'; return; }
+  try {
+    $("axis-input").value = loadedText(JSON.parse(raw));
+    $("axisb-test").innerHTML = '<div class="axisb-status">직전 결과를 불러왔습니다. '
+      + '내용을 수정한 뒤 「창의성(선례 조사) 평가」를 누르세요.</div>';
+  } catch (e) {
+    $("axisb-test").innerHTML = '<div class="error">직전 결과를 불러오지 못했습니다.</div>';
+  }
+};
+$("btn-axis-example").onclick = () => {
+  $("axis-input").value = "노후 경유차 조기폐차 보조금 — 배출가스 5등급 노후 경유차를 "
+    + "조기 폐차하는 차주에게 보조금을 지급해 도심 미세먼지를 줄인다. 환경부 대기환경 예산으로 재원을 마련한다.";
+  $("axis-input").focus();
+};
+
+// 문답 없이 축 B(선례 조사·창의성)만 즉시 실행 — 수정한 내용으로 재평가할 때도 사용.
 $("btn-testaxis").onclick = async () => {
-  const idea = $("idea").value.trim();
+  const text = $("axis-input").value.trim();
   const apiKey = $("api-key").value.trim();
   const box = $("axisb-test");
   if (!apiKey) { box.innerHTML = '<div class="error">Claude API 키를 입력하세요.</div>'; return; }
-  if (!idea) { box.innerHTML = '<div class="error">위에 정책(아이디어)을 입력하세요.</div>'; return; }
+  if (!text) { box.innerHTML = '<div class="error">정책 설명을 입력하거나 저장한 문답을 불러오세요.</div>'; return; }
   if ($("remember").checked) localStorage.setItem("claude_api_key", apiKey);
   $("btn-testaxis").disabled = true;
   box.innerHTML = '<div class="axisb-status"><span class="spin"></span>'
@@ -799,7 +882,7 @@ $("btn-testaxis").onclick = async () => {
   try {
     const res = await fetch(EVALUATE_URL, {
       method: "POST", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({transcript: idea, api_key: apiKey})
+      body: JSON.stringify({transcript: text, api_key: apiKey})
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || `요청 실패 (${res.status})`);
@@ -873,8 +956,12 @@ function esc(s) {
     ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
 }
 
+$("btn-save").onclick = saveToFile;
+
 function renderResult(ev) {
   window.__lastTotal = ev.weighted_total;
+  window.__lastEval = ev;
+  window.__lastAxisB = null;      // 이번 세션의 선례 조사 결과는 아래에서 채워진다
   $("total-score").textContent = ev.weighted_total.toFixed(1);
   const band = $("score-band");
   if (ev.score_band) {
@@ -934,6 +1021,7 @@ function renderResult(ev) {
   loadTranscript();
   show("view-result");
   window.scrollTo({top: 0});
+  autosave();                  // 채점 결과를 브라우저에 저장(선례 조사는 끝나면 갱신)
   startOriginality();          // 축 B — 문답 뒤 별도로 진행(선례 조사)
 }
 
@@ -955,7 +1043,9 @@ async function startOriginality() {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || `요청 실패 (${res.status})`);
+    window.__lastAxisB = data;
     renderOriginality(data);
+    autosave();                // 문답+채점+선례조사 전체를 브라우저에 저장
   } catch (e) {
     box.querySelector(".axisb-status").textContent = "선례 조사에 실패했습니다: " + e.message
       + " — 위의 방어력 결과만 사용하세요.";
