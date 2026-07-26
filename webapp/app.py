@@ -301,9 +301,18 @@ def _redact(url):
     return re.sub(r"([?&](?:serviceKey|ServiceKey|KEY)=)[^&]+", r"\1***", url)
 
 
+# 일부 정부 API 방화벽이 Python-urllib 기본 User-Agent를 400으로 막는다.
+# 브라우저처럼 보이게 헤더를 붙인다(브라우저로는 되는데 서버로만 400인 원인).
+_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+       "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+
+
 def _urlopen_read(url, accept):
     """공통 GET. HTTPError면 응답 본문(진짜 사유)까지 담아 RuntimeError로 올린다."""
-    req = urllib.request.Request(url, headers={"Accept": accept})
+    req = urllib.request.Request(url, headers={
+        "Accept": accept, "User-Agent": _UA,
+        "Accept-Language": "ko,en;q=0.9",
+    })
     try:
         with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
             return resp.read().decode("utf-8", "replace")
