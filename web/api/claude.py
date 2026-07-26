@@ -42,16 +42,26 @@ class handler(BaseHTTPRequestHandler):
         system = payload.get("system") or ""
         user = payload.get("user") or ""
         max_tokens = int(payload.get("max_tokens") or 1200)
+        force_json = bool(payload.get("force_json"))
         if not user:
             self._send(400, {"error": "user 프롬프트가 비어 있습니다."})
             return
 
-        body = json.dumps({
+        req_body = {
             "model": CLAUDE_MODEL,
             "max_tokens": max_tokens,
             "system": system,
             "messages": [{"role": "user", "content": user}],
-        }).encode("utf-8")
+        }
+        if force_json:
+            # 도구 호출로 JSON을 강제한다 — API가 형식을 보장해 파싱 오류가 사라진다.
+            req_body["tools"] = [{
+                "name": "record",
+                "description": "판정 결과를 이 도구의 입력(JSON)으로 제출한다.",
+                "input_schema": {"type": "object"},
+            }]
+            req_body["tool_choice"] = {"type": "tool", "name": "record"}
+        body = json.dumps(req_body).encode("utf-8")
         req = urllib.request.Request(ANTHROPIC_URL, data=body, headers={
             "content-type": "application/json",
             "x-api-key": api_key,
@@ -79,8 +89,17 @@ class handler(BaseHTTPRequestHandler):
             return
 
         stop_reason = data.get("stop_reason")
-        text = "".join(b.get("text", "") for b in data.get("content", [])
-                       if b.get("type") == "text").strip()
+        blocks = data.get("content", [])
+        if force_json:
+            # 도구 입력(dict)을 그대로 돌려준다 — 이미 유효한 JSON이라 파싱이 필요 없다.
+            for b in blocks:
+                if b.get("type") == "tool_use":
+                    self._send(200, {"json": b.get("input", {}), "stop_reason": stop_reason})
+                    return
+            self._send(502, {"error": f"구조화 출력(JSON) 실패 (stop_reason={stop_reason}). "
+                                      "max_tokens를 늘리거나 더 빠른 모델로 바꿔 보세요."})
+            return
+        text = "".join(b.get("text", "") for b in blocks if b.get("type") == "text").strip()
         if not text:
             # 빈 응답의 실제 사유를 알려준다(대개 max_tokens로 잘렸거나 thinking만 반환).
             self._send(502, {"error": f"모델이 빈 응답을 반환했습니다 (stop_reason={stop_reason}). "

@@ -31,13 +31,18 @@ CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-opus-5")
 CLAUDE_MAX_TOKENS = int(os.environ.get("CLAUDE_MAX_TOKENS", "4000"))
 
 
-def call_claude(system_prompt, user_prompt, api_key):
-    """Anthropic Messages API를 호출하고 응답 텍스트를 이어붙여 반환한다."""
+def call_claude_json(system_prompt, user_prompt, api_key):
+    """Anthropic Messages API를 도구 호출로 불러 '유효한 JSON(dict)'을 돌려받는다.
+    도구 입력은 API가 형식을 보장하므로 텍스트 파싱(따옴표 깨짐 등)이 필요 없다."""
     body = json.dumps({
         "model": CLAUDE_MODEL,
         "max_tokens": CLAUDE_MAX_TOKENS,
         "system": system_prompt,
         "messages": [{"role": "user", "content": user_prompt}],
+        "tools": [{"name": "record",
+                   "description": "결과를 이 도구의 입력(JSON)으로 제출한다.",
+                   "input_schema": {"type": "object"}}],
+        "tool_choice": {"type": "tool", "name": "record"},
     }).encode("utf-8")
     req = urllib.request.Request(ANTHROPIC_URL, data=body, headers={
         "content-type": "application/json",
@@ -61,26 +66,21 @@ def call_claude(system_prompt, user_prompt, api_key):
         raise RuntimeError(f"Claude API 오류 HTTP {e.code}: {detail[:300]}{hint}")
     except urllib.error.URLError as e:
         raise RuntimeError(f"Claude API 연결 실패: {e.reason}")
-    return "".join(b.get("text", "") for b in data.get("content", [])
-                   if b.get("type") == "text").strip()
+    for b in data.get("content", []):
+        if b.get("type") == "tool_use":
+            return b.get("input", {})
+    raise RuntimeError(f"구조화 출력 실패 (stop_reason={data.get('stop_reason')})")
 
 
-def _extract_json(text):
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    if not match:
-        raise ValueError("응답에서 JSON을 찾지 못함")
-    return json.loads(match.group(0))
-
-
-def _call_and_parse(system_prompt, user_prompt, api_key, parser):
+def _call_and_parse(system_prompt, user_prompt, api_key, validator):
     last_error = None
     for _ in range(2):
-        text = call_claude(system_prompt, user_prompt, api_key)
+        obj = call_claude_json(system_prompt, user_prompt, api_key)
         try:
-            return parser(text)
-        except (ValueError, KeyError, TypeError, json.JSONDecodeError) as e:
+            return validator(obj)
+        except (ValueError, KeyError, TypeError) as e:
             last_error = e
-    raise RuntimeError(f"채점 결과 파싱 실패: {last_error}")
+    raise RuntimeError(f"채점 결과 검증 실패: {last_error}")
 
 
 # ── 시스템 프롬프트(축 B 3단계) ────────────────────────────────────────────
@@ -272,8 +272,9 @@ def extract_spec(transcript, api_key):
     prompt = ("<대화 로그>\n" + transcript + "\n</대화 로그>\n\n"
               "시스템 프롬프트의 형식에 따라 JSON 하나만 출력하라.")
 
-    def parse(text):
-        r = _extract_json(text)
+    def validate(r):
+        if not isinstance(r, dict):
+            raise ValueError("dict 아님")
         for k in ("spec", "policy_type", "claimed_precedents", "queries"):
             if k not in r:
                 raise ValueError(f"{k} 누락")
@@ -282,7 +283,7 @@ def extract_spec(transcript, api_key):
         r["queries"].setdefault("bill", [])
         return r
 
-    return _call_and_parse(SPEC_EXTRACTOR_SYSTEM, prompt, api_key, parse)
+    return _call_and_parse(SPEC_EXTRACTOR_SYSTEM, prompt, api_key, validate)
 
 
 def judge_by_knowledge(spec_result, api_key):
@@ -294,8 +295,9 @@ def judge_by_knowledge(spec_result, api_key):
     prompt = ("<정책 명세>\n" + payload + "\n</정책 명세>\n\n"
               "시스템 프롬프트의 형식에 따라 JSON 하나만 출력하라.")
 
-    def parse(text):
-        r = _extract_json(text)
+    def validate(r):
+        if not isinstance(r, dict):
+            raise ValueError("dict 아님")
         if r.get("verdict") not in ("has_precedent", "no_precedent", "uncertain"):
             raise ValueError("verdict 값 오류")
         r.setdefault("recalled", [])
@@ -303,7 +305,7 @@ def judge_by_knowledge(spec_result, api_key):
         r.setdefault("retraction_condition", "")
         return r
 
-    return _call_and_parse(PRECEDENT_JUDGE_SYSTEM, prompt, api_key, parse)
+    return _call_and_parse(PRECEDENT_JUDGE_SYSTEM, prompt, api_key, validate)
 
 
 def grade_originality(spec_result, judge, hits, api_key):
@@ -316,8 +318,9 @@ def grade_originality(spec_result, judge, hits, api_key):
     prompt = ("<입력>\n" + json.dumps(payload, ensure_ascii=False, indent=1)
               + "\n</입력>\n\n시스템 프롬프트의 형식에 따라 JSON 하나만 출력하라.")
 
-    def parse(text):
-        r = _extract_json(text)
+    def validate(r):
+        if not isinstance(r, dict):
+            raise ValueError("dict 아님")
         if r.get("band") not in _BANDS:
             raise ValueError("band 값 오류")
         r.setdefault("confidence", "하")
@@ -326,7 +329,7 @@ def grade_originality(spec_result, judge, hits, api_key):
         r.setdefault("retraction_condition", "")
         return r
 
-    return _call_and_parse(ORIGINALITY_GRADER_SYSTEM, prompt, api_key, parse)
+    return _call_and_parse(ORIGINALITY_GRADER_SYSTEM, prompt, api_key, validate)
 
 
 # ── 정부 오픈API 키(Vercel 환경변수) ──────────────────────────────────────
