@@ -290,6 +290,8 @@ BILL_PSIZE = int(os.environ.get("BILL_PSIZE", "5"))
 # BILL_ID로 받아온다(인증키 불필요, 공개 웹). 상위 5건만 조회한다.
 LIKMS_SUMMARY_BASE = os.environ.get(
     "LIKMS_SUMMARY_BASE", "https://likms.assembly.go.kr/bill/summaryPopup.do")
+LIKMS_DETAIL_BASE = os.environ.get(
+    "LIKMS_DETAIL_BASE", "https://likms.assembly.go.kr/bill/billDetail.do")
 BILL_SUMMARY_MAXLEN = int(os.environ.get("BILL_SUMMARY_MAXLEN", "500"))  # 본문 앞에서 500자
 FISCAL_JSON = ROOT / "data" / "fiscal.json"
 _TIMEOUT = 8
@@ -307,12 +309,13 @@ _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
 
 
-def _urlopen_read(url, accept):
-    """공통 GET. HTTPError면 응답 본문(진짜 사유)까지 담아 RuntimeError로 올린다."""
-    req = urllib.request.Request(url, headers={
-        "Accept": accept, "User-Agent": _UA,
-        "Accept-Language": "ko,en;q=0.9",
-    })
+def _urlopen_read(url, accept, referer=None):
+    """공통 GET. HTTPError면 응답 본문(진짜 사유)까지 담아 RuntimeError로 올린다.
+    referer를 주면 헤더에 넣는다(likms처럼 Referer를 검사하는 사이트용)."""
+    headers = {"Accept": accept, "User-Agent": _UA, "Accept-Language": "ko,en;q=0.9"}
+    if referer:
+        headers["Referer"] = referer
+    req = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
             return resp.read().decode("utf-8", "replace")
@@ -532,21 +535,26 @@ def _strip_html(s):
 
 
 def _bill_summary(bill_id):
-    """2단계: BILL_ID로 의안정보시스템(likms)에서 제안이유·주요내용 본문을 받아 자른다.
-    likms 요약 팝업은 인증키가 필요 없다. 실패하면 빈 문자열(제목·결과만 남는다)."""
+    """2단계: BILL_ID로 의안정보시스템(likms)에서 제안이유·주요내용 본문을 받는다.
+    likms는 브라우저 위장(UA)+Referer가 필요하다. 요약 팝업 → 상세 페이지 순으로
+    시도하고, 실패/빈값이면 빈 문자열(제목·결과만 남는다). 인증키는 필요 없다."""
     if not bill_id:
         return ""
-    try:
-        url = LIKMS_SUMMARY_BASE + "?" + urllib.parse.urlencode({"billId": bill_id})
-        text = _strip_html(_urlopen_read(url, "text/html"))
-        _debug_once("bill-summary", text[:400])
-        m = re.search(r"제안이유(?:\s*및\s*주요내용)?", text)
-        if m:
-            text = text[m.start():]
-        return text[:BILL_SUMMARY_MAXLEN] if len(text) >= 40 else ""
-    except Exception as e:
-        print("bill summary(likms) 실패:", e, file=sys.stderr)
-        return ""
+    referer = LIKMS_DETAIL_BASE + "?" + urllib.parse.urlencode({"billId": bill_id})
+    for base in (LIKMS_SUMMARY_BASE, LIKMS_DETAIL_BASE):
+        tag = base.rsplit("/", 1)[-1]
+        try:
+            url = base + "?" + urllib.parse.urlencode({"billId": bill_id})
+            text = _strip_html(_urlopen_read(url, "text/html", referer=referer))
+            _debug_once(f"bill-summary::{tag}", text[:400])
+            m = re.search(r"제안이유(?:\s*및\s*주요내용)?", text)
+            if m:
+                body = text[m.start():]
+                if len(body) >= 40:
+                    return body[:BILL_SUMMARY_MAXLEN]
+        except Exception as e:
+            print(f"bill summary(likms {tag}) 실패:", e, file=sys.stderr)
+    return ""
 
 
 # 의안 검색·매칭에서 빼는 '너무 흔한' 도메인 일반어(정책·교육 행정 어휘).
