@@ -1,0 +1,7 @@
+# 터널(webapp) 실행에 필요한 패키지
+# 설치:  pip install -r webapp/requirements.txt
+fastapi
+uvicorn[standard]
+# 문서 불러오기(Word/PDF) — 저장한 문답 재평가용
+python-docx
+pypdf

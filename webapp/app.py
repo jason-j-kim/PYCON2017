@@ -1,13 +1,15 @@
 """소크라테스 아이디어 평가 — 웹 MVP (FastAPI).
 
 실행 (저장소 루트에서):
-    pip install fastapi "uvicorn[standard]"
+    pip install -r webapp/requirements.txt   # fastapi·uvicorn·python-docx·pypdf
     claude /login                      # 최초 1회, Pro 구독 로그인 (API 키 불필요)
     python webapp/app.py               # http://localhost:8000
     # 또는: uvicorn webapp.app:app --port 8000
 """
 
+import base64
 import html
+import io
 import json
 import os
 import re
@@ -18,6 +20,7 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from typing import Optional
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -756,6 +759,103 @@ def poll_originality(sid: str):
     if o["result"]:
         payload["axis_b"] = _originality_payload(o["result"])
     return payload
+
+
+# ── 문서 불러오기(.docx/.pdf/.txt/.json) → 텍스트 추출 ───────────────────
+def _extract_docx_bytes(data):
+    from docx import Document                       # python-docx
+    doc = Document(io.BytesIO(data))
+    parts = [p.text for p in doc.paragraphs if p.text and p.text.strip()]
+    for tbl in doc.tables:                           # 표로 저장한 문답도 포함
+        for row in tbl.rows:
+            cells = [c.text.strip() for c in row.cells if c.text and c.text.strip()]
+            if cells:
+                parts.append(" | ".join(cells))
+    return "\n\n".join(parts).strip()
+
+
+def _extract_pdf_bytes(data):
+    from pypdf import PdfReader
+    reader = PdfReader(io.BytesIO(data))
+    pages = []
+    for page in reader.pages:
+        try:
+            pages.append(page.extract_text() or "")
+        except Exception:
+            pages.append("")
+    return "\n\n".join(pages).strip()
+
+
+def _extract_document(filename, data):
+    ext = (filename.rsplit(".", 1)[-1] if "." in filename else "").lower()
+    if ext == "docx":
+        return _extract_docx_bytes(data)
+    if ext == "pdf":
+        return _extract_pdf_bytes(data)
+    if ext in ("txt", "md"):
+        return data.decode("utf-8", "replace").strip()
+    if ext == "json":                                # 우리 저장 형식
+        obj = json.loads(data.decode("utf-8", "replace"))
+        if isinstance(obj, str):
+            return obj.strip()
+        if isinstance(obj, dict):
+            return str(obj.get("transcript_text") or obj.get("idea") or "").strip()
+        return ""
+    raise ValueError(f"지원하지 않는 형식입니다(.{ext}). .json/.docx/.pdf/.txt 만 됩니다.")
+
+
+class ExtractRequest(BaseModel):
+    filename: str
+    content_b64: str
+
+
+@app.post("/api/extract")
+def api_extract(req: ExtractRequest):
+    """업로드한 Word/PDF/텍스트/JSON에서 '문답 텍스트'를 뽑아 돌려준다."""
+    if not req.filename or not req.content_b64:
+        raise HTTPException(400, "파일 정보가 비어 있습니다.")
+    try:
+        data = base64.b64decode(req.content_b64)
+    except Exception:
+        raise HTTPException(400, "파일 디코딩에 실패했습니다.")
+    if len(data) > 8 * 1024 * 1024:
+        raise HTTPException(400, "파일이 너무 큽니다(8MB 이하만 됩니다).")
+    try:
+        text = _extract_document(req.filename, data)
+    except ImportError:
+        raise HTTPException(500, "문서 추출 라이브러리가 없습니다. 터미널에서 "
+                                 "'pip install python-docx pypdf' 후 서버를 다시 시작하세요.")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(422, f"문서에서 텍스트를 추출하지 못했습니다: {e}")
+    if not text:
+        raise HTTPException(422, "문서에서 텍스트를 찾지 못했습니다(스캔 이미지 PDF 등일 수 있습니다).")
+    return {"text": text, "chars": len(text)}
+
+
+# ── 즉석 재평가: 불러온 문답(수정본)으로 축 B만 다시 실행 ─────────────────
+class AdhocRequest(BaseModel):
+    transcript: str
+    access_code: Optional[str] = None
+
+
+@app.post("/api/originality/adhoc")
+def start_originality_adhoc(req: AdhocRequest):
+    """문답 전문(파일에서 불러와 수정한 것)만으로 선례 조사(축 B)를 실행한다.
+    원칙(먼저 문답, 그다음 평가)에 맞게 '저장된 대화'를 대상으로만 쓴다."""
+    if ACCESS_CODE and (req.access_code or "").strip() != ACCESS_CODE:
+        raise HTTPException(403, "초대 코드가 올바르지 않습니다.")
+    transcript = (req.transcript or "").strip()
+    if not transcript:
+        raise HTTPException(400, "문답 내용이 비어 있습니다.")
+    if db.count_sessions_today() >= MAX_SESSIONS_PER_DAY:
+        raise HTTPException(429, "오늘 사용 가능한 횟수를 모두 사용했습니다. 내일 다시 시도해 주세요.")
+    sid = db.create_session(transcript[:80], dict(engine.DEFAULT_WEIGHTS), "정책")
+    db.add_turn(sid, 1, "proposer", None, transcript)
+    db.set_originality_status(sid, "pending")
+    threading.Thread(target=_run_originality_axis, args=(sid,), daemon=True).start()
+    return {"session_id": sid}
 
 
 if __name__ == "__main__":

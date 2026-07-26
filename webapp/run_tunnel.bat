@@ -8,6 +8,10 @@ set PYTHONUTF8=1
 set PYTHONIOENCODING=utf-8
 cd /d "%~dp0\.."
 
+REM 필요한 패키지 설치(이미 있으면 즉시 넘어감). Word/PDF 불러오기 포함.
+echo 패키지 확인 중...
+python -m pip install -q -r webapp\requirements.txt
+
 set /p SOCRATIC_ACCESS_CODE=새 초대 비밀번호를 입력하세요:
 if "%SOCRATIC_ACCESS_CODE%"=="" (
   echo [중단] 비밀번호가 비어 있습니다. 외부 공개 시 반드시 설정해야 합니다.

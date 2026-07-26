@@ -227,6 +227,26 @@
       </div>
       <div id="start-error" class="error hidden"></div>
     </div>
+
+    <!-- 저장한 문답 불러와 수정·재평가 (Word/PDF/텍스트/JSON) -->
+    <div class="card">
+      <b>저장한 문답 불러와 수정·재평가 (창의성 · 선례 조사)</b>
+      <div class="note-sub"><b>저장해 둔 문답</b>(.json)이나 <b>Word(.docx)·PDF·텍스트</b> 파일을
+        불러와 내용을 수정한 뒤, 그 대화를 바탕으로 <b>창의성(선례 조사)</b>을 다시 평가합니다.
+        (원칙: 먼저 문답, 그다음 평가 — 새 아이디어는 위의 「문답 시작」으로 시작하세요.)</div>
+      <div class="row" style="margin-top:10px">
+        <button class="secondary" id="btn-load-file">파일 불러오기 (.docx/.pdf/.txt/.json)</button>
+        <input type="file" id="file-input" accept=".json,.docx,.pdf,.txt,.md,application/json" class="hidden">
+      </div>
+      <div class="field-head" style="margin-top:12px">
+        <label for="adhoc-input" style="margin:0">문답 내용 (불러온 뒤 수정 가능 · 음성으로도 입력)</label>
+        <button class="secondary mic" data-target="adhoc-input" type="button" style="padding:6px 12px">🎤 음성</button>
+      </div>
+      <textarea id="adhoc-input" placeholder="파일을 불러오면 여기에 표시됩니다. 불러온 뒤 수정하거나 🎤 음성으로 덧붙이세요."></textarea>
+      <div class="row"><button id="btn-adhoc">이 문답으로 창의성(선례 조사) 재평가</button>
+        <span class="tagline" style="margin:0">약 30초~2분</span></div>
+      <div id="adhoc-result" style="margin-top:12px"></div>
+    </div>
   </div>
 
   <!-- 채팅 화면 -->
@@ -522,27 +542,37 @@ async function startOriginality(sid) {
     "선례 조사 시간이 초과됐습니다 — 방어력 결과만 사용하세요.";
 }
 
-function renderOriginality(b) {
+function renderOriginality(b, targetId, withDefense) {
+  targetId = targetId || "axis-b";
+  if (withDefense === undefined) withDefense = true;
   const total = window.__lastTotal || 0;
-  const defHigh = total >= 6, origHigh = b.band === "계열 밖 시도";
+  const origHigh = b.band === "계열 밖 시도";
   const parts = [];
 
-  // 7-1 두 점수 병렬
-  parts.push('<div class="card two-score">'
-    + `<div><span class="ts-label">독창성 — 방어력</span>`
-    + `<span class="ts-val">${total.toFixed(1)}/10</span></div>`
-    + `<div><span class="ts-label">실질 독창성</span>`
-    + `<span class="ts-val">${esc(b.band)}</span>`
-    + `<span class="ts-conf">확신도 ${esc(b.confidence)}</span></div></div>`);
-
-  // 7-2 네 칸 위치 (판정 보류면 생략)
-  if (b.band !== "판정 보류") {
-    const cell = defHigh ? (origHigh ? "추진" : "기존 사업 개선으로 재포지셔닝")
-                         : (origHigh ? "보완 후 재문답" : "보류");
-    parts.push('<div class="card"><b>위치</b>'
-      + `<div class="quadrant-now">${cell}</div>`
-      + `<div class="subscores">방어 ${defHigh ? "높음" : "낮음"} · `
-      + `독창성 ${origHigh ? "높음" : "낮음"}</div></div>`);
+  if (withDefense) {
+    const defHigh = total >= 6;
+    // 7-1 두 점수 병렬
+    parts.push('<div class="card two-score">'
+      + `<div><span class="ts-label">독창성 — 방어력</span>`
+      + `<span class="ts-val">${total.toFixed(1)}/10</span></div>`
+      + `<div><span class="ts-label">실질 독창성</span>`
+      + `<span class="ts-val">${esc(b.band)}</span>`
+      + `<span class="ts-conf">확신도 ${esc(b.confidence)}</span></div></div>`);
+    // 7-2 네 칸 위치 (판정 보류면 생략)
+    if (b.band !== "판정 보류") {
+      const cell = defHigh ? (origHigh ? "추진" : "기존 사업 개선으로 재포지셔닝")
+                           : (origHigh ? "보완 후 재문답" : "보류");
+      parts.push('<div class="card"><b>위치</b>'
+        + `<div class="quadrant-now">${cell}</div>`
+        + `<div class="subscores">방어 ${defHigh ? "높음" : "낮음"} · `
+        + `독창성 ${origHigh ? "높음" : "낮음"}</div></div>`);
+    }
+  } else {
+    // 즉석 재평가(문답 점수 없음): 판정·확신도만 표시
+    parts.push('<div class="card" style="text-align:center">'
+      + '<div class="tagline">실질 독창성</div>'
+      + `<div class="quadrant-now" style="font-size:1.5rem">${esc(b.band)}</div>`
+      + `<div class="subscores">확신도 ${esc(b.confidence)} · 유형 ${esc(b.policy_type || "-")}</div></div>`);
   }
 
   // 7-3 근거 (A급/B급 배지 + 소스)
@@ -605,7 +635,7 @@ function renderOriginality(b) {
     + '불균등합니다. 재정 자료는 최근 5개 연도만 담고 있습니다. 이 점수는 정책 '
     + '영역 간 비교에 사용하지 않습니다.</div></div>');
 
-  $("axis-b").innerHTML = parts.join("");
+  $(targetId).innerHTML = parts.join("");
 }
 
 async function loadTranscript() {
@@ -645,6 +675,71 @@ $("btn-again").onclick = () => {
   $("idea").value = "";
   $("axis-b").innerHTML = "";
   show("view-start");
+};
+
+// ── 저장한 문답 불러오기(Word/PDF/텍스트/JSON) → 수정 → 창의성 재평가 ──
+$("btn-load-file").onclick = () => $("file-input").click();
+$("file-input").onchange = (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const name = f.name.toLowerCase();
+  const box = $("adhoc-result");
+  const done = (msg) => { box.innerHTML = '<div class="axisb-status">' + msg
+    + ' 수정한 뒤 「이 문답으로 창의성(선례 조사) 재평가」를 누르세요.</div>'; };
+  if (name.endsWith(".json")) {
+    const r = new FileReader();
+    r.onload = () => {
+      try {
+        const o = JSON.parse(r.result);
+        $("adhoc-input").value = (typeof o === "string") ? o : (o.transcript_text || o.idea || "");
+        done("파일을 불러왔습니다.");
+      } catch (err) { box.innerHTML = '<div class="error">JSON 파일을 읽지 못했습니다.</div>'; }
+    };
+    r.readAsText(f);
+  } else if (/\.(docx|pdf|txt|md)$/.test(name)) {
+    box.innerHTML = '<div class="axisb-status">문서에서 텍스트를 추출하는 중…</div>';
+    const r = new FileReader();
+    r.onload = async () => {
+      const b64 = String(r.result).split(",")[1] || "";
+      try {
+        const data = await api("/api/extract", {filename: f.name, content_b64: b64});
+        $("adhoc-input").value = data.text || "";
+        done("문서를 불러왔습니다(" + (data.chars || 0) + "자).");
+      } catch (err) { box.innerHTML = '<div class="error">문서 읽기 실패: ' + err.message + '</div>'; }
+    };
+    r.readAsDataURL(f);
+  } else {
+    box.innerHTML = '<div class="error">지원하지 않는 형식입니다(.json/.docx/.pdf/.txt).</div>';
+  }
+  e.target.value = "";
+};
+
+$("btn-adhoc").onclick = async () => {
+  const text = $("adhoc-input").value.trim();
+  const box = $("adhoc-result");
+  if (!text) { box.innerHTML = '<div class="error">먼저 파일을 불러오거나 문답을 입력하세요.</div>'; return; }
+  $("btn-adhoc").disabled = true;
+  box.innerHTML = '<div class="card"><div class="axisb-status">재정·PRISM·국회 의안에서 '
+    + '선례를 조사하는 중… (최대 2~3분)</div></div>';
+  window.__lastTotal = 0;
+  try {
+    const start = await api("/api/originality/adhoc",
+      {transcript: text, access_code: ($("access-code").value || "").trim()});
+    const sid = start.session_id;
+    let settled = false;
+    for (let i = 0; i < 60 && !settled; i++) {
+      await sleep(4000);
+      let d;
+      try { d = await api(`/api/sessions/${sid}/originality`); } catch (_) { continue; }
+      if (d.status === "done" && d.axis_b) { renderOriginality(d.axis_b, "adhoc-result", false); settled = true; }
+      else if (d.status === "error") { box.innerHTML = '<div class="error">선례 조사에 실패했습니다.</div>'; settled = true; }
+    }
+    if (!settled) box.innerHTML = '<div class="error">선례 조사 시간이 초과됐습니다. 다시 시도해 주세요.</div>';
+  } catch (e) {
+    box.innerHTML = '<div class="error">재평가 실패: ' + e.message + '</div>';
+  } finally {
+    $("btn-adhoc").disabled = false;
+  }
 };
 
 // ── 음성 입력 (브라우저 내장 Web Speech API · 서버·토큰 불필요) ──
