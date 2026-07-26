@@ -233,20 +233,19 @@ ul { margin: 6px 0; padding-left: 20px; }
       <div id="start-error" class="error hidden"></div>
     </div>
 
-    <!-- 저장한 문답 불러와 수정·재평가 (문답 생략) -->
+    <!-- 저장한 문답 불러와 수정·재평가 -->
     <div class="card">
       <div class="field-head"><b>저장한 문답 불러와 수정·재평가 (창의성 · 선례 조사)</b></div>
-      <div class="note-sub">문답 없이, 아래 칸의 정책 설명(또는 저장해 둔 문답)만으로
-        <b>재정·PRISM·국회 의안 조회 + 독창성 판정</b>을 실행합니다. 저장한 파일을 불러와
-        <b>내용을 수정한 뒤 다시 평가</b>할 수 있습니다.</div>
+      <div class="note-sub"><b>저장해 둔 문답</b>을 불러와 내용을 수정한 뒤, 그 대화를 바탕으로
+        <b>창의성(선례 조사)을 다시 평가</b>합니다. (원칙: 먼저 문답, 그다음 평가 —
+        새 아이디어는 위의 「문답 시작」으로 시작하세요.)</div>
       <div class="row" style="margin-top:10px">
         <button class="secondary" id="btn-load-file">저장 파일 불러오기</button>
         <button class="secondary" id="btn-load-last">직전 결과 불러오기</button>
-        <button class="secondary" id="btn-axis-example">예시</button>
         <input type="file" id="file-input" accept="application/json,.json" class="hidden">
       </div>
-      <textarea id="axis-input" style="margin-top:10px" placeholder="정책 설명을 입력하거나, 저장한 문답을 불러와 수정하세요."></textarea>
-      <div class="row"><button id="btn-testaxis">창의성(선례 조사) 평가</button>
+      <textarea id="axis-input" style="margin-top:10px" placeholder="저장한 문답을 불러오면 여기에 표시됩니다. 불러온 뒤 수정하세요."></textarea>
+      <div class="row"><button id="btn-testaxis">이 문답으로 창의성(선례 조사) 재평가</button>
         <span class="tagline" style="margin:0">약 30초~1분</span></div>
       <div id="axisb-test" style="margin-top:12px"></div>
     </div>
@@ -861,19 +860,13 @@ $("btn-load-last").onclick = () => {
     $("axisb-test").innerHTML = '<div class="error">직전 결과를 불러오지 못했습니다.</div>';
   }
 };
-$("btn-axis-example").onclick = () => {
-  $("axis-input").value = "노후 경유차 조기폐차 보조금 — 배출가스 5등급 노후 경유차를 "
-    + "조기 폐차하는 차주에게 보조금을 지급해 도심 미세먼지를 줄인다. 환경부 대기환경 예산으로 재원을 마련한다.";
-  $("axis-input").focus();
-};
-
-// 문답 없이 축 B(선례 조사·창의성)만 즉시 실행 — 수정한 내용으로 재평가할 때도 사용.
+// 저장한 문답을 수정한 뒤 그 대화를 바탕으로 창의성(선례 조사)만 재평가한다.
 $("btn-testaxis").onclick = async () => {
   const text = $("axis-input").value.trim();
   const apiKey = $("api-key").value.trim();
   const box = $("axisb-test");
   if (!apiKey) { box.innerHTML = '<div class="error">Claude API 키를 입력하세요.</div>'; return; }
-  if (!text) { box.innerHTML = '<div class="error">정책 설명을 입력하거나 저장한 문답을 불러오세요.</div>'; return; }
+  if (!text) { box.innerHTML = '<div class="error">먼저 저장한 문답을 불러오세요(위의 불러오기 버튼).</div>'; return; }
   if ($("remember").checked) localStorage.setItem("claude_api_key", apiKey);
   $("btn-testaxis").disabled = true;
   box.innerHTML = '<div class="axisb-status"><span class="spin"></span>'
