@@ -28,7 +28,7 @@ from pathlib import Path
 # 방문자가 브라우저에 넣은 키로 호출한다. 서버(Vercel)에는 저장하지 않는다.
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-opus-5")
-CLAUDE_MAX_TOKENS = int(os.environ.get("CLAUDE_MAX_TOKENS", "2000"))
+CLAUDE_MAX_TOKENS = int(os.environ.get("CLAUDE_MAX_TOKENS", "4000"))
 
 
 def call_claude(system_prompt, user_prompt, api_key):

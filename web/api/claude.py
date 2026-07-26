@@ -78,6 +78,12 @@ class handler(BaseHTTPRequestHandler):
             self._send(502, {"error": f"Claude API 연결 실패: {e.reason}"})
             return
 
+        stop_reason = data.get("stop_reason")
         text = "".join(b.get("text", "") for b in data.get("content", [])
                        if b.get("type") == "text").strip()
-        self._send(200, {"text": text})
+        if not text:
+            # 빈 응답의 실제 사유를 알려준다(대개 max_tokens로 잘렸거나 thinking만 반환).
+            self._send(502, {"error": f"모델이 빈 응답을 반환했습니다 (stop_reason={stop_reason}). "
+                                      "max_tokens를 늘리거나 더 빠른 모델로 바꿔 보세요."})
+            return
+        self._send(200, {"text": text, "stop_reason": stop_reason})
