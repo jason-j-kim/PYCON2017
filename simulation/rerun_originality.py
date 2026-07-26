@@ -45,7 +45,8 @@ def _latest_policy_sid():
 
 
 def main():
-    sid = sys.argv[1] if len(sys.argv) > 1 else None
+    # 플래그(--fresh, --show)는 제외하고, 순수 인자만 세션 ID로 본다.
+    sid = next((a for a in sys.argv[1:] if not a.startswith("--")), None)
     if not sid:
         row = _latest_policy_sid()
         if not row:
