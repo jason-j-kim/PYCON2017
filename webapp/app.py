@@ -549,19 +549,19 @@ def _bill_summary(bill_id):
         return ""
     referer = LIKMS_DETAIL_BASE + "?" + urllib.parse.urlencode(
         {"billId": bill_id, "currMenuNo": LIKMS_MENU_NO})
-    qs = urllib.parse.urlencode({"billId": bill_id})
+    qs = urllib.parse.urlencode({"billId": bill_id, "currMenuNo": LIKMS_MENU_NO})
     # billInfo.do를 GET(?billId=) → POST(billId=) 순으로 시도한다(요청 방식 불명).
+    # '제안이유'가 실제로 있는 응답만 본문으로 인정한다(404·껍데기 페이지 배제).
     for method, url, data in (("GET", LIKMS_BILLINFO + "?" + qs, None),
                               ("POST", LIKMS_BILLINFO, qs.encode("utf-8"))):
         try:
             text = _strip_html(_urlopen_read(url, "text/html", referer=referer, data=data))
             _debug_once(f"bill-summary-{method}", text[:500])
-            if "기본검색 문서검색" in text and "제안이유" not in text:
-                continue                      # 껍데기 페이지(본문 없음)
             m = re.search(r"제안이유", text)
-            body = (text[m.start():] if m else text).strip()
-            if len(body) >= 40:
-                return body[:BILL_SUMMARY_MAXLEN]
+            if m:
+                body = text[m.start():].strip()
+                if len(body) >= 40:
+                    return body[:BILL_SUMMARY_MAXLEN]
         except Exception as e:
             print(f"bill summary(likms {method}) 실패:", e, file=sys.stderr)
     return ""
