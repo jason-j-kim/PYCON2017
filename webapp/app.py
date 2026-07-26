@@ -559,8 +559,12 @@ def _strip_html(s):
 
 def _bill_summary(bill_id):
     """2단계: BILL_ID로 의안정보시스템(likms)에서 제안이유·주요내용 본문을 받는다.
-    likms는 브라우저 위장(UA)+Referer가 필요하다. 요약 팝업 → 상세 페이지 순으로
-    시도하고, 실패/빈값이면 빈 문자열(제목·결과만 남는다). 인증키는 필요 없다."""
+
+    ※ 미완(나중에 보완): 신형 likms는 SPA라 billInfo.do가 섹션별로 조각을 주는데,
+      제안이유 섹션을 선택하는 정확한 파라미터를 아직 못 잡아(POST는 '심사진행'만 옴)
+      대개 빈 값이 된다. 실패해도 무해하며(제목·결과만 남음), 향후 그 파라미터를
+      billInfo.do의 실제 요청(Copy as cURL)으로 확정하면 본문까지 살릴 수 있다.
+      코드는 그 확정을 쉽게 하도록 GET→POST·Referer·디버그 로깅을 남겨둔다."""
     if not bill_id:
         return ""
     referer = LIKMS_DETAIL_BASE + "?" + urllib.parse.urlencode(

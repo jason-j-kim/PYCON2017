@@ -11,6 +11,7 @@
 
 Claude 채점 단계는 `claude -p` CLI를 쓰므로 Pro 로그인된 PC에서 돌아간다.
 """
+import json
 import sys
 from pathlib import Path
 
