@@ -7,6 +7,9 @@ REM  · 첫 줄 @echo off 로 call 할 때 키가 화면에 찍히지 않게 한
 REM  · 값은 따옴표 없이 붙여넣는다 (set KEY=abc  O   /   set KEY="abc"  X).
 REM  · 재정(세출예산)은 data\fiscal.json 로컬 파일이라 키가 필요 없다.
 
+REM 어느 창에서든 실행되게 프로젝트 폴더로 이동(경로는 본인 PC에 맞게 수정).
+cd /d C:\Users\user\PYCON2017
+
 REM PRISM(정책연구) — 공공데이터포털(data.go.kr) 일반 인증키(인코딩/디코딩 아무거나)
 set DATA_GO_KR_KEY=여기에_data_go_kr_키
 
