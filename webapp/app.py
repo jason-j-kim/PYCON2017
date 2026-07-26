@@ -474,11 +474,15 @@ def _fiscal_local_search(query):
 
 
 # ── PRISM: 정책연구 과제 (API) ──
-# getResearchList_v2는 start_date·end_date가 필수(NO_MANDATORY_REQUEST_PARAMETERS_ERROR)
-# 이고 searchword로 키워드 검색을 지원한다. 날짜(필수)+searchword(좁힘)를 함께 보낸다.
+# getResearchList_v2의 요청 파라미터는 serviceKey·organ_id·start_date·end_date·
+# numOfRows·pageNo 뿐이다(요청변수 표 확인). 즉 '주제 키워드 검색'을 지원하지 않고
+# 기관코드·날짜로만 거른다. 그래서 날짜 범위로 여러 페이지를 받아 과제명·사업명에
+# 주제어가 있는 것만 로컬에서 골라낸다(최선의 근사; 최근 창 밖 연구는 못 잡을 수 있음).
 PRISM_START = os.environ.get("PRISM_START", "20180101")
 PRISM_END = os.environ.get("PRISM_END", "20261231")
 PRISM_TIMEOUT = int(os.environ.get("PRISM_TIMEOUT", "25"))  # PRISM API가 느려 별도 대기
+PRISM_ROWS = int(os.environ.get("PRISM_ROWS", "100"))       # 페이지당 결과 수
+PRISM_PAGES = int(os.environ.get("PRISM_PAGES", "3"))       # 훑을 페이지 수(로컬 필터)
 
 
 def _decode_key(key):
@@ -488,8 +492,8 @@ def _decode_key(key):
 
 
 def _prism_search_terms(query):
-    """PRISM searchword용 핵심어. 의안과 같은 '구체적 주제어'(일반어 제외) 최대 2개.
-    (_bill_distinct_tokens/_BILL_BROAD는 아래 의안 절에 정의 — 호출 시점엔 로드됨.)"""
+    """로컬 필터에 쓰는 '구체적 주제어'(일반어 제외). PRISM은 키워드 검색이 없어
+    이 말들이 과제명·사업명에 있는지로만 관련성을 판정한다(진단 스크립트도 이걸 씀)."""
     toks = _bill_distinct_tokens(query)
     if not toks:
         toks = [t for t in (query or "").split() if len(t) >= 2 and t not in _STOPWORDS]
@@ -500,38 +504,40 @@ def _prism_lookup(query):
     if not DATA_GO_KR_KEY:
         return []
     q = (query or "").strip()
-    terms = _prism_search_terms(q)
-    if not terms:
+    distinct = _bill_distinct_tokens(q) or [
+        t for t in q.split() if len(t) >= 2 and t not in _STOPWORDS]
+    if not distinct:
         return []
-    # PRISM은 searchword를 무시하고 날짜순 결과를 주기도 한다. 그래서 구체적 주제어가
-    # 실제 과제명·사업명에 있는 것만 남긴다(무관한 결과 차단; 없으면 정직하게 0건).
-    distinct = _bill_distinct_tokens(q)
     out, seen = [], set()
-    for term in terms:
+    for page in range(1, PRISM_PAGES + 1):
         try:
             params = {"serviceKey": _decode_key(DATA_GO_KR_KEY), "type": "json",
                       "start_date": PRISM_START, "end_date": PRISM_END,
-                      "numOfRows": 20, "pageNo": 1, "searchword": term}
+                      "numOfRows": PRISM_ROWS, "pageNo": page}
             data = _http_get_json(PRISM_BASE + "?" + urllib.parse.urlencode(params),
                                   timeout=PRISM_TIMEOUT)
             rows = _as_rows(_find_key(data, "research"))
             if not rows:
-                _debug_once(f"prism-{term}", data)
-                continue
+                if page == 1:
+                    _debug_once("prism", data)
+                break
             for r in rows:
                 # 확정 필드: research_name(과제명)·organ_name(기관)·research_date(기간).
                 title = _pick(r, "research_name", "biz_name")
                 if not title or title in seen:
                     continue
                 hay = f"{_pick(r, 'research_name') or ''} {_pick(r, 'biz_name') or ''}"
-                if distinct and not any(t in hay for t in distinct):
-                    continue                 # 주제어가 과제명에 없으면 무관 → 제외
+                if not any(t in hay for t in distinct):
+                    continue             # 주제어가 과제명에 없으면 무관 → 제외
                 seen.add(title)
                 out.append({"title": title,
                             "org": _pick(r, "organ_name"),
                             "period": _pick(r, "research_date")})
+            if len(out) >= 5 or len(rows) < PRISM_ROWS:
+                break                    # 5건 채웠거나 마지막 페이지면 중단
         except Exception as e:
-            print(f"prism lookup 실패({term}):", e, file=sys.stderr)
+            print(f"prism lookup 실패(p{page}):", e, file=sys.stderr)
+            break
     return out[:5]
 
 
