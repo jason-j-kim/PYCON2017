@@ -3,6 +3,9 @@ REM ── 소크라테스 평가 · 터널 배포용 서버 실행 (Windows) �
 REM  Claude Pro/Max 구독으로 로그인된 PC에서 실행한다. API 키 불필요.
 REM  실행할 때마다 초대 비밀번호를 새로 입력받는다(코드에 저장하지 않음).
 chcp 65001 >nul
+REM 파이썬 콘솔 출력을 UTF-8로 고정(로그의 한글 깨짐 방지).
+set PYTHONUTF8=1
+set PYTHONIOENCODING=utf-8
 cd /d "%~dp0\.."
 
 set /p SOCRATIC_ACCESS_CODE=새 초대 비밀번호를 입력하세요:
