@@ -553,14 +553,18 @@ def _profile_bits(hits, on):
     return {"exec": bit("fiscal"), "review": bit("prism"), "law": bit("bill")}
 
 
-def originality_axis(transcript, fiscal_fn=None, prism_fn=None, bill_fn=None):
+def originality_axis(transcript, fiscal_fn=None, prism_fn=None, bill_fn=None,
+                     spec=None, judge=None):
     """축 B 전체: Stage 3 → 4 → (조건부 5) → 6. 세 소스는 서로 다른 질문에
     답한다 — 재정(집행)·PRISM(검토)·의안(입법). 각 fn은 query→히트리스트 호출체
-    (해당 소스 미가용이면 None). 미조회 소스는 미발견으로 처리하지 않는다."""
+    (해당 소스 미가용이면 None). 미조회 소스는 미발견으로 처리하지 않는다.
+    spec/judge를 주면 재추출하지 않는다(재현성: 같은 명세로 재조회·재채점)."""
     from concurrent.futures import ThreadPoolExecutor
 
-    spec = extract_spec(transcript)
-    judge = judge_by_knowledge(spec)
+    if spec is None:
+        spec = extract_spec(transcript)
+    if judge is None:
+        judge = judge_by_knowledge(spec)
     hits = None
     fns = {"fiscal": fiscal_fn, "prism": prism_fn, "bill": bill_fn}
     on = {k: v is not None for k, v in fns.items()}

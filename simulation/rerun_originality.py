@@ -53,10 +53,29 @@ def main():
           f"재정={'O' if fiscal_fn else 'X'}",
           f"PRISM={'O' if prism_fn else 'X(키없음)'}",
           f"의안={'O' if bill_fn else 'X(키없음)'}")
+
+    # 재현성: 세션별로 명세(검색어)를 캐시해 재사용한다. "--fresh"면 새로 추출.
+    cache_dir = Path(__file__).resolve().parent / "spec_cache"
+    cache_dir.mkdir(exist_ok=True)
+    cache_fp = cache_dir / f"{sid}.json"
+    spec = judge = None
+    if "--fresh" not in sys.argv and cache_fp.exists():
+        cached = json.loads(cache_fp.read_text(encoding="utf-8"))
+        spec, judge = cached.get("spec"), cached.get("judge")
+        print(f"저장된 명세 재사용(재현성): {cache_fp.name}")
+        print(f"의안 질의어: {spec.get('queries', {}).get('bill')}")
+    else:
+        print("명세를 새로 추출합니다(첫 실행 또는 --fresh).")
     print("재채점 중… (조회 + Claude 판정, 30초~2분)\n")
 
-    result = app.engine.originality_axis(transcript, fiscal_fn, prism_fn, bill_fn)
+    result = app.engine.originality_axis(
+        transcript, fiscal_fn, prism_fn, bill_fn, spec=spec, judge=judge)
     db.save_originality(sid, result)          # 웹에서도 갱신되도록 저장
+    if spec is None:                          # 첫 추출이면 명세를 캐시에 저장
+        cache_fp.write_text(json.dumps(
+            {"spec": result["spec"], "judge": result["judge"]},
+            ensure_ascii=False, indent=1), encoding="utf-8")
+        print(f"명세 저장됨(다음부터 재사용): {cache_fp.name}")
 
     o, lk = result["originality"], result.get("lookup")
     print("=" * 60)
