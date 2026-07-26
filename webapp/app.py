@@ -277,6 +277,9 @@ ALLBILL_BASE = os.environ.get(
 # ERACO(대수)가 필수라 대수별로 조회한다. 최근 대수 위주(연구 목적상 최근 선례가 중요).
 ERACO_TERMS = [t.strip() for t in os.environ.get(
     "ERACO_TERMS", "제22대,제21대").split(",") if t.strip()]
+# 페이지 크기. 일부 열린국회 키는 5로 제한되어 100을 보내면 400이 난다(브라우저 확인).
+# 상위 몇 건만 쓰므로 5로 충분. 전체 승인 키를 쓰면 BILL_PSIZE로 올릴 수 있다.
+BILL_PSIZE = int(os.environ.get("BILL_PSIZE", "5"))
 # 제안이유·주요내용 본문: ALLBILLV2엔 없다. 의안정보시스템(likms)의 요약 팝업에서
 # BILL_ID로 받아온다(인증키 불필요, 공개 웹). 상위 5건만 조회한다.
 LIKMS_SUMMARY_BASE = os.environ.get(
@@ -576,7 +579,7 @@ def _bill_lookup(query):
         for eraco in ERACO_TERMS:
             try:
                 params = {"KEY": ASSEMBLY_KEY, "Type": "json", "pIndex": 1,
-                          "pSize": 100, "ERACO": eraco, "BILL_NM": term}
+                          "pSize": BILL_PSIZE, "ERACO": eraco, "BILL_NM": term}
                 data = _http_get_data(ALLBILL_BASE + "?" + urllib.parse.urlencode(params))
                 rows = _as_rows(_find_key(data, "row"))
                 if not rows:
