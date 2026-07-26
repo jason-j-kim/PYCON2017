@@ -43,14 +43,22 @@
 
   /* 시작 화면 정보 카드 */
   .card > b { font-size: .95rem; }
-  .steps { display: flex; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
-  .step { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 150px; }
+  /* 화살표를 번호 원 높이에 정렬 + 칸을 내용 크기로 줄이고 가운데 정렬(화살표가 사이 중앙) */
+  .steps { display: flex; align-items: flex-start; justify-content: center;
+           gap: 14px; margin-top: 12px; flex-wrap: wrap; }
+  .step { display: flex; align-items: flex-start; gap: 10px; flex: 0 1 auto; min-width: 0; }
   .step-no { width: 26px; height: 26px; border-radius: 50%; background: var(--accent);
              color: #fff; display: flex; align-items: center; justify-content: center;
              font-size: .85rem; font-weight: 700; flex: 0 0 auto; }
   .step b { display: block; font-size: .9rem; }
   .step span { font-size: .78rem; color: var(--sub); }
-  .step-arrow { color: var(--sub); flex: 0 0 auto; }
+  .step-arrow { color: var(--sub); flex: 0 0 auto; align-self: flex-start;
+                height: 26px; display: flex; align-items: center; }
+  @media (max-width: 560px) {
+    .steps { flex-direction: column; align-items: stretch; }
+    .step { min-width: 0; }
+    .step-arrow { display: none; }
+  }
   .crit-chips { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
   .chip { background: var(--bg); border: 1px solid var(--line); border-radius: 999px;
           padding: 5px 14px; font-size: .85rem; }
@@ -66,8 +74,8 @@
   .hero h1 { margin: 0 0 6px; }
   .hero .tagline { margin: 0 0 14px; font-size: .95rem; color: var(--ink); }
   .hero .tagline b { color: var(--accent); }
-  .trustbar { display: flex; gap: 8px; flex-wrap: wrap; }
-  .src { flex: 1; min-width: 130px; background: #fff; border: 1px solid var(--line);
+  .trustbar { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .src { flex: 1; min-width: 130px; background: var(--bg); border: 1px solid var(--line);
          border-radius: 10px; padding: 8px 12px; }
   .src b { display: block; color: var(--accent); font-size: .84rem; }
   .src span { font-size: .74rem; color: var(--sub); }
@@ -153,12 +161,7 @@
 <div class="wrap">
   <div class="hero">
     <h1>소크라테스식 아이디어 평가<span class="badge">수정판 · 정책</span></h1>
-    <div class="tagline">정책연구 · 재정 · 국회 의안으로 <b>선례를 검증</b>하는 정책 아이디어 평가</div>
-    <div class="trustbar">
-      <span class="src"><b>재정</b><span>예산으로 집행됐나</span></span>
-      <span class="src"><b>정책연구 · PRISM</b><span>연구로 검토됐나</span></span>
-      <span class="src"><b>국회 의안</b><span>입법이 시도됐나</span></span>
-    </div>
+    <div class="tagline"><b>대화와 데이터</b>로 검증하는 정책 아이디어 평가</div>
   </div>
 
   <!-- 시작 화면 -->
@@ -176,6 +179,17 @@
         <div class="step"><span class="step-no">3</span>
           <div><b>5문장 결과</b><span>현재·잠재가치·위험·근거·다음행동</span></div></div>
       </div>
+    </div>
+
+    <!-- 실질 독창성 평가에 쓰는 자료 (히어로 상단에서 이동) -->
+    <div class="card">
+      <b>실질 독창성 평가에 쓰는 자료 (선례 검증)</b>
+      <div class="trustbar">
+        <span class="src"><b>재정</b><span>예산으로 집행됐나</span></span>
+        <span class="src"><b>정책연구 · PRISM</b><span>연구로 검토됐나</span></span>
+        <span class="src"><b>국회 의안</b><span>입법이 시도됐나</span></span>
+      </div>
+      <div class="note-sub">문답이 끝나면 이 세 자료원과 모델 지식으로 선례를 조사해 실질 독창성을 판정합니다.</div>
     </div>
 
     <!-- 평가 기준 (읽기 전용) -->
