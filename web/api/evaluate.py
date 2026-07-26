@@ -31,9 +31,10 @@ CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-opus-5")
 CLAUDE_MAX_TOKENS = int(os.environ.get("CLAUDE_MAX_TOKENS", "4000"))
 
 
-def call_claude_json(system_prompt, user_prompt, api_key):
+def call_claude_json(system_prompt, user_prompt, api_key, schema=None):
     """Anthropic Messages API를 도구 호출로 불러 '유효한 JSON(dict)'을 돌려받는다.
-    도구 입력은 API가 형식을 보장하므로 텍스트 파싱(따옴표 깨짐 등)이 필요 없다."""
+    도구 입력은 API가 형식을 보장하므로 텍스트 파싱(따옴표 깨짐 등)이 필요 없다.
+    schema를 주면 필수 필드를 강제해 필드 누락(policy_type 등)을 막는다."""
     body = json.dumps({
         "model": CLAUDE_MODEL,
         "max_tokens": CLAUDE_MAX_TOKENS,
@@ -41,7 +42,7 @@ def call_claude_json(system_prompt, user_prompt, api_key):
         "messages": [{"role": "user", "content": user_prompt}],
         "tools": [{"name": "record",
                    "description": "결과를 이 도구의 입력(JSON)으로 제출한다.",
-                   "input_schema": {"type": "object"}}],
+                   "input_schema": schema or {"type": "object"}}],
         "tool_choice": {"type": "tool", "name": "record"},
     }).encode("utf-8")
     req = urllib.request.Request(ANTHROPIC_URL, data=body, headers={
@@ -72,15 +73,59 @@ def call_claude_json(system_prompt, user_prompt, api_key):
     raise RuntimeError(f"구조화 출력 실패 (stop_reason={data.get('stop_reason')})")
 
 
-def _call_and_parse(system_prompt, user_prompt, api_key, validator):
+def _call_and_parse(system_prompt, user_prompt, api_key, validator, schema=None):
     last_error = None
     for _ in range(2):
-        obj = call_claude_json(system_prompt, user_prompt, api_key)
+        obj = call_claude_json(system_prompt, user_prompt, api_key, schema=schema)
         try:
             return validator(obj)
         except (ValueError, KeyError, TypeError) as e:
             last_error = e
     raise RuntimeError(f"채점 결과 검증 실패: {last_error}")
+
+
+# 필수 필드를 강제하는 도구 입력 스키마(누락 방지). 값의 세부 형식은 프롬프트가 안내한다.
+_SPEC_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "spec": {"type": "object"},
+        "policy_type": {"type": "string"},
+        "claimed_precedents": {"type": "array"},
+        "queries": {
+            "type": "object",
+            "properties": {
+                "fiscal": {"type": "array", "items": {"type": "string"}},
+                "prism": {"type": "array", "items": {"type": "string"}},
+                "bill": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["fiscal", "prism", "bill"],
+        },
+    },
+    "required": ["spec", "policy_type", "claimed_precedents", "queries"],
+}
+_JUDGE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "verdict": {"type": "string",
+                    "enum": ["has_precedent", "no_precedent", "uncertain"]},
+        "recalled": {"type": "array"},
+        "reasoning": {"type": "string"},
+        "retraction_condition": {"type": "string"},
+    },
+    "required": ["verdict"],
+}
+_GRADE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "band": {"type": "string",
+                 "enum": ["선례 명확", "계열 내 변형", "계열 밖 시도", "판정 보류"]},
+        "confidence": {"type": "string"},
+        "evidence": {"type": "array"},
+        "reasoning": {"type": "string"},
+        "retraction_condition": {"type": "string"},
+    },
+    "required": ["band"],
+}
 
 
 # ── 시스템 프롬프트(축 B 3단계) ────────────────────────────────────────────
@@ -275,15 +320,19 @@ def extract_spec(transcript, api_key):
     def validate(r):
         if not isinstance(r, dict):
             raise ValueError("dict 아님")
-        for k in ("spec", "policy_type", "claimed_precedents", "queries"):
-            if k not in r:
-                raise ValueError(f"{k} 누락")
+        # 누락 필드는 실패시키지 않고 기본값으로 채운다(조회는 queries만 있으면 된다).
+        r.setdefault("spec", {})
+        r.setdefault("policy_type", "미상")
+        r.setdefault("claimed_precedents", [])
+        if not isinstance(r.get("queries"), dict):
+            r["queries"] = {}
         r["queries"].setdefault("fiscal", [])
         r["queries"].setdefault("prism", [])
         r["queries"].setdefault("bill", [])
         return r
 
-    return _call_and_parse(SPEC_EXTRACTOR_SYSTEM, prompt, api_key, validate)
+    return _call_and_parse(SPEC_EXTRACTOR_SYSTEM, prompt, api_key, validate,
+                           schema=_SPEC_SCHEMA)
 
 
 def judge_by_knowledge(spec_result, api_key):
@@ -299,13 +348,14 @@ def judge_by_knowledge(spec_result, api_key):
         if not isinstance(r, dict):
             raise ValueError("dict 아님")
         if r.get("verdict") not in ("has_precedent", "no_precedent", "uncertain"):
-            raise ValueError("verdict 값 오류")
+            r["verdict"] = "uncertain"      # 누락·오값이면 보수적으로 판단 보류
         r.setdefault("recalled", [])
         r.setdefault("reasoning", "")
         r.setdefault("retraction_condition", "")
         return r
 
-    return _call_and_parse(PRECEDENT_JUDGE_SYSTEM, prompt, api_key, validate)
+    return _call_and_parse(PRECEDENT_JUDGE_SYSTEM, prompt, api_key, validate,
+                           schema=_JUDGE_SCHEMA)
 
 
 def grade_originality(spec_result, judge, hits, api_key):
@@ -322,14 +372,15 @@ def grade_originality(spec_result, judge, hits, api_key):
         if not isinstance(r, dict):
             raise ValueError("dict 아님")
         if r.get("band") not in _BANDS:
-            raise ValueError("band 값 오류")
+            r["band"] = "판정 보류"          # 누락·오값이면 보수적으로 판정 보류
         r.setdefault("confidence", "하")
         r.setdefault("evidence", [])
         r.setdefault("reasoning", "")
         r.setdefault("retraction_condition", "")
         return r
 
-    return _call_and_parse(ORIGINALITY_GRADER_SYSTEM, prompt, api_key, validate)
+    return _call_and_parse(ORIGINALITY_GRADER_SYSTEM, prompt, api_key, validate,
+                           schema=_GRADE_SCHEMA)
 
 
 # ── 정부 오픈API 키(Vercel 환경변수) ──────────────────────────────────────
