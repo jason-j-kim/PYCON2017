@@ -2,6 +2,9 @@
   "functions": {
     "api/evaluate.py": {
       "maxDuration": 60
+    },
+    "api/claude.py": {
+      "maxDuration": 60
     }
   }
 }

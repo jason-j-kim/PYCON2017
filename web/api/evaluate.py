@@ -87,14 +87,14 @@ def _call_and_parse(system_prompt, user_prompt, api_key, parser):
 # socratic/prompts/ 의 검증된 프롬프트를 그대로 옮겼다(단일 소스처럼 유지).
 SPEC_EXTRACTOR_SYSTEM = """# 역할
 
-당신은 정책 아이디어 평가의 **명세 추출가**다. 정책 설명을 받아 정책을
+당신은 정책 아이디어 평가의 **명세 추출가**다. 대화 로그(또는 정책 설명)를 받아 정책을
 구조화하고, 선례 조회용 질의어를 만든다. **채점하지 않는다.** 요청된 JSON만 출력한다.
 
 # 임무
 
-1. 설명에서 정책의 핵심을 `spec`으로 요약한다 — 대상·수단·전달경로·재원.
+1. 로그에서 정책의 핵심을 `spec`으로 요약한다 — 대상·수단·전달경로·재원.
 2. 정책 유형을 하나 고른다(`policy_type`).
-3. 제안자가 스스로 지목한 기존 사업·제도를 `claimed_precedents`로 모은다(없으면 빈 배열).
+3. 제안자가 대화 중 스스로 지목한 기존 사업·제도를 `claimed_precedents`로 모은다(없으면 빈 배열).
 4. 선례 조회용 질의어를 만든다(`queries`).
 
 # 질의어 생성 규칙
@@ -268,8 +268,8 @@ _BANDS = ("선례 명확", "계열 내 변형", "계열 밖 시도", "판정 보
 
 
 # ── 축 B 3단계(Claude) ────────────────────────────────────────────────────
-def extract_spec(policy_text, api_key):
-    prompt = ("<정책 설명>\n" + policy_text + "\n</정책 설명>\n\n"
+def extract_spec(transcript, api_key):
+    prompt = ("<대화 로그>\n" + transcript + "\n</대화 로그>\n\n"
               "시스템 프롬프트의 형식에 따라 JSON 하나만 출력하라.")
 
     def parse(text):
@@ -669,9 +669,9 @@ def _profile_bits(hits, on):
     return {"exec": bit("fiscal"), "review": bit("prism"), "law": bit("bill")}
 
 
-def originality_axis(policy_text, api_key):
-    """정책 설명 → 명세 추출 → 지식 판정 → 3소스 조회 → 독창성 판정."""
-    spec = extract_spec(policy_text, api_key)
+def originality_axis(transcript, api_key):
+    """대화 로그 → 명세 추출 → 지식 판정 → 3소스 조회 → 독창성 판정."""
+    spec = extract_spec(transcript, api_key)
     judge = judge_by_knowledge(spec, api_key)
 
     fns = {
@@ -716,15 +716,16 @@ def _sources_status():
 
 
 def _evaluate(payload):
-    policy_text = (payload.get("policy") or "").strip()
+    # 문답 웹은 전체 대화 로그(transcript)를 보낸다. 단문 정책 설명(policy)도 허용.
+    transcript = (payload.get("transcript") or payload.get("policy") or "").strip()
     api_key = (payload.get("api_key") or "").strip()
-    if not policy_text:
-        raise ValueError("정책 설명을 입력하세요.")
+    if not transcript:
+        raise ValueError("대화 로그(또는 정책 설명)가 비어 있습니다.")
     if not api_key:
         raise ValueError("Claude API 키를 입력하세요.")
-    if len(policy_text) > 6000:
-        policy_text = policy_text[:6000]
-    result = originality_axis(policy_text, api_key)
+    if len(transcript) > 20000:
+        transcript = transcript[:20000]
+    result = originality_axis(transcript, api_key)
     o = result["originality"]
     lk = result.get("lookup")
     return {
