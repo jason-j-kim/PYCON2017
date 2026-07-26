@@ -683,12 +683,14 @@ def _bill_lookup(query):
     out = []
     for r in cand[:12]:
         name = _pick(r, "BILL_NM", "BILL_NAME")
-        body = _bill_summary(_pick(r, "BILL_ID", "BILL_NO"))
-        hay = f"{name} {body}"
+        # 제안이유 본문(likms)은 웹(서버리스 60초 제한)에서는 조회하지 않는다 —
+        # 후보 12건마다 GET+POST를 돌리면 시간이 초과되고, 대개 빈 값이라 이득이 없다.
+        # 제목(의안명)만으로 관련성을 판정한다(_bill_summary 코드는 향후용으로 남겨둠).
+        body = ""
         if distinct:
-            if not any(t in hay for t in distinct):
+            if not any(t in name for t in distinct):
                 continue
-        elif not _keyword_hit(q, name, body):
+        elif not _keyword_hit(q, name):
             continue
         out.append({
             "name": name,
@@ -723,40 +725,49 @@ def _profile_bits(hits, on):
     return {"exec": bit("fiscal"), "review": bit("prism"), "law": bit("bill")}
 
 
-def originality_axis(transcript, api_key):
-    """대화 로그 → 명세 추출 → 지식 판정 → 3소스 조회 → 독창성 판정."""
-    spec = extract_spec(transcript, api_key)
-    judge = judge_by_knowledge(spec, api_key)
-
+def _do_lookups(spec):
+    """명세의 질의어로 재정·PRISM·의안을 조회한다(가용 소스만). hits 또는 None."""
     fns = {
         "fiscal": _fiscal_local_search if _fiscal_available() else None,
         "prism": _prism_lookup if DATA_GO_KR_KEY else None,
         "bill": _bill_lookup if ASSEMBLY_KEY else None,
     }
     on = {k: v is not None for k, v in fns.items()}
-    hits = None
-    if any(on.values()):
-        queries = {s: (list(spec["queries"].get(s, []))[:3] if on[s] else [])
-                   for s in fns}
+    if not any(on.values()):
+        return None
+    queries = {s: (list(spec["queries"].get(s, []))[:3] if on[s] else [])
+               for s in fns}
 
-        def _safe(fn, q):
-            try:
-                return fn(q) or []
-            except Exception:
-                return []
+    def _safe(fn, q):
+        try:
+            return fn(q) or []
+        except Exception:
+            return []
 
-        collected = {"fiscal": [], "prism": [], "bill": []}
-        with ThreadPoolExecutor(max_workers=9) as ex:
-            futs = {s: [ex.submit(_safe, fns[s], q) for q in queries[s]] if on[s] else []
-                    for s in fns}
-            for s in fns:
-                for fut in futs[s]:
-                    collected[s] += fut.result()
-        dedup_key = {"fiscal": "name", "prism": "title", "bill": "name"}
-        hits = {s: _dedup(collected[s], dedup_key[s])[:5] for s in fns}
-        hits["queries"] = queries
-        hits["profile"] = _profile_bits(hits, on)
+    collected = {"fiscal": [], "prism": [], "bill": []}
+    with ThreadPoolExecutor(max_workers=9) as ex:
+        futs = {s: [ex.submit(_safe, fns[s], q) for q in queries[s]] if on[s] else []
+                for s in fns}
+        for s in fns:
+            for fut in futs[s]:
+                collected[s] += fut.result()
+    dedup_key = {"fiscal": "name", "prism": "title", "bill": "name"}
+    hits = {s: _dedup(collected[s], dedup_key[s])[:5] for s in fns}
+    hits["queries"] = queries
+    hits["profile"] = _profile_bits(hits, on)
+    return hits
 
+
+def originality_axis(transcript, api_key):
+    """대화 로그 → 명세 추출 → (지식 판정 ∥ 조회) → 독창성 판정.
+    지식 판정(Claude)과 외부 조회는 서로 독립이라 동시에 실행해 시간을 줄인다
+    (서버리스 60초 제한 대응)."""
+    spec = extract_spec(transcript, api_key)
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        judge_fut = ex.submit(judge_by_knowledge, spec, api_key)
+        hits_fut = ex.submit(_do_lookups, spec)
+        judge = judge_fut.result()
+        hits = hits_fut.result()
     grade = grade_originality(spec, judge, hits, api_key)
     return {"spec": spec, "judge": judge, "lookup": hits, "originality": grade}
 
