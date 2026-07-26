@@ -167,3 +167,16 @@ bh_unicode_properties.cache
 GitHub.sublime-settings
 
 # End of https://www.gitignore.io/api/macos,python,sublimetext
+
+# Socratic idea evaluation
+webapp/sessions.db
+session_*.json
+
+transcript_*.txt
+transcripts/
+node_modules/
+keys.local.bat
+*.local.bat
+
+# 재채점 명세 캐시(로컬 테스트용)
+simulation/spec_cache/

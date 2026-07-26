@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>소크라테스 아이디어 평가</title>
+<style>
+  :root {
+    --bg: #f6f5f1; --card: #ffffff; --ink: #26241f; --sub: #6d6a61;
+    --line: #e3e0d8; --accent: #23639c; --accent-ink: #ffffff; --good: #2e7d4f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif;
+    line-height: 1.6;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 24px 16px 96px; }
+  h1 { font-size: 1.35rem; margin: 8px 0 2px; }
+  .tagline { color: var(--sub); font-size: .9rem; margin-bottom: 24px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+          padding: 20px; margin-bottom: 16px; }
+  textarea, input[type=number] {
+    width: 100%; border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px 12px; font: inherit; background: #fff; color: var(--ink);
+  }
+  textarea { resize: vertical; min-height: 96px; }
+  label { font-size: .85rem; color: var(--sub); display: block; margin-bottom: 4px; }
+  .weights { display: flex; gap: 12px; margin-top: 14px; }
+  .weights > div { flex: 1; }
+  button {
+    border: 0; border-radius: 8px; padding: 10px 18px; font: inherit;
+    cursor: pointer; background: var(--accent); color: var(--accent-ink);
+  }
+  button.secondary { background: transparent; color: var(--sub);
+                     border: 1px solid var(--line); }
+  button:disabled { opacity: .45; cursor: default; }
+  .row { display: flex; gap: 8px; margin-top: 14px; align-items: center; }
+  .hidden { display: none !important; }
+
+  /* 채팅 */
+  #stagebar { position: sticky; top: 0; background: var(--bg); padding: 10px 0;
+              font-size: .85rem; color: var(--sub); display: flex; gap: 8px;
+              align-items: center; z-index: 5; }
+  .stage-chip { background: var(--accent); color: #fff; border-radius: 999px;
+                padding: 2px 12px; font-size: .8rem; }
+  .msg { max-width: 85%; padding: 10px 14px; border-radius: 12px; margin: 8px 0;
+         white-space: pre-wrap; }
+  .msg.q { background: var(--card); border: 1px solid var(--line);
+           border-bottom-left-radius: 4px; }
+  .msg.a { background: var(--accent); color: #fff; margin-left: auto;
+           border-bottom-right-radius: 4px; }
+  .msg.sys { background: transparent; color: var(--sub); font-size: .82rem;
+             text-align: center; max-width: 100%; }
+  .msg .who { display: block; font-size: .75rem; opacity: .75; margin-bottom: 2px; }
+  #thinking { color: var(--sub); font-size: .85rem; padding: 6px 2px; }
+  #composer { position: fixed; bottom: 0; left: 0; right: 0; background: var(--bg);
+              border-top: 1px solid var(--line); padding: 12px 16px; }
+  #composer .inner { max-width: 720px; margin: 0 auto; display: flex; gap: 8px; }
+  #composer textarea { min-height: 44px; max-height: 140px; flex: 1; }
+
+  /* 결과 */
+  .score-head { display: flex; justify-content: space-between; align-items: baseline; }
+  .score-head b { font-size: 1.05rem; }
+  .score-num { font-size: 1.3rem; font-weight: 700; }
+  .subscores { color: var(--sub); font-size: .85rem; margin: 4px 0 8px; }
+  .rationale { font-size: .88rem; color: var(--ink); background: var(--bg);
+               border-radius: 8px; padding: 10px 12px; margin: 8px 0; }
+  .check-list { list-style: none; margin: 8px 0 0; padding: 0; font-size: .85rem; }
+  .check-list li { padding: 3px 0; color: var(--sub); }
+  .check-list .ok { color: var(--good); font-weight: 700; }
+  .check-list .no { color: #b3261e; font-weight: 700; }
+  details summary { cursor: pointer; font-size: .85rem; color: var(--accent);
+                    margin-top: 8px; }
+  .total { text-align: center; padding: 22px; }
+  .total .num { font-size: 2.4rem; font-weight: 800; color: var(--accent); }
+  .band { color: var(--sub); font-size: .9rem; margin-top: 6px; }
+  .ev-badge { display: inline-block; margin-top: 10px; background: var(--bg);
+              border: 1px solid var(--line); border-radius: 999px;
+              padding: 4px 12px; font-size: .82rem; color: var(--ink); }
+  .five { margin: 0; }
+  .five .fl { border-left: 3px solid var(--accent); padding: 6px 0 6px 12px;
+              margin: 10px 0; }
+  .five .fl b { display: block; font-size: .82rem; color: var(--accent);
+                margin-bottom: 2px; }
+  .five .fl span { font-size: .9rem; color: var(--ink); }
+  ul { margin: 6px 0; padding-left: 20px; }
+  .encourage { border-left: 3px solid var(--good); padding-left: 12px;
+               color: var(--ink); }
+  .error { color: #b3261e; font-size: .88rem; margin-top: 10px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>소크라테스 아이디어 평가</h1>
+  <div class="tagline">AI가 평가하지 않습니다. 질문에 답하며 아이디어의 가치를 스스로 입증하세요.</div>
+
+  <!-- 시작 화면 -->
+  <div id="view-start">
+    <div class="card">
+      <label for="idea">아이디어를 자유롭게 서술하세요</label>
+      <textarea id="idea" placeholder="예) 동네 도서관의 남는 좌석을 실시간으로 보여주는 앱"></textarea>
+      <div class="weights">
+        <div><label>독창성 가중치</label><input id="w-orig" type="number" step="0.05" min="0" max="1" value="0.35"></div>
+        <div><label>실용성 가중치</label><input id="w-prac" type="number" step="0.05" min="0" max="1" value="0.35"></div>
+        <div><label>수용태도 가중치</label><input id="w-acc" type="number" step="0.05" min="0" max="1" value="0.30"></div>
+      </div>
+      <div id="access-row" class="hidden" style="margin-top:14px">
+        <label for="access-code">초대 코드</label>
+        <input id="access-code" type="text" placeholder="안내받은 초대 코드를 입력하세요"
+               style="width:100%;border:1px solid var(--line);border-radius:8px;padding:10px 12px;font:inherit">
+      </div>
+      <div class="row">
+        <button id="btn-start">문답 시작</button>
+        <span class="tagline" style="margin:0">총 12개 질문 · 약 15분</span>
+      </div>
+      <div id="start-error" class="error hidden"></div>
+    </div>
+  </div>
+
+  <!-- 채팅 화면 -->
+  <div id="view-chat" class="hidden">
+    <div id="stagebar">
+      <span class="stage-chip" id="stage-label"></span>
+      <span id="stage-progress"></span>
+      <button class="secondary" id="btn-finish" style="margin-left:auto">여기서 끝내고 채점</button>
+    </div>
+    <div id="messages"></div>
+    <div id="thinking" class="hidden">질문자가 생각하는 중…</div>
+  </div>
+
+  <!-- 결과 화면 -->
+  <div id="view-result" class="hidden">
+    <div class="card total">
+      <div>종합 점수 (가중 평균)</div>
+      <div class="num"><span id="total-score"></span><span style="font-size:1.1rem;color:var(--sub)"> / 10</span></div>
+      <div class="band" id="score-band"></div>
+      <div><span class="ev-badge" id="evidence-badge"></span></div>
+    </div>
+    <div class="card" id="five-card">
+      <b>핵심 요약</b>
+      <div class="five" id="five-lines"></div>
+    </div>
+    <div id="criteria"></div>
+    <div class="card"><b>강점</b><ul id="strengths"></ul></div>
+    <div class="card"><b>개선 제안</b><ul id="suggestions"></ul></div>
+    <div class="card"><b>격려</b><p class="encourage" id="encouragement"></p></div>
+    <div class="card">
+      <details><summary>대화 전문 보기 (전체 문답)</summary>
+        <div id="transcript"></div>
+      </details>
+    </div>
+    <div class="row"><button id="btn-again" class="secondary">새 아이디어로 다시 시작</button></div>
+  </div>
+</div>
+
+<!-- 답변 입력창 (채팅 화면에서만 표시) -->
+<div id="composer" class="hidden">
+  <div class="inner">
+    <textarea id="answer" placeholder="답변을 입력하세요 (Shift+Enter 줄바꿈)"></textarea>
+    <button id="btn-send">보내기</button>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let sessionId = null;
+let busy = false;
+
+// 서버가 초대 코드를 요구하면 입력란 표시
+fetch("/api/config").then(r => r.json()).then(cfg => {
+  if (cfg.access_required) $("access-row").classList.remove("hidden");
+}).catch(() => {});
+
+function show(view) {
+  for (const v of ["view-start", "view-chat", "view-result"])
+    $(v).classList.toggle("hidden", v !== view);
+  $("composer").classList.toggle("hidden", view !== "view-chat");
+}
+
+function addMsg(cls, text) {
+  const div = document.createElement("div");
+  div.className = "msg " + cls;
+  div.textContent = text;
+  $("messages").appendChild(div);
+  div.scrollIntoView({behavior: "smooth", block: "end"});
+}
+
+function setBusy(on, label) {
+  busy = on;
+  $("btn-send").disabled = on;
+  $("btn-finish").disabled = on;
+  const t = $("thinking");
+  t.classList.toggle("hidden", !on);
+  if (label) t.textContent = label;
+  if (on) t.scrollIntoView({behavior: "smooth", block: "end"});
+}
+
+function setProgress(p) {
+  $("stage-label").textContent = p.stage_label;
+  $("stage-progress").textContent =
+    `질문 ${p.question_no}/${p.questions_in_stage} · 단계 ${p.stage_index + 1}/${p.total_stages}`;
+}
+
+async function api(path, body) {
+  const res = await fetch(path, {
+    method: body === undefined ? "GET" : "POST",
+    headers: {"Content-Type": "application/json"},
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || `요청 실패 (${res.status})`);
+  return data;
+}
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// 최종 채점이 길어져 터널이 524로 끊겨도, 서버 채점이 끝나면 결과를 받아온다.
+// 문답 중이었다면 서버가 만들어 둔 다음 질문을 이어서 보여준다.
+async function recover(sid) {
+  for (let i = 0; i < 36; i++) {           // 최대 약 3분
+    let d;
+    try { d = await api(`/api/sessions/${sid}`); } catch (_) { await sleep(4000); continue; }
+    if (d.status === "graded" && d.evaluation) { renderResult(d.evaluation); return true; }
+    const last = d.turns && d.turns[d.turns.length - 1];
+    if (last && last.role === "questioner") { addMsg("q", last.content); return true; }
+    await sleep(4000);                      // 아직 채점 중 — 기다린다
+  }
+  return false;
+}
+
+$("btn-start").onclick = async () => {
+  const idea = $("idea").value.trim();
+  const err = $("start-error");
+  err.classList.add("hidden");
+  if (!idea) { err.textContent = "아이디어를 입력하세요."; err.classList.remove("hidden"); return; }
+  const weights = {
+    originality: parseFloat($("w-orig").value),
+    practicality: parseFloat($("w-prac").value),
+    acceptance: parseFloat($("w-acc").value),
+  };
+  $("btn-start").disabled = true;
+  $("btn-start").textContent = "첫 질문 생성 중…";
+  try {
+    const data = await api("/api/sessions",
+      {idea, weights, access_code: $("access-code").value.trim()});
+    sessionId = data.session_id;
+    show("view-chat");
+    addMsg("a", idea);
+    addMsg("q", data.question);
+    setProgress(data.progress);
+  } catch (e) {
+    err.textContent = e.message; err.classList.remove("hidden");
+  } finally {
+    $("btn-start").disabled = false;
+    $("btn-start").textContent = "문답 시작";
+  }
+};
+
+async function send() {
+  if (busy) return;
+  const text = $("answer").value.trim();
+  if (!text) return;
+  $("answer").value = "";
+  addMsg("a", text);
+  setBusy(true, "질문자가 생각하는 중…");
+  try {
+    const data = await api(`/api/sessions/${sessionId}/answer`, {answer: text});
+    if (data.done) { renderResult(data.evaluation); return; }
+    addMsg("q", data.question);
+    setProgress(data.progress);
+  } catch (e) {
+    setBusy(true, "응답이 지연되어 결과를 확인하는 중… (최대 3분)");
+    if (!await recover(sessionId)) {
+      addMsg("sys", "오류: " + e.message + " — 다시 보내주세요.");
+      $("answer").value = text;
+    }
+  } finally {
+    setBusy(false);
+  }
+}
+$("btn-send").onclick = send;
+$("answer").addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+});
+
+$("btn-finish").onclick = async () => {
+  if (busy || !confirm("남은 문답을 건너뛰고 지금까지의 대화로 채점할까요?")) return;
+  setBusy(true, "채점 중… (약 30초)");
+  try {
+    const data = await api(`/api/sessions/${sessionId}/finish`, {});
+    renderResult(data.evaluation);
+  } catch (e) {
+    setBusy(true, "채점 결과를 기다리는 중… (최대 3분)");
+    if (!await recover(sessionId)) addMsg("sys", "오류: " + e.message);
+  } finally {
+    setBusy(false);
+  }
+};
+
+const FIVE_ORDER = ["현재가치", "잠재가치", "핵심위험", "근거신뢰도", "다음검증행동"];
+const FIVE_LABEL = {현재가치: "현재 가치", 잠재가치: "잠재 가치", 핵심위험: "핵심 위험",
+                    근거신뢰도: "근거 신뢰도", 다음검증행동: "다음 검증 행동"};
+
+function renderResult(ev) {
+  $("total-score").textContent = ev.weighted_total.toFixed(1);
+
+  const band = $("score-band");
+  if (ev.score_band) {
+    band.textContent = `평가 범위 ${ev.score_band.low} – ${ev.score_band.high} `
+      + `(두 심사위원의 괴리 ±${ev.score_band.radius})`;
+    band.classList.remove("hidden");
+  } else { band.classList.add("hidden"); }
+  const evb = $("evidence-badge");
+  if (ev.evidence_level) {
+    evb.textContent = `근거 신뢰도 ${ev.evidence_level.label} `
+      + `(E${ev.evidence_level.level} · ${ev.evidence_level.met}/${ev.evidence_level.total})`;
+    evb.classList.remove("hidden");
+  } else { evb.classList.add("hidden"); }
+
+  const fl = $("five-lines");
+  fl.innerHTML = "";
+  if (ev.five_lines) {
+    for (const key of FIVE_ORDER) {
+      if (!ev.five_lines[key]) continue;
+      const row = document.createElement("div");
+      row.className = "fl";
+      const b = document.createElement("b");
+      b.textContent = FIVE_LABEL[key];
+      const s = document.createElement("span");
+      s.textContent = ev.five_lines[key];
+      row.appendChild(b); row.appendChild(s);
+      fl.appendChild(row);
+    }
+    $("five-card").classList.remove("hidden");
+  } else { $("five-card").classList.add("hidden"); }
+
+  const box = $("criteria");
+  box.innerHTML = "";
+  for (const c of ev.criteria) {
+    const card = document.createElement("div");
+    card.className = "card";
+    card.innerHTML = `
+      <div class="score-head"><b>${c.label}</b>
+        <span><span class="score-num">${c.final}</span><span style="color:var(--sub)">/10 · 가중치 ${c.weight}</span></span>
+      </div>
+      <div class="subscores">체크리스트 ${c.checklist_total}/10 · 종합판단 ${c.holistic_score}/10 → 평균 ${c.final}</div>
+      <div class="rationale"></div>
+      <details><summary>체크리스트 판정 상세 (${c.checklist_total}/10 충족)</summary>
+        <ul class="check-list">${c.items.map(() => `<li></li>`).join("")}</ul>
+      </details>`;
+    card.querySelector(".rationale").textContent = "종합판단 근거: " + c.holistic_rationale;
+    const lis = card.querySelectorAll(".check-list li");
+    c.items.forEach((it, i) => {
+      const mark = it.met ? '<span class="ok">✓</span>' : '<span class="no">✗</span>';
+      lis[i].innerHTML = mark + " ";
+      const span = document.createElement("span");
+      span.textContent = `${it.label} — ${it.evidence}`;
+      lis[i].appendChild(span);
+    });
+    box.appendChild(card);
+  }
+  fillList("strengths", ev.strengths);
+  fillList("suggestions", ev.suggestions);
+  $("encouragement").textContent = ev.encouragement;
+  loadTranscript();
+  show("view-result");
+  window.scrollTo({top: 0});
+}
+
+async function loadTranscript() {
+  const box = $("transcript");
+  box.innerHTML = "";
+  try {
+    const data = await api(`/api/sessions/${sessionId}`);
+    for (const t of data.turns) {
+      const div = document.createElement("div");
+      div.className = "msg " + (t.role === "questioner" ? "q" : "a");
+      const who = document.createElement("span");
+      who.className = "who";
+      who.textContent = t.role === "questioner"
+        ? `턴 ${t.seq} · 질문자(${t.stage})` : `턴 ${t.seq} · 제안자`;
+      div.appendChild(who);
+      div.appendChild(document.createTextNode(t.content));
+      box.appendChild(div);
+    }
+  } catch (e) {
+    box.textContent = "대화를 불러오지 못했습니다: " + e.message;
+  }
+}
+
+function fillList(id, items) {
+  const ul = $(id);
+  ul.innerHTML = "";
+  for (const item of items) {
+    const li = document.createElement("li");
+    li.textContent = item;
+    ul.appendChild(li);
+  }
+}
+
+$("btn-again").onclick = () => {
+  sessionId = null;
+  $("messages").innerHTML = "";
+  $("idea").value = "";
+  show("view-start");
+};
+</script>
+</body>
+</html>

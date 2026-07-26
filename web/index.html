@@ -1,0 +1,1055 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>소크라테스식 정책 문답 평가 · Claude</title>
+<style>
+:root {
+  --bg: #f6f5f1; --card: #ffffff; --ink: #26241f; --sub: #6d6a61;
+  --line: #e3e0d8; --accent: #23639c; --accent-ink: #ffffff; --good: #2e7d4f;
+  --danger: #b3261e;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif;
+  line-height: 1.6;
+}
+.wrap { max-width: 720px; margin: 0 auto; padding: 24px 16px 96px; }
+h1 { font-size: 1.35rem; margin: 8px 0 2px; }
+.badge { display: inline-block; background: #7a3b8f; color: #fff; border-radius: 999px;
+         padding: 2px 10px; font-size: .72rem; font-weight: 700; vertical-align: middle;
+         margin-left: 6px; }
+.tagline { color: var(--sub); font-size: .9rem; margin-bottom: 24px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+        padding: 20px; margin-bottom: 16px; }
+textarea, input[type=number], input[type=password], input[type=text] {
+  width: 100%; border: 1px solid var(--line); border-radius: 8px;
+  padding: 10px 12px; font: inherit; background: #fff; color: var(--ink);
+}
+textarea { resize: vertical; min-height: 96px; }
+label { font-size: .85rem; color: var(--sub); display: block; margin-bottom: 4px; }
+.weights { display: flex; gap: 12px; margin-top: 14px; }
+.weights > div { flex: 1; }
+button {
+  border: 0; border-radius: 8px; padding: 10px 18px; font: inherit;
+  cursor: pointer; background: var(--accent); color: var(--accent-ink);
+}
+button.secondary { background: transparent; color: var(--sub); border: 1px solid var(--line); }
+button:disabled { opacity: .45; cursor: default; }
+.row { display: flex; gap: 8px; margin-top: 14px; align-items: center; flex-wrap: wrap; }
+.hidden { display: none !important; }
+.card > b { font-size: .95rem; }
+.steps { display: flex; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.step { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 150px; }
+.step-no { width: 26px; height: 26px; border-radius: 50%; background: var(--accent);
+           color: #fff; display: flex; align-items: center; justify-content: center;
+           font-size: .85rem; font-weight: 700; flex: 0 0 auto; }
+.step b { display: block; font-size: .9rem; }
+.step span { font-size: .78rem; color: var(--sub); }
+.step-arrow { color: var(--sub); flex: 0 0 auto; }
+.crit-chips { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.chip { background: var(--bg); border: 1px solid var(--line); border-radius: 999px;
+        padding: 5px 14px; font-size: .85rem; }
+.chip b { color: var(--accent); }
+.note-sub { font-size: .8rem; color: var(--sub); margin-top: 8px; }
+.principles { margin: 10px 0 0; padding-left: 20px; font-size: .88rem; color: var(--ink); }
+.principles li { padding: 2px 0; }
+.field-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+
+/* 검증 소스 바 */
+.hero { background: linear-gradient(180deg, #fbfaf7, #efeae0);
+        border: 1px solid var(--line); border-radius: 14px;
+        padding: 20px 20px 18px; margin-bottom: 20px; }
+.hero h1 { margin: 0 0 6px; }
+.hero .tagline { margin: 0 0 14px; font-size: .95rem; color: var(--ink); }
+.hero .tagline b { color: var(--accent); }
+.trustbar { display: flex; gap: 8px; flex-wrap: wrap; }
+.src { flex: 1; min-width: 130px; background: #fff; border: 1px solid var(--line);
+       border-radius: 10px; padding: 8px 12px; }
+.src b { display: block; color: var(--accent); font-size: .84rem; }
+.src span { font-size: .74rem; color: var(--sub); }
+.src.off { opacity: .5; }
+.src .state { float: right; font-size: .72rem; font-weight: 700; }
+.src .on-mark { color: var(--good); }
+.src .off-mark { color: var(--danger); }
+
+#stagebar { position: sticky; top: 0; background: var(--bg); padding: 10px 0;
+            font-size: .85rem; color: var(--sub); display: flex; gap: 8px;
+            align-items: center; z-index: 5; }
+.stage-chip { background: var(--accent); color: #fff; border-radius: 999px;
+              padding: 2px 12px; font-size: .8rem; }
+.msg { max-width: 85%; padding: 10px 14px; border-radius: 12px; margin: 8px 0;
+       white-space: pre-wrap; }
+.msg.q { background: var(--card); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+.msg.a { background: var(--accent); color: #fff; margin-left: auto; border-bottom-right-radius: 4px; }
+.msg.sys { background: transparent; color: var(--sub); font-size: .82rem;
+           text-align: center; max-width: 100%; }
+.msg .who { display: block; font-size: .75rem; opacity: .75; margin-bottom: 2px; }
+#thinking { color: var(--sub); font-size: .85rem; padding: 6px 2px; }
+#composer { position: fixed; bottom: 0; left: 0; right: 0; background: var(--bg);
+            border-top: 1px solid var(--line); padding: 12px 16px; }
+#composer .inner { max-width: 720px; margin: 0 auto; display: flex; gap: 8px; }
+#composer textarea { min-height: 44px; max-height: 140px; flex: 1; }
+.score-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.score-head b { font-size: 1.05rem; }
+.score-num { font-size: 1.3rem; font-weight: 700; }
+.subscores { color: var(--sub); font-size: .85rem; margin: 4px 0 8px; }
+.rationale { font-size: .88rem; color: var(--ink); background: var(--bg);
+             border-radius: 8px; padding: 10px 12px; margin: 8px 0; }
+.check-list { list-style: none; margin: 8px 0 0; padding: 0; font-size: .85rem; }
+.check-list li { padding: 3px 0; color: var(--sub); }
+.check-list .ok { color: var(--good); font-weight: 700; }
+.check-list .no { color: var(--danger); font-weight: 700; }
+details summary { cursor: pointer; font-size: .85rem; color: var(--accent); margin-top: 8px; }
+.total { text-align: center; padding: 22px; }
+.total .num { font-size: 2.4rem; font-weight: 800; color: var(--accent); }
+.band { color: var(--sub); font-size: .9rem; margin-top: 6px; }
+.ev-badge { display: inline-block; margin-top: 10px; background: var(--bg);
+            border: 1px solid var(--line); border-radius: 999px;
+            padding: 4px 12px; font-size: .82rem; color: var(--ink); }
+.five { margin: 0; }
+.five .fl { border-left: 3px solid var(--accent); padding: 6px 0 6px 12px; margin: 10px 0; }
+.five .fl b { display: block; font-size: .82rem; color: var(--accent); margin-bottom: 2px; }
+.five .fl span { font-size: .9rem; color: var(--ink); }
+ul { margin: 6px 0; padding-left: 20px; }
+.encourage { border-left: 3px solid var(--good); padding-left: 12px; color: var(--ink); }
+.error { color: var(--danger); font-size: .88rem; margin-top: 10px; }
+.mono { font-family: "IBM Plex Mono", Consolas, monospace; }
+
+/* 축 B — 실질 독창성 */
+.axisb-status { color: var(--sub); font-size: .9rem; padding: 6px 0; }
+.two-score { display: flex; gap: 16px; }
+.two-score > div { flex: 1; padding: 14px; border: 1px solid var(--line);
+                   border-radius: 10px; background: var(--bg); }
+.ts-label { display: block; font-size: .8rem; color: var(--sub); }
+.ts-val { display: block; font-size: 1.3rem; font-weight: 700; margin-top: 4px; }
+.ts-conf { display: block; font-size: .8rem; color: var(--sub); margin-top: 2px; }
+.quadrant-now { font-size: 1.15rem; font-weight: 700; color: var(--accent); margin: 4px 0; }
+.ev-list { list-style: none; margin: 6px 0 0; padding: 0; font-size: .88rem; }
+.ev-list li { padding: 4px 0; }
+.grade-A { display: inline-block; background: #1f6f43; color: #fff; border-radius: 5px;
+           padding: 1px 7px; font-size: .75rem; font-weight: 700; margin-right: 6px; }
+.grade-B { display: inline-block; background: #8a7a2f; color: #fff; border-radius: 5px;
+           padding: 1px 7px; font-size: .75rem; font-weight: 700; margin-right: 6px; }
+.ev-src { display: inline-block; color: var(--sub); font-size: .75rem; margin-right: 5px; }
+.hit-list { list-style: none; margin: 6px 0 0; padding: 0; font-size: .85rem; }
+.hit-list li { padding: 4px 0; border-bottom: 1px solid var(--line); }
+.hit-list li:last-child { border-bottom: 0; }
+.hit-list .meta { color: var(--sub); font-size: .78rem; }
+.limit .muted { font-size: .8rem; line-height: 1.55; color: var(--sub); }
+.spin { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--line);
+        border-top-color: var(--accent); border-radius: 50%; margin-right: 8px;
+        animation: spin .8s linear infinite; vertical-align: -2px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.keyrow { display: flex; gap: 8px; align-items: center; }
+.keyrow input { flex: 1; }
+@media (max-width: 620px) {
+  .score-head { display: block; }
+  #stagebar { flex-wrap: wrap; }
+  #btn-finish { margin-left: 0 !important; }
+  #composer .inner { display: block; }
+  #composer button { width: 100%; margin-top: 8px; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hero">
+    <h1>소크라테스식 아이디어 평가<span class="badge">정책 · Claude</span></h1>
+    <div class="tagline">12개 문답으로 <b>독창성·실용성·수용태도</b>를 채점하고,
+      <b>재정·PRISM·국회 의안</b>으로 선례를 검증합니다.</div>
+    <div class="trustbar" id="trustbar">
+      <span class="src" id="src-fiscal"><b>재정 <span class="state"></span></b><span>예산으로 집행됐나</span></span>
+      <span class="src" id="src-prism"><b>PRISM <span class="state"></span></b><span>연구로 검토됐나</span></span>
+      <span class="src" id="src-bill"><b>국회 의안 <span class="state"></span></b><span>입법이 시도됐나</span></span>
+    </div>
+  </div>
+
+  <div id="view-start">
+    <div class="card">
+      <b>이렇게 진행됩니다</b>
+      <div class="steps">
+        <div class="step"><span class="step-no">1</span>
+          <div><b>소크라테스 문답</b><span>12개 질문 · 5단계</span></div></div>
+        <div class="step-arrow">→</div>
+        <div class="step"><span class="step-no">2</span>
+          <div><b>이원 채점</b><span>체크리스트 + 종합판단</span></div></div>
+        <div class="step-arrow">→</div>
+        <div class="step"><span class="step-no">3</span>
+          <div><b>선례 조사</b><span>재정·PRISM·의안 + 독창성</span></div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <b>평가 기준</b>
+      <div class="crit-chips">
+        <span class="chip">독창성 <b>35%</b></span>
+        <span class="chip">실용성 <b>35%</b></span>
+        <span class="chip">수용태도 <b>30%</b></span>
+      </div>
+      <div class="note-sub">정책판은 수용태도 A9를 “판단 갱신 조건/반증 기준”으로 강화해 채점합니다.</div>
+    </div>
+
+    <div class="card">
+      <b>답변 안내</b>
+      <ul class="principles">
+        <li>구체적인 사례와 숫자를 포함하세요.</li>
+        <li>모르는 부분은 “모른다”고 적어도 됩니다.</li>
+        <li>의견과 관찰된 사실을 구분하세요.</li>
+        <li>판단이 바뀔 조건, 즉 반증 기준을 밝히면 좋습니다.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <label for="api-key">Claude API 키 (sk-ant-…)</label>
+      <div class="keyrow">
+        <input class="mono" id="api-key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-api03-...">
+        <button class="secondary" id="btn-showkey" type="button" style="padding:8px 12px">보기</button>
+      </div>
+      <div class="note-sub">키는 이 브라우저에서 Anthropic 호출에만 사용되며, Vercel 서버에 저장하지 않습니다.
+        문답·채점·선례 조사가 모두 이 키로 동작합니다. 정부 데이터 키(PRISM·의안)는 서버에 미리 설정되어 있습니다.</div>
+      <div class="row" style="margin-top:8px">
+        <label style="margin:0"><input type="checkbox" id="remember"> 이 브라우저에 키 기억</label>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="field-head">
+        <label for="idea" style="margin:0">정책(아이디어)을 자유롭게 서술하세요</label>
+        <button class="secondary" id="btn-example" style="padding:6px 12px">예시 입력</button>
+      </div>
+      <textarea id="idea" placeholder="누구의 어떤 문제를, 어떤 방식으로 해결하는 정책인지 3~6문장으로 적어주세요."></textarea>
+      <div class="weights hidden">
+        <div><label>독창성 가중치</label><input id="w-orig" type="number" step="0.05" min="0" max="1" value="0.35"></div>
+        <div><label>실용성 가중치</label><input id="w-prac" type="number" step="0.05" min="0" max="1" value="0.35"></div>
+        <div><label>수용태도 가중치</label><input id="w-acc" type="number" step="0.05" min="0" max="1" value="0.30"></div>
+      </div>
+      <div class="row">
+        <button id="btn-start">문답 시작</button>
+        <span class="tagline" style="margin:0">총 12개 질문 · 약 15분</span>
+      </div>
+      <div id="start-error" class="error hidden"></div>
+    </div>
+  </div>
+
+  <div id="view-chat" class="hidden">
+    <div id="stagebar">
+      <span class="stage-chip" id="stage-label"></span>
+      <span id="stage-progress"></span>
+      <button class="secondary" id="btn-finish" style="margin-left:auto">여기서 끝내고 채점</button>
+    </div>
+    <div id="messages"></div>
+    <div id="thinking" class="hidden">질문자가 생각하는 중...</div>
+  </div>
+
+  <div id="view-result" class="hidden">
+    <div class="card total">
+      <div>종합 점수 (가중 평균)</div>
+      <div class="num"><span id="total-score"></span><span style="font-size:1.1rem;color:var(--sub)"> / 10</span></div>
+      <div class="band" id="score-band"></div>
+      <div><span class="ev-badge" id="evidence-badge"></span></div>
+    </div>
+    <div id="axis-b"></div>
+    <div class="card">
+      <b>핵심 요약</b>
+      <div class="five" id="five-lines"></div>
+    </div>
+    <div id="criteria"></div>
+    <div class="card"><b>강점</b><ul id="strengths"></ul></div>
+    <div class="card"><b>개선 제안</b><ul id="suggestions"></ul></div>
+    <div class="card"><b>격려</b><p class="encourage" id="encouragement"></p></div>
+    <div class="card">
+      <details><summary>대화 전문 보기 (전체 문답)</summary>
+        <div id="transcript"></div>
+      </details>
+    </div>
+    <div class="row"><button id="btn-again" class="secondary">새 정책으로 다시 시작</button></div>
+  </div>
+</div>
+
+<div id="composer" class="hidden">
+  <div class="inner">
+    <textarea id="answer" placeholder="답변을 입력하세요 (Shift+Enter 줄바꿈)"></textarea>
+    <button id="btn-send">보내기</button>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const CLAUDE_PROXY_URL = "/api/claude";      // 브라우저 → 프록시 → Anthropic
+const EVALUATE_URL = "/api/evaluate";        // 축 B(선례 조사) — 정부 키는 서버 환경변수
+
+const CRITERIA = ["originality", "practicality", "acceptance"];
+const CRITERIA_KO = {originality: "독창성", practicality: "실용성", acceptance: "수용태도"};
+
+const STAGES = [
+  ["clarify", "명료화", 2,
+    "지금은 [명료화] 단계다. 아이디어를 한 문장 정의로 압축하도록 유도하라. 대상, 해결하는 문제, 방법이 그 한 문장에 드러나야 한다. 제안자의 표현이 이미 충분히 명확하면 합의된 정의를 짧게 되짚어 확인만 하라."],
+  ["originality", "독창성", 3,
+    "지금은 [독창성] 라운드다. 기존 해법과 무엇이 다른지, 비슷한 시도가 이미 존재하지 않는지, 차별점이 모방하기 어려운 것인지를 검증하는 질문을 하라. 이 라운드의 1문은 반드시 다음 취지로 묻는다: '이 정책과 가장 가까운 기존 사업·제도를 하나 지목해 주십시오. 사업명과 대략의 시기까지 밝혀 주시면 됩니다. 없다고 판단하신다면 그 근거를 말씀해 주십시오.'"],
+  ["practicality", "실용성", 3,
+    "지금은 [실용성] 라운드다. 구현에 무엇이 필요한지, 가장 큰 장애물이 무엇인지, 최소 버전(MVP)은 무엇일지, 비용 대비 효과를 검증하는 질문을 하라."],
+  ["acceptance", "수용태도", 3,
+    "지금은 [수용태도] 라운드다. 누가 실제로 쓸 것인지, 그들이 지금 방식을 버리고 갈아탈 이유가 있는지, 반대할 이해관계자는 누구인지 검증하는 질문을 하라."],
+  ["self_assess", "자기 평가", 1,
+    "지금은 [자기 평가] 단계다. 지금까지의 대화를 바탕으로 제안자가 스스로 아이디어의 가장 큰 약점 하나를 꼽고, 그것을 어떻게 보완할지 말하게 하라. 이번이 마지막 질문이다."]
+];
+
+const CHECKLIST_ITEMS = {
+  originality: [
+    ["O1", "기존 해법 식별", "기존 해법이나 유사 시도를 구체적으로 언급했다"],
+    ["O2", "차별점 명시", "기존 해법과의 차이를 구체적으로 진술했다"],
+    ["O3", "차별점의 검증 가능성", "차별점을 제3자가 확인 가능한 형태(기능·구조·수치)로 제시했다"],
+    ["O4", "공백의 설명", "왜 아직 없는지 또는 왜 지금 가능해졌는지를 설명했다"],
+    ["O5", "모방 장벽", "차별점이 쉽게 모방되지 않는 이유를 제시했다"],
+    ["O6", "관점 전환", "문제를 다르게 정의하거나 기존 프레임을 벗어난 요소가 있다"],
+    ["O7", "새로움-가치 연결", "새로움이 사용자 가치로 이어짐을 설명했다"],
+    ["O8", "유사 사례 반례 대응", "'이미 있지 않나' 류의 반례 질문에 정면 대응했다"],
+    ["O9", "독창성 한계 인정", "독창성의 한계(부분적 새로움)를 스스로 인정했다"],
+    ["O10", "무모순", "독창성 주장이 대화 전체에서 모순되지 않는다"]
+  ],
+  practicality: [
+    ["P1", "자원 구체화", "필요 인력·기술·예산을 수치나 구체 항목으로 제시했다"],
+    ["P2", "MVP 정의", "최소 실행 버전의 범위를 구체적으로 한정했다"],
+    ["P3", "핵심 장애물 식별", "실행의 가장 큰 장애물을 스스로 특정했다"],
+    ["P4", "장애물 대응책", "그 장애물에 대한 현실적 대응 방안을 제시했다"],
+    ["P5", "구현 경로", "핵심 기능의 구현 방법(데이터·기술·절차)을 설명했다"],
+    ["P6", "비용 대비 효과", "비용과 기대 효과를 비교하는 논리를 제시했다"],
+    ["P7", "운영 주체 특정", "누가 실행·운영하는지를 특정했다"],
+    ["P8", "단계적 경로", "시작에서 확장으로 가는 단계적 실행 순서를 제시했다"],
+    ["P9", "실행 리스크 인정", "실행상 리스크나 불확실성을 스스로 인정했다"],
+    ["P10", "무모순", "실용성 주장이 대화 전체에서 모순되지 않는다"]
+  ],
+  acceptance: [
+    ["A1", "수용 주체 특정", "사용자와 이해관계자를 구체적으로 특정했다"],
+    ["A2", "상대적 이점", "현재 방식 대비 사용자가 얻는 이점을 구체화했다"],
+    ["A3", "전환 비용", "갈아타는 데 드는 비용·노력·학습을 다뤘다"],
+    ["A4", "적합성", "사용자의 기존 습관·가치와의 정합을 설명했다"],
+    ["A5", "시험 가능성", "부담 없이 먼저 써볼 수 있는 경로를 제시했다"],
+    ["A6", "반대 세력 식별", "반대하거나 손해 보는 이해관계자를 식별했다"],
+    ["A7", "저항 대응", "반대·저항에 대한 대응 논리를 제시했다"],
+    ["A8", "확산 경로", "초기 사용자 확보와 확산 방법을 구체화했다"],
+    ["A9", "판단 갱신 조건 명시", "어떤 지표·수치·기간이 관측되면 이 정책을 수정·중단하겠는지 구체적 반증 기준을 제시했다"],
+    ["A10", "무모순", "수용태도 주장이 대화 전체에서 모순되지 않는다"]
+  ]
+};
+
+const QUESTIONER_SYSTEM = `# 역할 - 변증법 절차형
+
+당신은 아이디어 평가 세션의 질문자다. 소크라테스 문답법을 정해진 검증 절차로 운용한다. 어떤 제안자를 만나도 같은 순서의 검증을 통과하게 하는, 설계된 소크라테스다. 절차의 일관성이 평가의 공정성을 만든다는 것이 이 안의 철학이다. 당신은 심판이 아니라 절차의 집행자다.
+
+# 절대 규칙
+
+1. 판결하지 않는다. 평가적 단정 금지. 질문만 한다.
+2. 한 턴에 질문은 하나만.
+3. 현재 단계 지시를 따르되, 아래의 라운드 내 절차를 지킨다.
+4. 논리를 겨냥하고 사람을 겨냥하지 않는다.
+
+# 라운드 내 3단 절차
+
+각 라운드의 세 질문은 반드시 이 순서를 따른다.
+- 1문: 정의·명료화. 이 기준에서 검증할 주장을 제안자의 입으로 명확히 진술하게 한다.
+- 2문: 근거·반례 검증. 그 주장의 근거를 요구하거나, 구체적 반례 가설을 제시해 방어하게 한다.
+- 3문: 함의·관점 전환. 주장이 참일 때의 결과를 탐색하거나, 다른 이해관계자의 관점에서 재검토하게 한다.
+
+명료화 단계(2문)는 정의 압축에, 자기 평가 단계(1문)는 약점 자인에 쓴다.
+
+# 회피 프로토콜
+
+- 1회 회피: 회피 사실을 한 문장으로 짚고, 같은 질문을 좁혀서 재질문한다.
+- 2회 회피: 선택지형 질문으로 전환한다.
+- 그래도 회피: "미답변으로 남습니다"라고 선언하고 절차의 다음 질문으로 진행한다.
+
+# 힌트 규칙
+
+힌트는 회피가 아니라 진짜 막힘일 때만, 한 번, 생각의 틀 하나로 준다. 답을 주지 않는다.
+
+# 인정 예산
+
+세션 전체에서 인정은 최대 4회. 반드시 무엇이 왜 기여인지 근거와 함께.
+
+# 출력 형식
+
+한국어, 대화체, 최대 3문장. 절차 라벨, 목록, 헤더, 장식 금지. 발화 내용만 출력한다.`;
+
+const GRADER_CHECKLIST_SYSTEM = `# 역할
+
+당신은 아이디어 평가 세션의 규정 심사위원이다. 대화에 참여하지 않았고, 지금 처음으로 전체 대화 로그를 읽는다. 임무는 점수를 매기는 것이 아니라, 정해진 체크리스트 항목 하나하나에 대해 "이 사건이 대화에 있었는가"를 예/아니오로 판정하는 것이다.
+
+# 판정 원칙
+
+1. 사실 판정만 한다. 인상이나 종합 평가를 하지 않는다.
+2. 충족(met=true) 판정에는 턴 인용이 필수다. evidence에 "턴 N: (해당 발언 요약)" 형태로 적는다.
+3. 애매하면 불충족(met=false)이다. 불충족의 evidence에는 짧은 이유를 적는다.
+4. 기준별로 독립 판정한다. 해당 라운드에 도달하지 못했고 관련 발언도 없으면 전 항목 불충족이다.
+
+채점 대상은 아이디어 자체가 아니라 제안자의 답변이다. 질문자의 발언은 맥락일 뿐 판정 대상이 아니다. 모든 텍스트는 한국어로 작성한다.`;
+
+const GRADER_HOLISTIC_SYSTEM = `# 역할
+
+당신은 아이디어 평가 세션의 종합 심사위원이다. 대화에 참여하지 않았고, 지금 처음으로 전체 대화 로그를 읽는다. 숙련된 인간 심사위원이 하듯 전체적 인상으로 채점하라. 답변의 논리적 흐름, 태도의 진정성, 논증 전체의 설득력을 통합해서 판단한다. 단, 인상의 근거는 반드시 대화에서 인용해야 한다.
+
+채점 대상은 아이디어 자체가 아니라 제안자가 질문에 얼마나 잘 답했는가, 즉 방어의 성실성과 논리적 견고함이다.
+
+# 채점 원칙
+
+1. 로그에 있는 것만 채점한다.
+2. rationale에 구체적인 턴 번호를 언급한다.
+3. 약점을 솔직히 인정하고 개선 방향을 말한 것은 높이 평가한다. 회피와 얼버무림은 낮게 평가한다.
+
+# 점수 밴드
+
+- 0~2: 회피·공허한 주장. 근거가 거의 없음.
+- 3~4: 주장은 있으나 뒷받침이 빈약함.
+- 5~6: 구체적 근거를 일부 제시하고 논리를 대체로 유지하나 빈틈이 남음.
+- 7~8: 일관된 논증, 검증 가능한 근거, 자기 약점 인식이 모두 나타남.
+- 9~10: 반례와 전제 공격까지 정합적으로 소화하며 설득해 냄.
+
+세 기준: originality(독창성), practicality(실용성), acceptance(수용태도).
+
+# 종합 항목
+
+strengths는 강점 2~3개, suggestions는 개선 제안 2~3개, encouragement는 격려 한 단락으로 쓴다. 모든 텍스트는 한국어로 작성한다.`;
+
+let session = null;
+let busy = false;
+const WEIGHTS = {originality: 0.35, practicality: 0.35, acceptance: 0.30};
+
+// 저장된 키 복원
+const savedKey = localStorage.getItem("claude_api_key");
+if (savedKey) { $("api-key").value = savedKey; $("remember").checked = true; }
+$("btn-showkey").onclick = () => {
+  const inp = $("api-key");
+  inp.type = inp.type === "password" ? "text" : "password";
+  $("btn-showkey").textContent = inp.type === "password" ? "보기" : "숨김";
+};
+
+// 정부 소스(재정·PRISM·의안) 가용 여부 표시 — 서버 환경변수 기준
+fetch(EVALUATE_URL).then(r => r.json()).then(d => {
+  const map = {fiscal: "src-fiscal", prism: "src-prism", bill: "src-bill"};
+  for (const k in map) {
+    const el = $(map[k]);
+    const on = d.sources && d.sources[k];
+    el.querySelector(".state").innerHTML = on
+      ? '<span class="on-mark">● 설정됨</span>' : '<span class="off-mark">● 미설정</span>';
+    if (!on) el.classList.add("off");
+  }
+}).catch(() => {});
+
+function show(view) {
+  for (const v of ["view-start", "view-chat", "view-result"])
+    $(v).classList.toggle("hidden", v !== view);
+  $("composer").classList.toggle("hidden", view !== "view-chat");
+}
+
+function addMsg(cls, text) {
+  const div = document.createElement("div");
+  div.className = "msg " + cls;
+  div.textContent = text;
+  $("messages").appendChild(div);
+  div.scrollIntoView({behavior: "smooth", block: "end"});
+}
+
+function setBusy(on, label) {
+  busy = on;
+  $("btn-send").disabled = on;
+  $("btn-finish").disabled = on;
+  const t = $("thinking");
+  t.classList.toggle("hidden", !on);
+  if (label) t.textContent = label;
+  if (on) t.scrollIntoView({behavior: "smooth", block: "end"});
+}
+
+function setProgress(p) {
+  $("stage-label").textContent = p.stage_label;
+  $("stage-progress").textContent =
+    `질문 ${p.question_no}/${p.questions_in_stage} · 단계 ${p.stage_index + 1}/${p.total_stages}`;
+}
+
+function progress(stageIndex, qInStage) {
+  const stage = STAGES[stageIndex];
+  return {stage_index: stageIndex, stage_label: stage[1], question_no: qInStage,
+          questions_in_stage: stage[2], total_stages: STAGES.length};
+}
+
+function formatTurn(t) {
+  if (t.role === "questioner") return `[턴 ${t.seq}] 질문자(${t.stage}): ${t.content}`;
+  return `[턴 ${t.seq}] 제안자: ${t.content}`;
+}
+function transcriptLog() { return session.turns.map(formatTurn); }
+function nextSeq() { return session.turns.length ? session.turns[session.turns.length - 1].seq + 1 : 1; }
+
+function authError(message) { const err = new Error(message); err.needKey = true; return err; }
+
+// ── Claude 호출(프록시 경유) ──
+async function callClaude(system, user, opts = {}) {
+  const apiKey = $("api-key").value.trim();
+  if (!apiKey) throw authError("Claude API 키를 입력하세요.");
+  let res;
+  try {
+    res = await fetch(CLAUDE_PROXY_URL, {
+      method: "POST",
+      headers: {"Content-Type": "application/json", "X-Claude-API-Key": apiKey},
+      body: JSON.stringify({system, user, max_tokens: opts.maxTokens || 1200})
+    });
+  } catch (e) {
+    throw new Error("Claude 프록시 서버에 연결할 수 없습니다. Vercel 배포의 /api/claude 설정을 확인해 주세요.");
+  }
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 401 || res.status === 403) throw authError(data.error || "Claude 인증 실패 - API 키를 확인해 주세요.");
+  if (!res.ok) throw new Error(data.error || `Claude 응답 오류 (HTTP ${res.status})`);
+  const text = (data.text || "").trim();
+  if (!text) throw new Error("Claude 응답이 비어 있습니다.");
+  return text;
+}
+
+function extractJson(text) {
+  const start = text.indexOf("{");
+  if (start < 0) return null;
+  let depth = 0, inStr = false, esc = false;
+  for (let i = start; i < text.length; i++) {
+    const c = text[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === "\\") esc = true;
+      else if (c === "\"") inStr = false;
+      continue;
+    }
+    if (c === "\"") inStr = true;
+    else if (c === "{") depth++;
+    else if (c === "}") { depth--; if (depth === 0) return text.slice(start, i + 1); }
+  }
+  return text.slice(start);
+}
+
+function parseLoose(raw) {
+  if (!raw) throw new Error("응답에서 JSON을 찾지 못했습니다.");
+  try { return JSON.parse(raw); } catch (e) {}
+  const nextNonSpace = i => { let j = i; while (j < raw.length && /\s/.test(raw[j])) j++; return j < raw.length ? raw[j] : ""; };
+  let out = "", inStr = false, esc = false;
+  for (let i = 0; i < raw.length; i++) {
+    const c = raw[i];
+    if (inStr) {
+      if (esc) { out += c; esc = false; continue; }
+      if (c === "\\") { out += c; esc = true; continue; }
+      if (c === "\"") {
+        const nx = nextNonSpace(i + 1);
+        if (nx === "" || nx === ":" || nx === "," || nx === "}" || nx === "]") { out += "\""; inStr = false; }
+        else out += "\\\"";
+        continue;
+      }
+      if (c === "\n") { out += "\\n"; continue; }
+      if (c === "\r") { out += "\\r"; continue; }
+      if (c === "\t") { out += "\\t"; continue; }
+      out += c; continue;
+    }
+    if (c === "\"") { out += c; inStr = true; continue; }
+    out += c;
+  }
+  out = out.replace(/,\s*([}\]])/g, "$1");
+  return JSON.parse(out);
+}
+
+async function callClaudeJson(system, user, opts = {}) {
+  const strictSystem = system + "\n\n반드시 유효한 단일 JSON 객체만 출력하라. JSON 앞뒤에 설명, 머리말, 코드펜스를 붙이지 마라. 문자열 안의 큰따옴표는 홑따옴표나 「」로 바꾸어라.";
+  let text = await callClaude(strictSystem, user, opts);
+  try { return parseLoose(extractJson(text)); }
+  catch (e1) {
+    text = await callClaude(strictSystem, user, opts);
+    try { return parseLoose(extractJson(text)); }
+    catch (e2) { throw new Error("응답 형식 오류 - 다시 시도해 주세요."); }
+  }
+}
+
+async function askQuestioner(stageIndex) {
+  const stageDirective = STAGES[stageIndex][3];
+  const prompt =
+    "<대화 기록>\n" + transcriptLog().join("\n\n") + "\n</대화 기록>\n\n" +
+    "<현재 단계 지시>\n" + stageDirective + "\n</현재 단계 지시>\n\n" +
+    "위 대화에 이어서, 시스템 프롬프트의 규칙에 따라 질문자의 다음 발화를 출력하라. 발화 내용만 출력하고 다른 설명은 붙이지 마라.";
+  let q = await callClaude(QUESTIONER_SYSTEM, prompt, {maxTokens: 500});
+  q = q.replace(/^```[a-zA-Z]*\s*/, "").replace(/```$/, "").trim();
+  return q || "이 정책의 핵심 주장을 한 문장으로 압축한다면 무엇입니까?";
+}
+
+function checklistFormat() {
+  const lines = CRITERIA.map(c => {
+    const itemObj = CHECKLIST_ITEMS[c].map(([id]) => `"${id}":{"met":false,"evidence":""}`).join(",");
+    return `"${c}":{${itemObj}}`;
+  });
+  return "{\n" + lines.join(",\n") + "\n}";
+}
+function itemsDescription() {
+  return CRITERIA.map(c =>
+    `[${c} (${CRITERIA_KO[c]}) 전용 항목]\n` +
+    CHECKLIST_ITEMS[c].map(([id, label, desc]) => `- ${id} (${label}): ${desc}`).join("\n")
+  ).join("\n\n");
+}
+function normalizeChecklist(raw) {
+  const parsed = {};
+  for (const c of CRITERIA) {
+    parsed[c] = {};
+    for (const [id] of CHECKLIST_ITEMS[c]) {
+      const entry = raw && raw[c] && raw[c][id] ? raw[c][id] : {};
+      let met = Boolean(entry.met);
+      let evidence = String(entry.evidence || "").trim();
+      if (met && !evidence) { met = false; evidence = "(근거 인용 누락으로 불충족 처리)"; }
+      if (!evidence) evidence = met ? "턴 인용 있음" : "관련 발언 없음";
+      parsed[c][id] = {met, evidence};
+    }
+  }
+  return parsed;
+}
+function normalizeHolistic(raw) {
+  const out = {};
+  for (const c of CRITERIA) {
+    const item = raw && raw[c] ? raw[c] : {};
+    const score = Math.max(0, Math.min(10, Math.round(Number(item.score) || 0)));
+    out[c] = {score, rationale: String(item.rationale || "근거 설명 없음").trim()};
+  }
+  out.strengths = Array.isArray(raw && raw.strengths) ? raw.strengths.map(String).filter(Boolean).slice(0, 3) : [];
+  out.suggestions = Array.isArray(raw && raw.suggestions) ? raw.suggestions.map(String).filter(Boolean).slice(0, 3) : [];
+  out.encouragement = String((raw && raw.encouragement) || "대화에서 드러난 구체성을 바탕으로 다음 검증을 이어가세요.").trim();
+  return out;
+}
+async function gradeChecklist(transcript) {
+  const prompt =
+    "다음 아이디어 평가 세션의 대화 로그를 체크리스트로 판정하라.\n\n" +
+    "<대화 로그>\n" + transcript + "\n</대화 로그>\n\n" +
+    "<체크리스트 항목 - 기준마다 전용 항목 10개>\n" + itemsDescription() +
+    "\n</체크리스트 항목>\n\n" +
+    "각 기준의 전용 항목 10개 전부를 판정하라. met=true인 항목의 evidence에는 반드시 '턴 N: ...' 형태의 인용을 적어라.\n" +
+    "결과는 아래 형태의 JSON 하나만 출력하라.\n" + checklistFormat();
+  return normalizeChecklist(await callClaudeJson(GRADER_CHECKLIST_SYSTEM, prompt, {maxTokens: 3000}));
+}
+async function gradeHolistic(transcript) {
+  const format = `{
+  "originality":{"score":0,"rationale":"턴 번호를 인용한 이유"},
+  "practicality":{"score":0,"rationale":"..."},
+  "acceptance":{"score":0,"rationale":"..."},
+  "strengths":["..."],
+  "suggestions":["..."],
+  "encouragement":"..."
+}`;
+  const prompt =
+    "다음 아이디어 평가 세션의 대화 로그를 시스템 프롬프트의 점수 밴드에 따라 종합 채점하라.\n\n" +
+    "<대화 로그>\n" + transcript + "\n</대화 로그>\n\n" +
+    "결과는 아래 형태의 JSON 하나만 출력하라.\n" + format;
+  return normalizeHolistic(await callClaudeJson(GRADER_HOLISTIC_SYSTEM, prompt, {maxTokens: 2000}));
+}
+
+async function gradeSession() {
+  const transcript = transcriptLog().join("\n\n");
+  const [checklist, holistic] = await Promise.all([gradeChecklist(transcript), gradeHolistic(transcript)]);
+  const criteria = {};
+  for (const c of CRITERIA) {
+    const clTotal = Object.values(checklist[c]).filter(item => item.met).length;
+    const hScore = holistic[c].score;
+    criteria[c] = {
+      checklist: {items: checklist[c], total: clTotal},
+      holistic: {score: hScore, rationale: holistic[c].rationale},
+      final: Math.round(((clTotal + hScore) / 2) * 10) / 10
+    };
+  }
+  const result = {version: 2, criteria, strengths: holistic.strengths,
+                  suggestions: holistic.suggestions, encouragement: holistic.encouragement};
+  const total = Math.round(weightedTotal(result, WEIGHTS) * 100) / 100;
+  return evaluationPayload(result, total, WEIGHTS);
+}
+
+function weightedTotal(result, weights) {
+  return CRITERIA.reduce((sum, c) => sum + result.criteria[c].final * weights[c], 0);
+}
+
+const EVIDENCE_ITEMS = [
+  ["originality", "O3"], ["practicality", "P1"], ["practicality", "P5"],
+  ["practicality", "P6"], ["acceptance", "A2"]
+];
+const EVIDENCE_LABELS = {0: "주장 중심", 1: "일화·부분 근거", 2: "자료 기반", 3: "실증 기반", 4: "행동·데이터 기반"};
+function evidenceLevel(result) {
+  let met = 0;
+  for (const [c, itemId] of EVIDENCE_ITEMS) {
+    const entry = result.criteria[c].checklist.items[itemId];
+    if (entry && entry.met) met++;
+  }
+  const total = EVIDENCE_ITEMS.length;
+  const level = Math.round(met / total * 4);
+  return {level, label: EVIDENCE_LABELS[level], met, total};
+}
+function scoreBand(result, weights) {
+  const total = weightedTotal(result, weights);
+  let radius = 0;
+  for (const c of CRITERIA) {
+    const cl = result.criteria[c].checklist.total;
+    const h = result.criteria[c].holistic.score;
+    radius += weights[c] * Math.abs(cl - h) / 2;
+  }
+  return {low: Math.round(Math.max(0, total - radius) * 10) / 10,
+          high: Math.round(Math.min(10, total + radius) * 10) / 10,
+          radius: Math.round(radius * 10) / 10};
+}
+function fiveLines(result, weights) {
+  const total = Math.round(weightedTotal(result, weights) * 10) / 10;
+  const crit = result.criteria;
+  const ranked = [...CRITERIA].sort((a, b) => crit[a].final - crit[b].final);
+  const weak = ranked[0], strong = ranked[ranked.length - 1];
+  const ev = evidenceLevel(result);
+  const band = scoreBand(result, weights);
+  const sugg = (result.suggestions || []).filter(Boolean);
+  const unmet = CRITERIA.reduce((n, c) => n + Object.values(crit[c].checklist.items).filter(it => !it.met).length, 0);
+  return {
+    "현재가치": `현재 근거로 방어 가능한 종합 수준은 ${total}/10입니다(범위 ${band.low}-${band.high}). 가장 탄탄히 입증된 축은 '${CRITERIA_KO[strong]}'(${crit[strong].final}/10)입니다. ${crit[strong].holistic.rationale}`,
+    "잠재가치": `독창성 ${crit.originality.final}/10을 축으로, 아직 입증되지 않은 항목 ${unmet}개가 근거로 채워지면 상방이 열립니다.`,
+    "핵심위험": `가장 취약한 축은 '${CRITERIA_KO[weak]}'(${crit[weak].final}/10)입니다.` + (sugg[0] ? " " + sugg[0] : ""),
+    "근거신뢰도": `제시된 근거는 ${ev.label}(E${ev.level}) 수준입니다(${ev.met}/${ev.total} 근거 항목이 검증 가능한 형태로 충족).`,
+    "다음검증행동": "다음으로 확인할 것 - " + (sugg.length ? sugg.slice(0, 3).join("; ") : "핵심 가정을 검증할 최소 실험을 정하세요.")
+  };
+}
+function checklistLabels() {
+  const labels = {};
+  for (const c of CRITERIA) labels[c] = Object.fromEntries(CHECKLIST_ITEMS[c].map(([id, label]) => [id, label]));
+  return labels;
+}
+function evaluationPayload(result, total, weights) {
+  const labels = checklistLabels();
+  return {
+    profile: "정책",
+    criteria: CRITERIA.map(c => ({
+      key: c, label: CRITERIA_KO[c], weight: weights[c],
+      final: result.criteria[c].final,
+      checklist_total: result.criteria[c].checklist.total,
+      holistic_score: result.criteria[c].holistic.score,
+      holistic_rationale: result.criteria[c].holistic.rationale,
+      items: CHECKLIST_ITEMS[c].map(([itemId]) => {
+        const entry = result.criteria[c].checklist.items[itemId];
+        return {id: itemId, label: labels[c][itemId], met: entry.met, evidence: entry.evidence};
+      })
+    })),
+    weighted_total: total,
+    strengths: result.strengths, suggestions: result.suggestions,
+    encouragement: result.encouragement,
+    five_lines: fiveLines(result, weights),
+    score_band: scoreBand(result, weights),
+    evidence_level: evidenceLevel(result)
+  };
+}
+
+$("btn-example").onclick = () => {
+  $("idea").value = "노후 경유차 조기폐차 보조금을 확대해 도심 미세먼지를 줄인다. 배출가스 5등급 차량 소유자가 차량을 조기 폐차하면 보조금을 지급하고, 저소득층에는 대체 교통수단 비용을 추가 지원한다. 목표는 3년 안에 도심 PM2.5 배출을 줄이고 건강 취약계층의 노출을 낮추는 것이다.";
+  $("idea").focus();
+};
+
+$("btn-start").onclick = async () => {
+  const idea = $("idea").value.trim();
+  const err = $("start-error");
+  err.classList.add("hidden");
+  if (!$("api-key").value.trim()) { err.textContent = "Claude API 키를 입력하세요."; err.classList.remove("hidden"); return; }
+  if (!idea) { err.textContent = "정책(아이디어)을 입력하세요."; err.classList.remove("hidden"); return; }
+
+  if ($("remember").checked) localStorage.setItem("claude_api_key", $("api-key").value.trim());
+  else localStorage.removeItem("claude_api_key");
+
+  $("btn-start").disabled = true;
+  $("btn-start").textContent = "첫 질문 생성 중...";
+  try {
+    session = {
+      id: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())),
+      turns: [{seq: 1, role: "proposer", stage: null, content: idea}],
+      stageIndex: 0, qInStage: 1, status: "active"
+    };
+    const question = await askQuestioner(0);
+    session.turns.push({seq: nextSeq(), role: "questioner", stage: STAGES[0][1], content: question});
+    show("view-chat");
+    addMsg("a", idea);
+    addMsg("q", question);
+    setProgress(progress(0, 1));
+  } catch (e) {
+    err.textContent = e.message; err.classList.remove("hidden");
+  } finally {
+    $("btn-start").disabled = false;
+    $("btn-start").textContent = "문답 시작";
+  }
+};
+
+async function send() {
+  if (busy || !session) return;
+  const text = $("answer").value.trim();
+  if (!text) return;
+  $("answer").value = "";
+  addMsg("a", text);
+  session.turns.push({seq: nextSeq(), role: "proposer", stage: null, content: text});
+  setBusy(true, "질문자가 생각하는 중...");
+  try {
+    let stageIndex = session.stageIndex;
+    let qInStage = session.qInStage;
+    if (qInStage >= STAGES[stageIndex][2]) { stageIndex += 1; qInStage = 0; }
+    if (stageIndex >= STAGES.length) {
+      setBusy(true, "채점 중... (약 30초)");
+      const ev = await gradeSession();
+      session.status = "graded";
+      renderResult(ev);
+      return;
+    }
+    const question = await askQuestioner(stageIndex);
+    qInStage += 1;
+    session.stageIndex = stageIndex;
+    session.qInStage = qInStage;
+    session.turns.push({seq: nextSeq(), role: "questioner", stage: STAGES[stageIndex][1], content: question});
+    addMsg("q", question);
+    setProgress(progress(stageIndex, qInStage));
+  } catch (e) {
+    addMsg("sys", "오류: " + e.message + " - 다시 보내주세요.");
+    $("answer").value = text;
+    session.turns.pop();
+  } finally {
+    setBusy(false);
+  }
+}
+$("btn-send").onclick = send;
+$("answer").addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+});
+
+$("btn-finish").onclick = async () => {
+  if (busy || !session || !confirm("남은 문답을 건너뛰고 지금까지의 대화로 채점할까요?")) return;
+  setBusy(true, "채점 중... (약 30초)");
+  try {
+    const ev = await gradeSession();
+    session.status = "graded";
+    renderResult(ev);
+  } catch (e) {
+    addMsg("sys", "오류: " + e.message);
+  } finally {
+    setBusy(false);
+  }
+};
+
+const FIVE_ORDER = ["현재가치", "잠재가치", "핵심위험", "근거신뢰도", "다음검증행동"];
+const FIVE_LABEL = {현재가치: "현재 가치", 잠재가치: "잠재 가치", 핵심위험: "핵심 위험",
+                    근거신뢰도: "근거 신뢰도", 다음검증행동: "다음 검증 행동"};
+
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"]/g, c =>
+    ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+}
+
+function renderResult(ev) {
+  window.__lastTotal = ev.weighted_total;
+  $("total-score").textContent = ev.weighted_total.toFixed(1);
+  const band = $("score-band");
+  if (ev.score_band) {
+    band.textContent = `평가 범위 ${ev.score_band.low} - ${ev.score_band.high} (두 심사위원의 괴리 +/-${ev.score_band.radius})`;
+    band.classList.remove("hidden");
+  } else band.classList.add("hidden");
+
+  const evb = $("evidence-badge");
+  if (ev.evidence_level) {
+    evb.textContent = `근거 신뢰도 ${ev.evidence_level.label} (E${ev.evidence_level.level} · ${ev.evidence_level.met}/${ev.evidence_level.total})`;
+    evb.classList.remove("hidden");
+  } else evb.classList.add("hidden");
+
+  const fl = $("five-lines");
+  fl.innerHTML = "";
+  if (ev.five_lines) {
+    for (const key of FIVE_ORDER) {
+      if (!ev.five_lines[key]) continue;
+      const row = document.createElement("div");
+      row.className = "fl";
+      const b = document.createElement("b"); b.textContent = FIVE_LABEL[key];
+      const s = document.createElement("span"); s.textContent = ev.five_lines[key];
+      row.appendChild(b); row.appendChild(s);
+      fl.appendChild(row);
+    }
+    fl.parentElement.classList.remove("hidden");
+  } else fl.parentElement.classList.add("hidden");
+
+  const box = $("criteria");
+  box.innerHTML = "";
+  for (const c of ev.criteria) {
+    const card = document.createElement("div");
+    card.className = "card";
+    card.innerHTML = `
+      <div class="score-head"><b>${c.key === "originality" ? c.label + " — 방어력" : c.label}</b>
+        <span><span class="score-num">${c.final}</span><span style="color:var(--sub)">/10 · 가중치 ${c.weight}</span></span>
+      </div>
+      <div class="subscores">체크리스트 ${c.checklist_total}/10 · 종합판단 ${c.holistic_score}/10 → 평균 ${c.final}</div>
+      <div class="rationale"></div>
+      <details><summary>체크리스트 판정 상세 (${c.checklist_total}/10 충족)</summary>
+        <ul class="check-list">${c.items.map(() => "<li></li>").join("")}</ul>
+      </details>`;
+    card.querySelector(".rationale").textContent = "종합판단 근거: " + c.holistic_rationale;
+    const lis = card.querySelectorAll(".check-list li");
+    c.items.forEach((it, i) => {
+      const mark = it.met ? '<span class="ok">✓</span>' : '<span class="no">✗</span>';
+      lis[i].innerHTML = mark + " ";
+      const span = document.createElement("span");
+      span.textContent = `${it.label} - ${it.evidence}`;
+      lis[i].appendChild(span);
+    });
+    box.appendChild(card);
+  }
+  fillList("strengths", ev.strengths || []);
+  fillList("suggestions", ev.suggestions || []);
+  $("encouragement").textContent = ev.encouragement || "";
+  loadTranscript();
+  show("view-result");
+  window.scrollTo({top: 0});
+  startOriginality();          // 축 B — 문답 뒤 별도로 진행(선례 조사)
+}
+
+// ── 축 B(실질 독창성 · 선례 조사) — 서버(/api/evaluate)에서 조회 ──
+const SRC_KO = {fiscal: "재정", prism: "연구", bill: "입법", knowledge: "기억"};
+
+async function startOriginality() {
+  const box = $("axis-b");
+  box.innerHTML = '<div class="card"><b>실질 독창성 (선례 조사)</b>'
+    + '<div class="axisb-status"><span class="spin"></span>재정·PRISM·국회 의안에서 선례를 조사하는 중… '
+    + '(최대 1~2분). 준비되면 자동으로 나타납니다.</div></div>';
+  const transcript = transcriptLog().join("\n\n");
+  const apiKey = $("api-key").value.trim();
+  try {
+    const res = await fetch(EVALUATE_URL, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({transcript, api_key: apiKey})
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `요청 실패 (${res.status})`);
+    renderOriginality(data);
+  } catch (e) {
+    box.querySelector(".axisb-status").textContent = "선례 조사에 실패했습니다: " + e.message
+      + " — 위의 방어력 결과만 사용하세요.";
+  }
+}
+
+function renderOriginality(b) {
+  const total = window.__lastTotal || 0;
+  const defHigh = total >= 6, origHigh = b.band === "계열 밖 시도";
+  const parts = [];
+
+  // 두 점수 병렬(방어력 ↔ 실질 독창성)
+  parts.push('<div class="card two-score">'
+    + `<div><span class="ts-label">독창성 — 방어력</span>`
+    + `<span class="ts-val">${total.toFixed(1)}/10</span></div>`
+    + `<div><span class="ts-label">실질 독창성</span>`
+    + `<span class="ts-val">${esc(b.band)}</span>`
+    + `<span class="ts-conf">확신도 ${esc(b.confidence)} · 유형 ${esc(b.policy_type || "-")}</span></div></div>`);
+
+  // 위치(4칸)
+  if (b.band !== "판정 보류") {
+    const cell = defHigh ? (origHigh ? "추진" : "기존 사업 개선으로 재포지셔닝")
+                         : (origHigh ? "보완 후 재문답" : "보류");
+    parts.push('<div class="card"><b>위치</b>'
+      + `<div class="quadrant-now">${cell}</div>`
+      + `<div class="subscores">방어 ${defHigh ? "높음" : "낮음"} · 독창성 ${origHigh ? "높음" : "낮음"}</div></div>`);
+  }
+
+  // 근거
+  if (b.evidence && b.evidence.length) {
+    parts.push('<div class="card"><b>근거</b><ul class="ev-list">'
+      + b.evidence.map(e =>
+          `<li><span class="grade-${e.grade === "A" ? "A" : "B"}">${esc(e.grade)}급</span>`
+          + (e.source ? `<span class="ev-src">${esc(SRC_KO[e.source] || e.source)}</span>` : "")
+          + `${esc(e.text)}</li>`).join("")
+      + '</ul></div>');
+  }
+  if (b.reasoning)
+    parts.push(`<div class="card"><b>판정 근거</b><p class="subscores">${esc(b.reasoning)}</p></div>`);
+  if (b.retraction_condition)
+    parts.push(`<div class="card"><b>철회 조건</b><p class="subscores">${esc(b.retraction_condition)}</p></div>`);
+
+  // 조회 커버리지 + 히트 내역
+  const lk = b.lookup;
+  if (lk) {
+    const q = lk.queries || {}, pf = lk.profile || {};
+    const bit = v => (v == null ? "-" : (v ? "○" : "✗"));
+    const bills = lk.bill || [], fisc = lk.fiscal || [], pris = lk.prism || [];
+    const rc = {};
+    bills.forEach(x => { const r = x.result || "계류"; rc[r] = (rc[r] || 0) + 1; });
+    const rcTxt = Object.keys(rc).length
+      ? " (" + Object.entries(rc).map(([k, v]) => `${esc(k)} ${v}`).join(", ") + ")" : "";
+    let cov = '<div class="card"><b>조회 커버리지</b>'
+      + `<div class="subscores">재정 ${fisc.length}건 · PRISM ${pris.length}건 · 국회 의안 ${bills.length}건${rcTxt}<br>`
+      + `집행/검토/입법 = ${bit(pf.exec)}/${bit(pf.review)}/${bit(pf.law)}</div>`
+      + '<div class="subscores">질의어 — '
+      + `재정: ${esc((q.fiscal || []).join(", ") || "—")} · `
+      + `연구: ${esc((q.prism || []).join(", ") || "—")} · `
+      + `입법: ${esc((q.bill || []).join(", ") || "—")}</div>`;
+    if (bills.length) {
+      cov += '<b style="display:block;margin-top:10px">국회 의안</b><ul class="hit-list">'
+        + bills.map(x => `<li>${esc(x.name)} <span class="meta">— ${esc(x.result)}`
+            + (x.proposer ? ` · ${esc(x.proposer)}` : "") + (x.date ? ` · ${esc(x.date)}` : "") + "</span>"
+            + (x.summary ? `<div class="meta">본문: ${esc(x.summary.slice(0, 120))}…</div>` : "") + "</li>").join("") + "</ul>";
+    }
+    if (fisc.length) {
+      cov += '<b style="display:block;margin-top:10px">재정(세출예산)</b><ul class="hit-list">'
+        + fisc.map(x => `<li>${esc(x.name)}</li>`).join("") + "</ul>";
+    }
+    if (pris.length) {
+      cov += '<b style="display:block;margin-top:10px">정책연구(PRISM)</b><ul class="hit-list">'
+        + pris.map(x => `<li>${esc(x.title)} <span class="meta">${esc(x.org || "")} ${esc(x.period || "")}</span></li>`).join("") + "</ul>";
+    }
+    cov += "</div>";
+    parts.push(cov);
+  } else {
+    parts.push('<div class="card"><b>조회 커버리지</b><div class="subscores">'
+      + '외부 조회 미실행 (모델 지식 기반 판정) — 정부 API 키가 서버에 설정되지 않았거나 재정 데이터가 없습니다.'
+      + '</div></div>');
+  }
+
+  // 제안자 지목
+  const claimed = b.claimed_precedents || [];
+  parts.push('<div class="card"><b>제안자 지목</b><div class="subscores">'
+    + (claimed.length ? "지목: " + claimed.map(c => esc(c.name)).join(", ") : "미지목")
+    + ' · 점수 미반영(정보용)</div></div>');
+
+  // 한계 문구
+  parts.push('<div class="card limit"><div class="muted">'
+    + '실질 독창성 판정은 세출예산(집행)·PRISM(연구)·국회 의안(입법) 자료와 모델 지식에 근거합니다. '
+    + '재정·연구 자료는 제목·메타데이터만 담고, 국회 의안은 제안이유 본문을 받을 수 있습니다. '
+    + '제목만 겹치는 경우 유사 후보가 있다는 신호일 뿐 내용이 같다는 증거가 아니며(설계가 다르면 독창적일 수 있음), '
+    + '반대로 미발견이라 해도 이름이 달라 놓쳤거나 자료원 밖에 있을 수 있어 독창성이 확정되지는 않습니다. '
+    + '세 자료원은 대략 2000년대 후반 이후를 덮고, 임기만료폐기는 아이디어의 기각을 뜻하지 않습니다. '
+    + '이 판정은 정책 영역 간 비교에 쓰지 않습니다.</div></div>');
+
+  $("axis-b").innerHTML = parts.join("");
+}
+
+function loadTranscript() {
+  const box = $("transcript");
+  box.innerHTML = "";
+  if (!session) return;
+  for (const t of session.turns) {
+    const div = document.createElement("div");
+    div.className = "msg " + (t.role === "questioner" ? "q" : "a");
+    const who = document.createElement("span");
+    who.className = "who";
+    who.textContent = t.role === "questioner" ? `턴 ${t.seq} · 질문자(${t.stage})` : `턴 ${t.seq} · 제안자`;
+    div.appendChild(who);
+    div.appendChild(document.createTextNode(t.content));
+    box.appendChild(div);
+  }
+}
+
+function fillList(id, items) {
+  const ul = $(id);
+  ul.innerHTML = "";
+  for (const item of items) {
+    const li = document.createElement("li");
+    li.textContent = item;
+    ul.appendChild(li);
+  }
+}
+
+$("btn-again").onclick = () => {
+  session = null;
+  $("messages").innerHTML = "";
+  $("idea").value = "";
+  $("axis-b").innerHTML = "";
+  show("view-start");
+};
+</script>
+</body>
+</html>
