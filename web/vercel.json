@@ -5,6 +5,9 @@
     },
     "api/claude.py": {
       "maxDuration": 60
+    },
+    "api/extract.py": {
+      "maxDuration": 30
     }
   }
 }

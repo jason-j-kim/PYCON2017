@@ -236,13 +236,14 @@ ul { margin: 6px 0; padding-left: 20px; }
     <!-- 저장한 문답 불러와 수정·재평가 -->
     <div class="card">
       <div class="field-head"><b>저장한 문답 불러와 수정·재평가 (창의성 · 선례 조사)</b></div>
-      <div class="note-sub"><b>저장해 둔 문답</b>을 불러와 내용을 수정한 뒤, 그 대화를 바탕으로
-        <b>창의성(선례 조사)을 다시 평가</b>합니다. (원칙: 먼저 문답, 그다음 평가 —
-        새 아이디어는 위의 「문답 시작」으로 시작하세요.)</div>
+      <div class="note-sub"><b>저장해 둔 문답</b>(.json)이나 <b>Word(.docx)·PDF·텍스트</b> 파일을
+        불러와 내용을 수정한 뒤, 그 대화를 바탕으로 <b>창의성(선례 조사)을 다시 평가</b>합니다.
+        (원칙: 먼저 문답, 그다음 평가 — 새 아이디어는 위의 「문답 시작」으로 시작하세요.)</div>
       <div class="row" style="margin-top:10px">
-        <button class="secondary" id="btn-load-file">저장 파일 불러오기</button>
+        <button class="secondary" id="btn-load-file">파일 불러오기 (.json/.docx/.pdf/.txt)</button>
         <button class="secondary" id="btn-load-last">직전 결과 불러오기</button>
-        <input type="file" id="file-input" accept="application/json,.json" class="hidden">
+        <input type="file" id="file-input"
+               accept=".json,.docx,.pdf,.txt,.md,application/json" class="hidden">
       </div>
       <textarea id="axis-input" style="margin-top:10px" placeholder="저장한 문답을 불러오면 여기에 표시됩니다. 불러온 뒤 수정하세요."></textarea>
       <div class="row"><button id="btn-testaxis">이 문답으로 창의성(선례 조사) 재평가</button>
@@ -835,18 +836,41 @@ $("btn-load-file").onclick = () => $("file-input").click();
 $("file-input").onchange = (e) => {
   const f = e.target.files[0];
   if (!f) return;
-  const r = new FileReader();
-  r.onload = () => {
-    try {
-      const obj = JSON.parse(r.result);
-      $("axis-input").value = loadedText(obj);
-      $("axisb-test").innerHTML = '<div class="axisb-status">파일을 불러왔습니다. '
-        + '내용을 수정한 뒤 「창의성(선례 조사) 평가」를 누르세요.</div>';
-    } catch (err) {
-      $("axisb-test").innerHTML = '<div class="error">파일을 읽지 못했습니다(JSON 형식이 아닙니다).</div>';
-    }
-  };
-  r.readAsText(f);
+  const name = f.name.toLowerCase();
+  const box = $("axisb-test");
+  const loaded = (msg) => { box.innerHTML = '<div class="axisb-status">' + msg
+    + ' 내용을 수정한 뒤 「이 문답으로 창의성(선례 조사) 재평가」를 누르세요.</div>'; };
+  if (name.endsWith(".json")) {
+    // 우리 저장 형식은 브라우저에서 바로 파싱.
+    const r = new FileReader();
+    r.onload = () => {
+      try { $("axis-input").value = loadedText(JSON.parse(r.result)); loaded("파일을 불러왔습니다."); }
+      catch (err) { box.innerHTML = '<div class="error">JSON 파일을 읽지 못했습니다.</div>'; }
+    };
+    r.readAsText(f);
+  } else if (/\.(docx|pdf|txt|md)$/.test(name)) {
+    // Word·PDF·텍스트는 서버(/api/extract)에서 텍스트를 뽑는다.
+    box.innerHTML = '<div class="axisb-status"><span class="spin"></span>문서에서 텍스트를 추출하는 중…</div>';
+    const r = new FileReader();
+    r.onload = async () => {
+      const b64 = String(r.result).split(",")[1] || "";
+      try {
+        const res = await fetch("/api/extract", {
+          method: "POST", headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({filename: f.name, content_b64: b64})
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || `추출 실패 (${res.status})`);
+        $("axis-input").value = data.text || "";
+        loaded(`문서를 불러왔습니다(${data.chars || 0}자).`);
+      } catch (err) {
+        box.innerHTML = '<div class="error">문서 읽기 실패: ' + err.message + '</div>';
+      }
+    };
+    r.readAsDataURL(f);
+  } else {
+    box.innerHTML = '<div class="error">지원하지 않는 형식입니다(.json/.docx/.pdf/.txt).</div>';
+  }
   e.target.value = "";           // 같은 파일을 다시 선택할 수 있게 초기화
 };
 $("btn-load-last").onclick = () => {
