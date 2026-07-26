@@ -232,6 +232,16 @@ ul { margin: 6px 0; padding-left: 20px; }
       </div>
       <div id="start-error" class="error hidden"></div>
     </div>
+
+    <!-- 선례 조사만 바로 테스트 (문답 생략) -->
+    <div class="card">
+      <div class="field-head"><b>선례 조사만 바로 확인 (문답 생략)</b></div>
+      <div class="note-sub">위 정책 설명과 Claude 키만으로 <b>재정·PRISM·국회 의안 조회 + 독창성 판정</b>을
+        즉시 실행합니다. 12문답·채점은 건너뜁니다 — 축 B(선례 조사)만 검증할 때 쓰세요.</div>
+      <div class="row"><button class="secondary" id="btn-testaxis">선례 조사 테스트</button>
+        <span class="tagline" style="margin:0">약 30초~1분</span></div>
+      <div id="axisb-test" style="margin-top:12px"></div>
+    </div>
   </div>
 
   <div id="view-chat" class="hidden">
@@ -774,6 +784,33 @@ $("btn-start").onclick = async () => {
   }
 };
 
+// 문답 없이 축 B(선례 조사)만 즉시 실행 — Vercel에서 조회·판정이 도는지 바로 확인용.
+$("btn-testaxis").onclick = async () => {
+  const idea = $("idea").value.trim();
+  const apiKey = $("api-key").value.trim();
+  const box = $("axisb-test");
+  if (!apiKey) { box.innerHTML = '<div class="error">Claude API 키를 입력하세요.</div>'; return; }
+  if (!idea) { box.innerHTML = '<div class="error">위에 정책(아이디어)을 입력하세요.</div>'; return; }
+  if ($("remember").checked) localStorage.setItem("claude_api_key", apiKey);
+  $("btn-testaxis").disabled = true;
+  box.innerHTML = '<div class="axisb-status"><span class="spin"></span>'
+    + '재정·PRISM·국회 의안에서 선례를 조사하는 중… (최대 1~2분)</div>';
+  window.__lastTotal = 0;
+  try {
+    const res = await fetch(EVALUATE_URL, {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({transcript: idea, api_key: apiKey})
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `요청 실패 (${res.status})`);
+    renderOriginality(data, "axisb-test", false);
+  } catch (e) {
+    box.innerHTML = '<div class="error">선례 조사 실패: ' + e.message + '</div>';
+  } finally {
+    $("btn-testaxis").disabled = false;
+  }
+};
+
 async function send() {
   if (busy || !session) return;
   const text = $("answer").value.trim();
@@ -925,26 +962,36 @@ async function startOriginality() {
   }
 }
 
-function renderOriginality(b) {
+function renderOriginality(b, targetId, withDefense) {
+  targetId = targetId || "axis-b";
+  if (withDefense === undefined) withDefense = true;
   const total = window.__lastTotal || 0;
-  const defHigh = total >= 6, origHigh = b.band === "계열 밖 시도";
+  const origHigh = b.band === "계열 밖 시도";
   const parts = [];
 
-  // 두 점수 병렬(방어력 ↔ 실질 독창성)
-  parts.push('<div class="card two-score">'
-    + `<div><span class="ts-label">독창성 — 방어력</span>`
-    + `<span class="ts-val">${total.toFixed(1)}/10</span></div>`
-    + `<div><span class="ts-label">실질 독창성</span>`
-    + `<span class="ts-val">${esc(b.band)}</span>`
-    + `<span class="ts-conf">확신도 ${esc(b.confidence)} · 유형 ${esc(b.policy_type || "-")}</span></div></div>`);
-
-  // 위치(4칸)
-  if (b.band !== "판정 보류") {
-    const cell = defHigh ? (origHigh ? "추진" : "기존 사업 개선으로 재포지셔닝")
-                         : (origHigh ? "보완 후 재문답" : "보류");
-    parts.push('<div class="card"><b>위치</b>'
-      + `<div class="quadrant-now">${cell}</div>`
-      + `<div class="subscores">방어 ${defHigh ? "높음" : "낮음"} · 독창성 ${origHigh ? "높음" : "낮음"}</div></div>`);
+  if (withDefense) {
+    const defHigh = total >= 6;
+    // 두 점수 병렬(방어력 ↔ 실질 독창성)
+    parts.push('<div class="card two-score">'
+      + `<div><span class="ts-label">독창성 — 방어력</span>`
+      + `<span class="ts-val">${total.toFixed(1)}/10</span></div>`
+      + `<div><span class="ts-label">실질 독창성</span>`
+      + `<span class="ts-val">${esc(b.band)}</span>`
+      + `<span class="ts-conf">확신도 ${esc(b.confidence)} · 유형 ${esc(b.policy_type || "-")}</span></div></div>`);
+    // 위치(4칸)
+    if (b.band !== "판정 보류") {
+      const cell = defHigh ? (origHigh ? "추진" : "기존 사업 개선으로 재포지셔닝")
+                           : (origHigh ? "보완 후 재문답" : "보류");
+      parts.push('<div class="card"><b>위치</b>'
+        + `<div class="quadrant-now">${cell}</div>`
+        + `<div class="subscores">방어 ${defHigh ? "높음" : "낮음"} · 독창성 ${origHigh ? "높음" : "낮음"}</div></div>`);
+    }
+  } else {
+    // 문답 없이 축 B만 테스트할 때: 판정·확신도만 표시
+    parts.push('<div class="card" style="text-align:center">'
+      + '<div class="tagline">실질 독창성</div>'
+      + `<div class="quadrant-now" style="font-size:1.5rem">${esc(b.band)}</div>`
+      + `<div class="subscores">확신도 ${esc(b.confidence)} · 유형 ${esc(b.policy_type || "-")}</div></div>`);
   }
 
   // 근거
@@ -1015,7 +1062,7 @@ function renderOriginality(b) {
     + '세 자료원은 대략 2000년대 후반 이후를 덮고, 임기만료폐기는 아이디어의 기각을 뜻하지 않습니다. '
     + '이 판정은 정책 영역 간 비교에 쓰지 않습니다.</div></div>');
 
-  $("axis-b").innerHTML = parts.join("");
+  $(targetId).innerHTML = parts.join("");
 }
 
 function loadTranscript() {
