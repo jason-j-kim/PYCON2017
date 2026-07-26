@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>정책 실질 독창성 평가 · 재정·PRISM·국회 의안</title>
+<style>
+  :root {
+    --bg: #f6f5f1; --card: #ffffff; --ink: #26241f; --sub: #6d6a61;
+    --line: #e3e0d8; --accent: #23639c; --accent-ink: #ffffff; --good: #2e7d4f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif;
+    line-height: 1.6;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 24px 16px 96px; }
+  h1 { font-size: 1.35rem; margin: 8px 0 2px; }
+  .badge { display: inline-block; background: #7a3b8f; color: #fff; border-radius: 999px;
+           padding: 2px 10px; font-size: .72rem; font-weight: 700; vertical-align: middle;
+           margin-left: 6px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+          padding: 20px; margin-bottom: 16px; }
+  textarea, input[type=text], input[type=password] {
+    width: 100%; border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px 12px; font: inherit; background: #fff; color: var(--ink);
+  }
+  textarea { resize: vertical; min-height: 120px; }
+  label { font-size: .85rem; color: var(--sub); display: block; margin-bottom: 4px; }
+  button {
+    border: 0; border-radius: 8px; padding: 10px 18px; font: inherit;
+    cursor: pointer; background: var(--accent); color: var(--accent-ink);
+  }
+  button.secondary { background: transparent; color: var(--sub);
+                     border: 1px solid var(--line); }
+  button:disabled { opacity: .45; cursor: default; }
+  .row { display: flex; gap: 8px; margin-top: 14px; align-items: center; }
+  .hidden { display: none !important; }
+  .tagline { color: var(--sub); font-size: .9rem; }
+
+  .hero { background: linear-gradient(180deg, #fbfaf7, #efeae0);
+          border: 1px solid var(--line); border-radius: 14px;
+          padding: 20px 20px 18px; margin-bottom: 20px; }
+  .hero h1 { margin: 0 0 6px; }
+  .hero .tagline { margin: 0 0 14px; font-size: .95rem; color: var(--ink); }
+  .hero .tagline b { color: var(--accent); }
+  .trustbar { display: flex; gap: 8px; flex-wrap: wrap; }
+  .src { flex: 1; min-width: 130px; background: #fff; border: 1px solid var(--line);
+         border-radius: 10px; padding: 8px 12px; }
+  .src b { display: block; color: var(--accent); font-size: .84rem; }
+  .src span { font-size: .74rem; color: var(--sub); }
+  .src.off { opacity: .5; }
+  .src .state { float: right; font-size: .72rem; font-weight: 700; }
+  .src .on-mark { color: var(--good); }
+  .src .off-mark { color: #b3261e; }
+
+  .field-head { display: flex; justify-content: space-between; align-items: baseline; }
+  .note-sub { font-size: .8rem; color: var(--sub); margin-top: 8px; }
+
+  .two-score { display: flex; gap: 16px; }
+  .quadrant-now { font-size: 1.35rem; font-weight: 700; color: var(--accent); margin: 4px 0; }
+  .subscores { color: var(--sub); font-size: .85rem; margin: 4px 0 8px; }
+  .ev-list { list-style: none; margin: 6px 0 0; padding: 0; font-size: .88rem; }
+  .ev-list li { padding: 4px 0; }
+  .grade-A { display: inline-block; background: #1f6f43; color: #fff; border-radius: 5px;
+             padding: 1px 7px; font-size: .75rem; font-weight: 700; margin-right: 6px; }
+  .grade-B { display: inline-block; background: #8a7a2f; color: #fff; border-radius: 5px;
+             padding: 1px 7px; font-size: .75rem; font-weight: 700; margin-right: 6px; }
+  .ev-src { display: inline-block; color: var(--sub); font-size: .75rem; margin-right: 5px; }
+  .band-big { font-size: 1.5rem; font-weight: 800; color: var(--accent); }
+  .conf { color: var(--sub); font-size: .9rem; margin-top: 4px; }
+  .hit-list { list-style: none; margin: 6px 0 0; padding: 0; font-size: .85rem; }
+  .hit-list li { padding: 4px 0; border-bottom: 1px solid var(--line); }
+  .hit-list li:last-child { border-bottom: 0; }
+  .hit-list .meta { color: var(--sub); font-size: .78rem; }
+  .limit .muted { font-size: .8rem; line-height: 1.55; color: var(--sub); }
+  .error { color: #b3261e; font-size: .88rem; margin-top: 10px; }
+  .spin { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--line);
+          border-top-color: var(--accent); border-radius: 50%; margin-right: 8px;
+          animation: spin .8s linear infinite; vertical-align: -2px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .keyrow { display: flex; gap: 8px; align-items: center; }
+  .keyrow input { flex: 1; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hero">
+    <h1>정책 실질 독창성 평가<span class="badge">재정 · PRISM · 국회 의안</span></h1>
+    <div class="tagline">정책 아이디어가 <b>이미 시도된 선례</b>가 있는지 세 자료원으로 검증합니다.</div>
+    <div class="trustbar" id="trustbar">
+      <span class="src" id="src-fiscal"><b>재정 <span class="state"></span></b><span>예산으로 집행됐나</span></span>
+      <span class="src" id="src-prism"><b>PRISM <span class="state"></span></b><span>연구로 검토됐나</span></span>
+      <span class="src" id="src-bill"><b>국회 의안 <span class="state"></span></b><span>입법이 시도됐나</span></span>
+    </div>
+  </div>
+
+  <!-- 입력 -->
+  <div id="view-input">
+    <div class="card">
+      <div class="field-head">
+        <label for="policy" style="margin:0">정책(아이디어)을 자유롭게 서술하세요</label>
+        <button class="secondary" id="btn-example" style="padding:6px 12px" type="button">예시 입력</button>
+      </div>
+      <textarea id="policy" placeholder="누구의 어떤 문제를, 어떤 방식으로 해결하는 정책인지 3~6문장으로 적어주세요. 재원(예산·기금 등)도 밝히면 더 정확합니다."></textarea>
+      <div class="note-sub">입력한 정책을 명세로 구조화한 뒤, 재정·PRISM·국회 의안에서 선례를 조회해 실질 독창성을 판정합니다.</div>
+    </div>
+
+    <div class="card">
+      <label for="apikey">Claude API 키 (sk-ant-…)</label>
+      <div class="keyrow">
+        <input id="apikey" type="password" placeholder="sk-ant-api03-..." autocomplete="off">
+        <button class="secondary" id="btn-showkey" type="button" style="padding:8px 12px">보기</button>
+      </div>
+      <div class="note-sub">키는 이 브라우저에서 Anthropic으로 직접 전송되며, 서버(Vercel)에 저장되지 않습니다.
+        원하면 이 브라우저에만 기억시킬 수 있습니다.</div>
+      <div class="row" style="margin-top:8px">
+        <label style="margin:0"><input type="checkbox" id="remember"> 이 브라우저에 키 기억</label>
+      </div>
+    </div>
+
+    <div class="card" style="text-align:center">
+      <button id="btn-eval">선례 조사 · 독창성 판정</button>
+      <div class="note-sub">Claude 3회 호출 + 정부 API 조회 — 약 30초~1분 걸립니다.</div>
+      <div id="input-error" class="error hidden"></div>
+    </div>
+  </div>
+
+  <!-- 진행 -->
+  <div id="view-loading" class="card hidden" style="text-align:center">
+    <div><span class="spin"></span><span id="loading-label">선례를 조사하는 중…</span></div>
+    <div class="note-sub">명세 추출 → 지식 판정 → 재정·PRISM·의안 조회 → 독창성 판정</div>
+  </div>
+
+  <!-- 결과 -->
+  <div id="view-result" class="hidden"></div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"]/g, c =>
+    ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+}
+
+// 저장된 키 복원
+const saved = localStorage.getItem("claude_api_key");
+if (saved) { $("apikey").value = saved; $("remember").checked = true; }
+
+$("btn-showkey").onclick = () => {
+  const inp = $("apikey");
+  inp.type = inp.type === "password" ? "text" : "password";
+  $("btn-showkey").textContent = inp.type === "password" ? "보기" : "숨김";
+};
+
+$("btn-example").onclick = () => {
+  $("policy").value = "노후 경유차 조기폐차 보조금 — 배출가스 5등급 노후 경유차를 "
+    + "조기 폐차하는 차주에게 보조금을 지급해 도심 미세먼지를 줄인다. "
+    + "환경부 대기환경 예산으로 재원을 마련한다.";
+  $("policy").focus();
+};
+
+// 정부 소스 가용 여부 표시
+fetch("/api/evaluate").then(r => r.json()).then(d => {
+  const map = {fiscal: "src-fiscal", prism: "src-prism", bill: "src-bill"};
+  for (const k in map) {
+    const el = $(map[k]);
+    const on = d.sources && d.sources[k];
+    el.querySelector(".state").innerHTML = on
+      ? '<span class="on-mark">● 사용</span>' : '<span class="off-mark">● 미설정</span>';
+    if (!on) el.classList.add("off");
+  }
+}).catch(() => {});
+
+function show(view) {
+  for (const v of ["view-input", "view-loading", "view-result"])
+    $(v).classList.toggle("hidden", v !== view);
+}
+
+$("btn-eval").onclick = async () => {
+  const policy = $("policy").value.trim();
+  const api_key = $("apikey").value.trim();
+  const err = $("input-error");
+  err.classList.add("hidden");
+  if (!policy) { err.textContent = "정책(아이디어)을 입력하세요."; err.classList.remove("hidden"); return; }
+  if (!api_key) { err.textContent = "Claude API 키를 입력하세요."; err.classList.remove("hidden"); return; }
+
+  if ($("remember").checked) localStorage.setItem("claude_api_key", api_key);
+  else localStorage.removeItem("claude_api_key");
+
+  show("view-loading");
+  try {
+    const res = await fetch("/api/evaluate", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({policy, api_key}),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `요청 실패 (${res.status})`);
+    renderResult(data);
+    show("view-result");
+    window.scrollTo({top: 0});
+  } catch (e) {
+    show("view-input");
+    err.textContent = e.message; err.classList.remove("hidden");
+  }
+};
+
+const SRC_KO = {fiscal: "재정", prism: "연구", bill: "입법", knowledge: "기억"};
+
+function renderResult(b) {
+  const parts = [];
+
+  // 판정
+  parts.push('<div class="card" style="text-align:center">'
+    + '<div class="tagline">실질 독창성</div>'
+    + `<div class="band-big">${esc(b.band)}</div>`
+    + `<div class="conf">확신도 ${esc(b.confidence)} · 유형: ${esc(b.policy_type || "-")}</div></div>`);
+
+  // 근거
+  if (b.evidence && b.evidence.length) {
+    parts.push('<div class="card"><b>근거</b><ul class="ev-list">'
+      + b.evidence.map(e =>
+          `<li><span class="grade-${e.grade === "A" ? "A" : "B"}">${esc(e.grade)}급</span>`
+          + (e.source ? `<span class="ev-src">${esc(SRC_KO[e.source] || e.source)}</span>` : "")
+          + `${esc(e.text)}</li>`).join("")
+      + '</ul></div>');
+  }
+  if (b.reasoning)
+    parts.push(`<div class="card"><b>판정 근거</b><p class="subscores">${esc(b.reasoning)}</p></div>`);
+  if (b.retraction_condition)
+    parts.push(`<div class="card"><b>철회 조건</b><p class="subscores">${esc(b.retraction_condition)}</p></div>`);
+
+  // 조회 내역
+  const lk = b.lookup;
+  if (lk) {
+    const q = lk.queries || {}, pf = lk.profile || {};
+    const bit = v => (v == null ? "-" : (v ? "○" : "✗"));
+    const bills = lk.bill || [], fisc = lk.fiscal || [], pris = lk.prism || [];
+    const rc = {};
+    bills.forEach(x => { const r = x.result || "계류"; rc[r] = (rc[r] || 0) + 1; });
+    const rcTxt = Object.keys(rc).length
+      ? " (" + Object.entries(rc).map(([k, v]) => `${esc(k)} ${v}`).join(", ") + ")" : "";
+
+    let cov = '<div class="card"><b>조회 커버리지</b>'
+      + `<div class="subscores">재정 ${fisc.length}건 · PRISM ${pris.length}건 · `
+      + `국회 의안 ${bills.length}건${rcTxt}<br>`
+      + `집행/검토/입법 = ${bit(pf.exec)}/${bit(pf.review)}/${bit(pf.law)}</div>`
+      + '<div class="subscores">질의어 — '
+      + `재정: ${esc((q.fiscal || []).join(", ") || "—")} · `
+      + `연구: ${esc((q.prism || []).join(", ") || "—")} · `
+      + `입법: ${esc((q.bill || []).join(", ") || "—")}</div>';
+
+    if (bills.length) {
+      cov += '<b style="display:block;margin-top:10px">국회 의안</b><ul class="hit-list">'
+        + bills.map(x =>
+            `<li>${esc(x.name)} <span class="meta">— ${esc(x.result)}`
+            + (x.proposer ? ` · ${esc(x.proposer)}` : "")
+            + (x.date ? ` · ${esc(x.date)}` : "") + "</span>"
+            + (x.summary ? `<div class="meta">본문: ${esc(x.summary.slice(0, 120))}…</div>` : "")
+            + "</li>").join("") + "</ul>";
+    }
+    if (fisc.length) {
+      cov += '<b style="display:block;margin-top:10px">재정(세출예산)</b><ul class="hit-list">'
+        + fisc.map(x => `<li>${esc(x.name)}</li>`).join("") + "</ul>";
+    }
+    if (pris.length) {
+      cov += '<b style="display:block;margin-top:10px">정책연구(PRISM)</b><ul class="hit-list">'
+        + pris.map(x => `<li>${esc(x.title)} <span class="meta">${esc(x.org || "")} ${esc(x.period || "")}</span></li>`).join("") + "</ul>";
+    }
+    cov += "</div>";
+    parts.push(cov);
+  } else {
+    parts.push('<div class="card"><b>조회 커버리지</b>'
+      + '<div class="subscores">외부 조회 미실행 (모델 지식 기반 판정) — '
+      + '정부 API 키(DATA_GO_KR_KEY·ASSEMBLY_KEY)가 설정되지 않았거나 재정 데이터가 없습니다.</div></div>');
+  }
+
+  // 제안자 지목
+  const claimed = b.claimed_precedents || [];
+  parts.push('<div class="card"><b>제안자 지목</b><div class="subscores">'
+    + (claimed.length ? "지목: " + claimed.map(c => esc(c.name)).join(", ") : "미지목")
+    + ' · 점수 미반영(정보용)</div></div>');
+
+  // 한계
+  parts.push('<div class="card limit"><div class="muted">'
+    + '실질 독창성 판정은 세출예산(집행)·PRISM(연구)·국회 의안(입법) 자료와 모델 '
+    + '지식에 근거합니다. 재정·연구 자료는 제목·메타데이터만 담고, 국회 의안은 '
+    + '제안이유 본문을 받을 수 있습니다. 제목만 겹치는 경우 유사 후보가 있다는 '
+    + '신호일 뿐 내용이 같다는 증거가 아니며(설계가 다르면 독창적일 수 있음), '
+    + '반대로 미발견이라 해도 이름이 달라 놓쳤거나 자료원 밖에 있을 수 있어 '
+    + '독창성이 확정되지는 않습니다(찾은 범위에서 미발견까지만 뜻함). '
+    + '세 자료원은 대략 2000년대 후반 이후를 덮고, 임기만료폐기는 아이디어의 '
+    + '기각을 뜻하지 않습니다. 이 판정은 정책 영역 간 비교에 쓰지 않습니다.'
+    + '</div></div>');
+
+  parts.push('<div class="row"><button id="btn-again" class="secondary">새 정책으로 다시</button></div>');
+
+  $("view-result").innerHTML = parts.join("");
+  $("btn-again").onclick = () => { $("policy").value = ""; show("view-input"); };
+}
+</script>
+</body>
+</html>
