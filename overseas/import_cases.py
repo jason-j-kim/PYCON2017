@@ -27,7 +27,9 @@ Claude in Chrome(교수님 실제 브라우저 세션) 등으로 OPSI Case Study
     python overseas/import_cases.py cases.json
     python overseas/import_cases.py cases1.json cases2.json     (여러 파일)
 """
+import glob
 import json
+import os
 import re
 import sqlite3
 import sys
@@ -118,8 +120,22 @@ def load_records(path):
     return data
 
 
+def _expand(args):
+    """인자를 파일 목록으로 확장한다: 파일 · 와일드카드(cases*.json) · 폴더 모두 허용.
+    (Windows cmd는 와일드카드를 안 풀어주므로 여기서 직접 처리한다.)"""
+    out = []
+    for a in args:
+        if os.path.isdir(a):
+            out += sorted(glob.glob(os.path.join(a, "*.json")))
+        else:
+            hit = sorted(glob.glob(a))
+            out += hit if hit else [a]
+    # 중복 경로 제거(순서 유지)
+    return list(dict.fromkeys(out))
+
+
 def main():
-    files = [a for a in sys.argv[1:] if not a.startswith("-")]
+    files = _expand([a for a in sys.argv[1:] if not a.startswith("-")])
     if not files:
         print(__doc__)
         sys.exit("입력 JSON 파일을 지정하세요.")
