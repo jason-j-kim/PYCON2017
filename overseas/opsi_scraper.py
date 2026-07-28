@@ -99,7 +99,18 @@ def upsert_case(conn, rec):
 # ── HTTP (재시도·지연) ─────────────────────────────────────────────────────
 def make_session():
     s = requests.Session()
-    s.headers.update({"User-Agent": _UA, "Accept": "application/json"})
+    # 봇 차단(WAF) 완화를 위해 실제 브라우저에 가까운 헤더를 붙인다.
+    s.headers.update({
+        "User-Agent": _UA,
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9,ko;q=0.8",
+        "Accept-Encoding": "gzip, deflate",
+        "Referer": CONFIG["base_url"].rstrip("/") + "/",
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-origin",
+        "Connection": "keep-alive",
+    })
     return s
 
 
@@ -126,7 +137,11 @@ def get_json(session, url, params=None):
             time.sleep(wait)
             continue
         if r.status_code >= 400:
-            log.error("HTTP %d %s", r.status_code, url)
+            # 누가 막는지 진단: 응답 본문 앞부분을 찍는다(Cloudflare / WordPress 등).
+            body = (r.text or "")[:300].replace("\n", " ")
+            server = r.headers.get("Server", "")
+            log.error("HTTP %d %s | Server=%s | 본문: %s",
+                      r.status_code, url, server, body)
             return None, r.headers
         try:
             return r.json(), r.headers
