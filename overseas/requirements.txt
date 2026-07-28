@@ -1,0 +1,4 @@
+# 해외 정책사례 수집 파이프라인 의존성
+#   pip install -r overseas/requirements.txt
+requests
+beautifulsoup4

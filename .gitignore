@@ -180,3 +180,4 @@ keys.local.bat
 
 # 재채점 명세 캐시(로컬 테스트용)
 simulation/spec_cache/
+overseas/*.db
