@@ -62,6 +62,27 @@ python overseas/opsi_scraper_playwright.py --post-type case_study --headful  # �
 - 이는 사람이 브라우저로 여는 것과 같은 접근이나 **Cloudflare 보호를 지나므로 ToS를 확인**하고
   요청 간격을 지킨다. 기관(KDI)이라면 **OECD OPSI에 데이터 제공을 공식 문의**하는 편이 가장 안전·정당하다.
 
+### ⚠⚠ OPSI는 자동 브라우저도 탐지·차단 → 수동-통과 모드를 쓴다
+확인 결과, requests뿐 아니라 **자동화된 Playwright(headful)도 Cloudflare가 탐지·차단**했다.
+봇 우회(stealth)로 더 밀어붙이는 대신, **사람이 직접 Cloudflare를 통과한 세션을 재사용**하는
+정당한 방식(`opsi_scraper_manual.py`)을 쓴다.
+
+```
+pip install playwright
+python -m playwright install chromium     # Chrome 채널 실패 시 대비
+
+python overseas/opsi_scraper_manual.py --discover
+python overseas/opsi_scraper_manual.py --post-type case_study --max-pages 3
+python overseas/opsi_scraper_manual.py --post-type case_study            # 전체
+```
+
+동작: 실제 브라우저 창이 뜨면 **사용자가 Cloudflare 확인을 직접 통과**하고, 콘솔에서 Enter를
+누르면 그 인증 세션으로 페이지를 이동하며 REST를 수집한다. 통과 세션은 `overseas/.pw-profile`에
+저장되어 **다음 실행부터는 대개 통과가 유지**된다. 설치된 Chrome이 있으면 그것을 우선 사용한다.
+
+> 가장 깨끗한 길은 여전히 **opsi@oecd.org 공식 데이터 요청**이다. 수동-통과 모드는 그 사이의
+> 실무적 수단이며, 무료 대안(지식 판정 프롬프트의 해외 B급 반영)이 이미 ~90%를 처리한다.
+
 ## 2) Apolitical 수집 (스캐폴드 — 확정 필요)
 
 OPSI와 달리 공개 REST가 불명확하고 콘텐츠 일부가 로그인·JS 렌더 뒤에 있을 수 있다.
