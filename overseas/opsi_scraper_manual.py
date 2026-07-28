@@ -46,25 +46,48 @@ log = logging.getLogger("opsi-manual")
 PROFILE_DIR = Path(__file__).resolve().parent / ".pw-profile"   # 통과 세션 저장(쿠키 유지)
 
 
-def _goto_json(page, url):
-    """브라우저로 주소를 이동해 JSON 본문을 읽는다(사람이 통과한 세션 그대로 사용).
-    반환: (data, response). Cloudflare 재도전/오류면 (None, resp)."""
-    resp = page.goto(url, wait_until="domcontentloaded", timeout=60000)
-    title = (page.title() or "").lower()
-    if "just a moment" in title or "attention required" in title:
-        log.warning("이 주소에서 Cloudflare가 다시 확인을 요구합니다: %s", url)
-        return None, resp
-    # 우선 응답 객체에서 바로 JSON 파싱(가장 정확), 실패 시 본문 텍스트에서 파싱.
+def _fetch_json(page, url):
+    """이미 통과한 페이지 '안에서' fetch(XHR)로 같은 도메인 API를 부른다.
+    최상위 페이지 이동(navigation)과 달리 Cloudflare 재도전 없이 통과되는 게 핵심.
+    반환: (data, meta). meta = {status, total, pages, body}."""
     try:
-        return resp.json(), resp
-    except Exception:
-        pass
-    try:
-        text = page.evaluate("() => document.body ? document.body.innerText : ''")
-        return json.loads(text), resp
+        res = page.evaluate(
+            """async (u) => {
+                const r = await fetch(u, {headers: {'Accept': 'application/json'},
+                                          credentials: 'include'});
+                return {status: r.status,
+                        total: r.headers.get('x-wp-total'),
+                        pages: r.headers.get('x-wp-totalpages'),
+                        body: await r.text()};
+            }""", url)
     except Exception as e:
-        log.error("JSON 파싱 실패(%s): %s", url, e)
-        return None, resp
+        log.error("페이지 내 fetch 실패(%s): %s", url, e)
+        return None, {}
+    body = res.get("body", "") or ""
+    if res.get("status", 0) >= 400 or "just a moment" in body[:400].lower():
+        return None, res
+    try:
+        return json.loads(body), res
+    except Exception:
+        log.error("JSON 파싱 실패(%s): 본문 %s", url, body[:150].replace("\n", " "))
+        return None, res
+
+
+def fetch_json(page, url):
+    """_fetch_json + Cloudflare 재도전 시 1회 사람 통과 후 재시도."""
+    data, meta = _fetch_json(page, url)
+    challenged = data is None and meta and (
+        meta.get("status", 0) in (403, 429, 503)
+        or "just a moment" in (meta.get("body", "")[:400].lower()))
+    if challenged:
+        print("\n  ※ Cloudflare 확인이 다시 떴을 수 있습니다. 브라우저 창에서 통과 후 Enter ▶ ",
+              end="")
+        try:
+            input()
+        except EOFError:
+            page.wait_for_timeout(15000)
+        data, meta = _fetch_json(page, url)
+    return data, meta
 
 
 def wait_for_human(page, base):
@@ -82,14 +105,14 @@ def wait_for_human(page, base):
 
 
 def discover(page, base):
-    data, _ = _goto_json(page, f"{base}/wp-json/wp/v2/types")
+    data, _ = fetch_json(page, f"{base}/wp-json/wp/v2/types")
     if not data:
         log.error("types 를 못 읽음. 브라우저에 Cloudflare가 다시 떴는지 보고, 통과 후 재실행.")
         return
     print("\n=== 포스트 타입(CPT) ===")
     for slug, info in data.items():
         print(f"  · {slug:20s} rest_base={info.get('rest_base', slug):20s} {info.get('name','')}")
-    tax, _ = _goto_json(page, f"{base}/wp-json/wp/v2/taxonomies")
+    tax, _ = fetch_json(page, f"{base}/wp-json/wp/v2/taxonomies")
     if tax:
         print("\n=== 분류(taxonomy) ===")
         for slug, info in tax.items():
@@ -107,11 +130,11 @@ def scrape(page, base, post_type, max_pages=None):
                 break
             url = (f"{base}/wp-json/wp/v2/{post_type}"
                    f"?per_page={CONFIG['per_page']}&page={page_no}&_embed=1")
-            data, resp = _goto_json(page, url)
-            if total_pages is None and resp is not None:
-                total_pages = resp.headers.get("x-wp-totalpages")
-                if resp.headers.get("x-wp-total"):
-                    log.info("전체 %s건 · 총 %s페이지", resp.headers.get("x-wp-total"), total_pages)
+            data, meta = fetch_json(page, url)
+            if total_pages is None and meta:
+                total_pages = meta.get("pages")
+                if meta.get("total"):
+                    log.info("전체 %s건 · 총 %s페이지", meta.get("total"), total_pages)
             if not data:
                 log.info("데이터 없음/종료 (page=%d)", page_no)
                 break
