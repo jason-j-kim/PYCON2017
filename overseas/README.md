@@ -41,6 +41,27 @@ python overseas/opsi_scraper.py --post-type case_study
   확인해 인자(또는 `opsi_scraper.py` 상단 `CONFIG`)로 맞춘다. 확정 전에는 country·sector·
   year 일부가 비어 있을 수 있다.
 
+### ⚠ Cloudflare 봇차단 → Playwright 판을 쓴다
+OPSI 사이트(oecd-opsi.org)는 **Cloudflare 봇보호("Just a moment…")** 뒤에 있어 `requests`
+판(`opsi_scraper.py`)은 **HTTP 403**으로 막힌다(확인됨: `Server=cloudflare`). 이때는
+**진짜 브라우저로 통과**하는 Playwright 판을 쓴다.
+
+```
+pip install playwright
+playwright install chromium
+
+python overseas/opsi_scraper_playwright.py --discover
+python overseas/opsi_scraper_playwright.py --post-type case_study --max-pages 3
+python overseas/opsi_scraper_playwright.py --post-type case_study            # 전체
+python overseas/opsi_scraper_playwright.py --post-type case_study --headful  # 차단 심하면 창 띄워서
+```
+
+- 헤드리스 Chromium으로 홈페이지를 먼저 열어 Cloudflare 통과(clearance 쿠키 획득) 후,
+  같은 컨텍스트로 REST API를 페이지 단위 호출한다. 파싱·DB는 `opsi_scraper.py` 재사용(같은 DB).
+- 헤드리스가 계속 막히면 `--headful`(창 표시)이 통과율이 높다.
+- 이는 사람이 브라우저로 여는 것과 같은 접근이나 **Cloudflare 보호를 지나므로 ToS를 확인**하고
+  요청 간격을 지킨다. 기관(KDI)이라면 **OECD OPSI에 데이터 제공을 공식 문의**하는 편이 가장 안전·정당하다.
+
 ## 2) Apolitical 수집 (스캐폴드 — 확정 필요)
 
 OPSI와 달리 공개 REST가 불명확하고 콘텐츠 일부가 로그인·JS 렌더 뒤에 있을 수 있다.

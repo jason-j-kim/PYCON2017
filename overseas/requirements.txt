@@ -2,3 +2,5 @@
 #   pip install -r overseas/requirements.txt
 requests
 beautifulsoup4
+# Cloudflare 봇차단 우회용(진짜 브라우저). 설치 후 'playwright install chromium' 실행.
+playwright
