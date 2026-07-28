@@ -111,13 +111,47 @@ def upsert(conn, rec):
     return row["id"]
 
 
-def load_records(path):
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
-    if isinstance(data, dict):                 # {"cases":[...]} 또는 단건 dict 허용
+def records_from_text(text, where="입력"):
+    """텍스트(붙여넣기/파일 내용)에서 사례 배열을 뽑는다. 코드펜스(```json)도 허용."""
+    text = (text or "").strip()
+    text = re.sub(r"^```[a-zA-Z]*\s*", "", text)      # 앞 ```json 제거
+    text = re.sub(r"\s*```$", "", text)               # 뒤 ``` 제거
+    data = json.loads(text)
+    if isinstance(data, dict):                        # {"cases":[...]} 또는 단건 dict 허용
         data = data.get("cases") or data.get("results") or [data]
     if not isinstance(data, list):
-        raise ValueError(f"{path}: JSON 배열이 아닙니다.")
+        raise ValueError(f"{where}: JSON 배열이 아닙니다.")
     return data
+
+
+def load_records(path):
+    return records_from_text(Path(path).read_text(encoding="utf-8"), where=path)
+
+
+def read_clipboard():
+    """클립보드 텍스트를 읽는다(Windows/기타). tkinter 우선, 실패 시 powershell."""
+    try:
+        import tkinter
+        r = tkinter.Tk()
+        r.withdraw()
+        text = r.clipboard_get()
+        r.destroy()
+        return text
+    except Exception:
+        import subprocess
+        out = subprocess.run(["powershell", "-NoProfile", "-Command", "Get-Clipboard"],
+                             capture_output=True, text=True)
+        return out.stdout
+
+
+def _import_records(conn, recs):
+    n = 0
+    for rec in recs:
+        if isinstance(rec, dict):
+            upsert(conn, rec)
+            n += 1
+    conn.commit()
+    return n
 
 
 def _expand(args):
@@ -135,25 +169,28 @@ def _expand(args):
 
 
 def main():
-    files = _expand([a for a in sys.argv[1:] if not a.startswith("-")])
-    if not files:
-        print(__doc__)
-        sys.exit("입력 JSON 파일을 지정하세요.")
+    args = sys.argv[1:]
+    use_clip = "--clip" in args
+    use_stdin = "--stdin" in args
     conn = sqlite3.connect(DB_PATH)
     try:
         ensure_schema(conn)
         total = 0
-        for f in files:
-            recs = load_records(f)
-            n = 0
-            for rec in recs:
-                if not isinstance(rec, dict):
-                    continue
-                upsert(conn, rec)
-                n += 1
-            conn.commit()
-            print(f"  {f}: {n}건 반영")
-            total += n
+        if use_clip or use_stdin:
+            # 파일 저장 없이 클립보드(복사한 JSON) 또는 표준입력에서 바로 임포트.
+            text = read_clipboard() if use_clip else sys.stdin.read()
+            recs = records_from_text(text, where="클립보드" if use_clip else "표준입력")
+            total = _import_records(conn, recs)
+            print(f"  {'클립보드' if use_clip else '표준입력'}: {total}건 반영")
+        else:
+            files = _expand([a for a in args if not a.startswith("-")])
+            if not files:
+                print(__doc__)
+                sys.exit("입력 JSON 파일(또는 --clip / --stdin)을 지정하세요.")
+            for f in files:
+                n = _import_records(conn, load_records(f))
+                print(f"  {f}: {n}건 반영")
+                total += n
         cnt = conn.execute("SELECT COUNT(*) FROM cases").fetchone()[0]
         print(f"완료: 이번 {total}건 UPSERT · DB 전체 {cnt}건 · {DB_PATH}")
     finally:
