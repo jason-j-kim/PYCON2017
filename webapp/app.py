@@ -13,6 +13,7 @@ import io
 import json
 import os
 import re
+import sqlite3
 import sys
 import threading
 import urllib.error
@@ -702,6 +703,57 @@ def api_bill(req: LookupRequest):
     return {"hits": _bill_lookup(req.query.strip())}
 
 
+# ── 해외 축: OPSI 로컬 DB(overseas/opsi_policies.db) 검색 ──
+# 사람이 Claude in Chrome으로 수집·임포트하면 채워진다. 비어 있으면 자동으로 꺼짐.
+OPSI_DB = ROOT / "overseas" / "opsi_policies.db"
+
+
+def _opsi_available():
+    if not OPSI_DB.exists():
+        return False
+    try:
+        with sqlite3.connect(OPSI_DB) as c:
+            return c.execute("SELECT COUNT(*) FROM cases").fetchone()[0] > 0
+    except Exception:
+        return False
+
+
+def _opsi_lookup(query):
+    """영어 질의어로 OPSI 사례(제목·본문·국가)를 검색해 상위 5건. 본문(summary) 포함."""
+    q = (query or "").strip()
+    toks = [w.lower() for w in re.findall(r"[A-Za-z][A-Za-z0-9\-]{2,}", q)]
+    if not toks or not OPSI_DB.exists():
+        return []
+    try:
+        conn = sqlite3.connect(OPSI_DB)
+        conn.row_factory = sqlite3.Row
+        where = " OR ".join(["cleaned_content LIKE ? OR title LIKE ? OR country LIKE ?"] * len(toks))
+        params = []
+        for t in toks:
+            params += [f"%{t}%", f"%{t}%", f"%{t}%"]
+        rows = [dict(r) for r in conn.execute(
+            f"SELECT * FROM cases WHERE {where} LIMIT 60", params).fetchall()]
+        conn.close()
+    except Exception as e:
+        print("opsi lookup 실패:", e, file=sys.stderr)
+        return []
+    scored = []
+    for d in rows:
+        hay = f"{d.get('title') or ''} {d.get('cleaned_content') or ''}".lower()
+        score = sum(1 for t in toks if t in hay)
+        if score:
+            scored.append((score, d))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    out = []
+    for _, d in scored[:5]:
+        out.append({
+            "title": d.get("title"), "country": d.get("country"), "year": d.get("year"),
+            "sector": d.get("sector"), "level": d.get("level_of_government"),
+            "summary": (d.get("cleaned_content") or "")[:500], "url": d.get("source_url"),
+        })
+    return out
+
+
 def _originality_payload(result):
     o = result["originality"]
     spec, judge, lookup = result["spec"], result["judge"], result.get("lookup")
@@ -715,6 +767,7 @@ def _originality_payload(result):
         "lookup": None if lookup is None else {
             "profile": lookup["profile"], "queries": lookup["queries"],
             "fiscal": lookup["fiscal"], "prism": lookup["prism"], "bill": lookup["bill"],
+            "overseas": lookup.get("overseas", []),
         },
     }
 
@@ -727,7 +780,8 @@ def _run_originality_axis(sid):
         fiscal_fn = _fiscal_local_search if _fiscal_available() else None
         prism_fn = _prism_lookup if DATA_GO_KR_KEY else None
         bill_fn = _bill_lookup if ASSEMBLY_KEY else None
-        result = engine.originality_axis(transcript, fiscal_fn, prism_fn, bill_fn)
+        overseas_fn = _opsi_lookup if _opsi_available() else None
+        result = engine.originality_axis(transcript, fiscal_fn, prism_fn, bill_fn, overseas_fn)
         db.save_originality(sid, result)
     except Exception as e:
         db.set_originality_status(sid, "error")

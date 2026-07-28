@@ -27,6 +27,9 @@
 - `prism` 질의어: **짧은 핵심 키워드**(searchword로 검색됨). 서술형은 최대 하나만.
 - `bill` 질의어: **법률명 후보**(예: `무용진흥법`) 또는 **핵심 주제 단일 명사**(예: `무용`).
   둘을 각각 별도 질의어로 넣는다.
+- `overseas` 질의어: **영어 키워드**(해외 정책사례 DB는 영문이다). 정책의 핵심 주제를
+  나타내는 짧은 영어 명사·구를 2~3개. 예: 청년월세→`youth housing allowance`,
+  예술가 기본소득→`basic income artists`, 경유차 조기폐차→`old diesel scrappage`.
 - `claimed_precedents`에 사업명이 있으면 그 표현을 질의어에 우선 포함한다.
 
 # 출력 형식
@@ -48,7 +51,8 @@
   "queries": {
     "fiscal": ["질의어1", "질의어2", "질의어3"],
     "prism": ["질의어1", "질의어2", "질의어3"],
-    "bill": ["질의어1", "질의어2", "질의어3"]
+    "bill": ["질의어1", "질의어2", "질의어3"],
+    "overseas": ["english keyword1", "english keyword2"]
   }
 }
 ```

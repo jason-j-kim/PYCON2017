@@ -591,7 +591,7 @@ function renderOriginality(b, targetId, withDefense) {
 
   // 7-3 근거 (A급/B급 배지 + 소스)
   if (b.evidence && b.evidence.length) {
-    const srcKo = {fiscal: "재정", prism: "연구", bill: "입법", knowledge: "기억"};
+    const srcKo = {fiscal: "재정", prism: "연구", bill: "입법", overseas: "해외", knowledge: "기억"};
     parts.push('<div class="card"><b>근거</b><ul class="ev-list">'
       + b.evidence.map(e =>
           `<li><span class="grade-${e.grade === "A" ? "A" : "B"}">${esc(e.grade)}급</span>`
@@ -608,17 +608,23 @@ function renderOriginality(b, targetId, withDefense) {
   if (b.lookup) {
     const q = b.lookup.queries || {}, pf = b.lookup.profile || {};
     const bit = v => (v == null ? "-" : v);
-    const bills = b.lookup.bill || [];
+    const bills = b.lookup.bill || [], over = b.lookup.overseas || [];
     const rc = {};
     bills.forEach(x => { const r = x.result || "계류"; rc[r] = (rc[r] || 0) + 1; });
     const rcTxt = Object.keys(rc).length
       ? " (" + Object.entries(rc).map(([k, v]) => `${k} ${v}`).join(", ") + ")" : "";
     cov = `질의어 — 재정: ${esc((q.fiscal || []).join(", ") || "—")} · `
       + `연구: ${esc((q.prism || []).join(", ") || "—")} · `
-      + `입법: ${esc((q.bill || []).join(", ") || "—")}<br>`
+      + `입법: ${esc((q.bill || []).join(", ") || "—")}`
+      + ((q.overseas && q.overseas.length) ? ` · 해외: ${esc(q.overseas.join(", "))}` : "") + `<br>`
       + `재정 ${b.lookup.fiscal.length}건 · PRISM ${b.lookup.prism.length}건 · `
-      + `국회 의안 ${bills.length}건${esc(rcTxt)}<br>`
-      + `집행/검토/입법 = ${bit(pf.exec)}/${bit(pf.review)}/${bit(pf.law)}`;
+      + `국회 의안 ${bills.length}건${esc(rcTxt)}`
+      + (over.length ? ` · 해외 ${over.length}건` : "") + `<br>`
+      + `집행/검토/입법/해외 = ${bit(pf.exec)}/${bit(pf.review)}/${bit(pf.law)}/${bit(pf.intl)}`;
+    if (over.length) {
+      cov += '<br><b>해외 사례(OPSI):</b> ' + over.map(x =>
+        esc(x.title) + (x.country ? ` (${esc(x.country)}${x.year ? " " + esc(x.year) : ""})` : "")).join("; ");
+    }
   } else {
     cov = "외부 조회 미실행 (모델 지식 기반 판정)";
   }

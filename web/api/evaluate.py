@@ -15,6 +15,7 @@ import html
 import json
 import os
 import re
+import sqlite3
 import sys
 import urllib.parse
 import urllib.request
@@ -97,6 +98,7 @@ _SPEC_SCHEMA = {
                 "fiscal": {"type": "array", "items": {"type": "string"}},
                 "prism": {"type": "array", "items": {"type": "string"}},
                 "bill": {"type": "array", "items": {"type": "string"}},
+                "overseas": {"type": "array", "items": {"type": "string"}},
             },
             "required": ["fiscal", "prism", "bill"],
         },
@@ -157,6 +159,8 @@ SPEC_EXTRACTOR_SYSTEM = """# 역할
 - `prism` 질의어: **짧은 핵심 키워드**. 서술형은 최대 하나만.
 - `bill` 질의어: **법률명 후보**(예: `무용진흥법`) 또는 **핵심 주제 단일 명사**(예: `무용`).
   둘을 각각 별도 질의어로 넣는다.
+- `overseas` 질의어: **영어 키워드**(해외 정책사례 DB는 영문). 정책 핵심 주제의 짧은
+  영어 명사·구 2~3개. 예: 예술가 기본소득→`basic income artists`, 청년월세→`youth housing allowance`.
 - `claimed_precedents`에 사업명이 있으면 그 표현을 질의어에 우선 포함한다.
 
 # 출력 형식
@@ -177,7 +181,8 @@ SPEC_EXTRACTOR_SYSTEM = """# 역할
   "queries": {
     "fiscal": ["질의어1", "질의어2", "질의어3"],
     "prism": ["질의어1", "질의어2", "질의어3"],
-    "bill": ["질의어1", "질의어2", "질의어3"]
+    "bill": ["질의어1", "질의어2", "질의어3"],
+    "overseas": ["english keyword1", "english keyword2"]
   }
 }
 
@@ -241,11 +246,13 @@ ORIGINALITY_GRADER_SYSTEM = """# 역할
 판정을 받아, 이 정책 아이디어가 실제로 새로운지 판정한다.
 **사람(제안자)이 아니라 산출물(정책)을 평가한다.** 요청된 JSON만 출력한다.
 
-# 세 조회 소스는 서로 다른 질문에 답한다
+# 조회 소스는 서로 다른 질문에 답한다
 
-- **재정(세출예산)** — 예산이 붙어 **집행**되었는가.
-- **PRISM** — 연구로 **검토**되었는가.
-- **국회 의안** — **제도화(입법)**가 시도되었는가.
+- **재정(세출예산)** — 예산이 붙어 **집행**되었는가. (국내)
+- **PRISM** — 연구로 **검토**되었는가. (국내)
+- **국회 의안** — **제도화(입법)**가 시도되었는가. (국내)
+- **해외(OPSI)** — **다른 나라 정부가 실제로 시행**했는가. `lookup.overseas`에 히트가
+  있으면 국가·본문(설계)까지 인용 가능한 **A급 해외 근거**다(있을 때만).
 
 의안 히트의 `result`(의결현황)를 반드시 아래 규칙으로 읽는다.
 
@@ -298,10 +305,12 @@ ORIGINALITY_GRADER_SYSTEM = """# 역할
   - `retraction_condition`에 "다른 이름의 검색어나 누락 영역에서 선례가 나오면 하향" 취지를 적는다.
 - **미발견을 "완전 최초·독창 확정"으로 단정하지 않는다.** "찾은 범위에서 미발견"까지만 말한다.
 
-# 해외 선례는 B급(지식)으로, 국내 A급과 분리 (반드시 지킬 것)
+# 해외 선례: 조회(OPSI)면 A급, 없으면 지식 B급 (반드시 지킬 것)
 
-- 외부 조회는 **국내 자료(재정·PRISM·의안)뿐**이다. 해외·국제기구 선례는 조회 근거가 없으므로
-  **반드시 `knowledge`(B급)** 로 표기하고, 국내 조회 근거(A급 fiscal·prism·bill)와 **분리**한다.
+- `lookup.overseas`에 히트가 **있으면** 그 해외 사례는 **A급(`source: overseas`)** 으로,
+  국가·연도·본문(설계)을 인용해 근거로 쓴다. 국내 A급(fiscal·prism·bill)과 소스만 구분한다.
+- `lookup.overseas`가 **없거나 비어** 있는데도 해외 유사 사례가 기억나면, 그것은 조회로
+  검증되지 않았으므로 **반드시 `knowledge`(B급)** 로 표기하고, 국내 A급과 **분리**한다.
 - 해외 B급 근거는 **국가명 + 취지**까지만, '추정' 톤을 유지하고 고유명사(사업명·연도) 남발 금지.
 - **국내 미발견이지만 해외에 유사 사례가 있으면** 이를 판정에 반영한다 — 이 경우 `band`를
   `"계열 밖 시도"`로 올리지 않는다(해외에 이미 같은 계열이 존재하므로 국내 최초일 뿐이다).
@@ -315,7 +324,7 @@ ORIGINALITY_GRADER_SYSTEM = """# 역할
 
 # 출력 형식
 
-코드 펜스나 설명 없이 아래 JSON **하나만** 출력한다. `source`는 fiscal|prism|bill|knowledge.
+코드 펜스나 설명 없이 아래 JSON **하나만** 출력한다. `source`는 fiscal|prism|bill|overseas|knowledge.
 
 {
   "band": "선례 명확 | 계열 내 변형 | 계열 밖 시도 | 판정 보류",
@@ -351,6 +360,7 @@ def extract_spec(transcript, api_key):
         r["queries"].setdefault("fiscal", [])
         r["queries"].setdefault("prism", [])
         r["queries"].setdefault("bill", [])
+        r["queries"].setdefault("overseas", [])   # 해외(OPSI) 영어 질의어
         return r
 
     return _call_and_parse(SPEC_EXTRACTOR_SYSTEM, prompt, api_key, validate,
@@ -743,16 +753,64 @@ def _dedup(items, key):
 
 def _profile_bits(hits, on):
     def bit(src):
-        return (1 if hits[src] else 0) if on[src] else None
-    return {"exec": bit("fiscal"), "review": bit("prism"), "law": bit("bill")}
+        return (1 if hits.get(src) else 0) if on.get(src) else None
+    return {"exec": bit("fiscal"), "review": bit("prism"),
+            "law": bit("bill"), "intl": bit("overseas")}
+
+
+# ── 해외 축: OPSI 로컬 DB(함수와 함께 번들될 때만 켜짐) ──
+OPSI_DB = Path(__file__).resolve().parent / "opsi_policies.db"
+
+
+def _opsi_available():
+    if not OPSI_DB.exists():
+        return False
+    try:
+        with sqlite3.connect(OPSI_DB) as c:
+            return c.execute("SELECT COUNT(*) FROM cases").fetchone()[0] > 0
+    except Exception:
+        return False
+
+
+def _opsi_lookup(query):
+    q = (query or "").strip()
+    toks = [w.lower() for w in re.findall(r"[A-Za-z][A-Za-z0-9\-]{2,}", q)]
+    if not toks or not OPSI_DB.exists():
+        return []
+    try:
+        conn = sqlite3.connect(OPSI_DB)
+        conn.row_factory = sqlite3.Row
+        where = " OR ".join(["cleaned_content LIKE ? OR title LIKE ? OR country LIKE ?"] * len(toks))
+        params = []
+        for t in toks:
+            params += [f"%{t}%", f"%{t}%", f"%{t}%"]
+        rows = [dict(r) for r in conn.execute(
+            f"SELECT * FROM cases WHERE {where} LIMIT 60", params).fetchall()]
+        conn.close()
+    except Exception as e:
+        print("opsi lookup 실패:", e, file=sys.stderr)
+        return []
+    scored = []
+    for d in rows:
+        hay = f"{d.get('title') or ''} {d.get('cleaned_content') or ''}".lower()
+        score = sum(1 for t in toks if t in hay)
+        if score:
+            scored.append((score, d))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [{
+        "title": d.get("title"), "country": d.get("country"), "year": d.get("year"),
+        "sector": d.get("sector"), "level": d.get("level_of_government"),
+        "summary": (d.get("cleaned_content") or "")[:500], "url": d.get("source_url"),
+    } for _, d in scored[:5]]
 
 
 def _do_lookups(spec):
-    """명세의 질의어로 재정·PRISM·의안을 조회한다(가용 소스만). hits 또는 None."""
+    """명세의 질의어로 재정·PRISM·의안·해외(OPSI)를 조회한다(가용 소스만). hits 또는 None."""
     fns = {
         "fiscal": _fiscal_local_search if _fiscal_available() else None,
         "prism": _prism_lookup if DATA_GO_KR_KEY else None,
         "bill": _bill_lookup if ASSEMBLY_KEY else None,
+        "overseas": _opsi_lookup if _opsi_available() else None,
     }
     on = {k: v is not None for k, v in fns.items()}
     if not any(on.values()):
@@ -766,14 +824,14 @@ def _do_lookups(spec):
         except Exception:
             return []
 
-    collected = {"fiscal": [], "prism": [], "bill": []}
-    with ThreadPoolExecutor(max_workers=9) as ex:
+    collected = {s: [] for s in fns}
+    with ThreadPoolExecutor(max_workers=12) as ex:
         futs = {s: [ex.submit(_safe, fns[s], q) for q in queries[s]] if on[s] else []
                 for s in fns}
         for s in fns:
             for fut in futs[s]:
                 collected[s] += fut.result()
-    dedup_key = {"fiscal": "name", "prism": "title", "bill": "name"}
+    dedup_key = {"fiscal": "name", "prism": "title", "bill": "name", "overseas": "url"}
     hits = {s: _dedup(collected[s], dedup_key[s])[:5] for s in fns}
     hits["queries"] = queries
     hits["profile"] = _profile_bits(hits, on)

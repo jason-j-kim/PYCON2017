@@ -547,17 +547,19 @@ def _dedup(items, key):
 
 
 def _profile_bits(hits, on):
-    """세 소스의 히트 여부를 3비트로. 미조회 소스는 None(화면에서 '-')."""
+    """소스별 히트 여부 비트. 미조회 소스는 None(화면에서 '-').
+    exec=재정(집행) · review=PRISM(검토) · law=의안(입법) · intl=해외(OPSI 실행)."""
     def bit(src):
-        return (1 if hits[src] else 0) if on[src] else None
-    return {"exec": bit("fiscal"), "review": bit("prism"), "law": bit("bill")}
+        return (1 if hits.get(src) else 0) if on.get(src) else None
+    return {"exec": bit("fiscal"), "review": bit("prism"),
+            "law": bit("bill"), "intl": bit("overseas")}
 
 
 def originality_axis(transcript, fiscal_fn=None, prism_fn=None, bill_fn=None,
-                     spec=None, judge=None):
-    """축 B 전체: Stage 3 → 4 → (조건부 5) → 6. 세 소스는 서로 다른 질문에
-    답한다 — 재정(집행)·PRISM(검토)·의안(입법). 각 fn은 query→히트리스트 호출체
-    (해당 소스 미가용이면 None). 미조회 소스는 미발견으로 처리하지 않는다.
+                     overseas_fn=None, spec=None, judge=None):
+    """축 B 전체: Stage 3 → 4 → (조건부 5) → 6. 소스는 서로 다른 질문에 답한다 —
+    재정(집행)·PRISM(검토)·의안(입법)·해외(OPSI 실행). 각 fn은 query→히트리스트
+    호출체(해당 소스 미가용이면 None). 미조회 소스는 미발견으로 처리하지 않는다.
     spec/judge를 주면 재추출하지 않는다(재현성: 같은 명세로 재조회·재채점)."""
     from concurrent.futures import ThreadPoolExecutor
 
@@ -566,14 +568,15 @@ def originality_axis(transcript, fiscal_fn=None, prism_fn=None, bill_fn=None,
     if judge is None:
         judge = judge_by_knowledge(spec)
     hits = None
-    fns = {"fiscal": fiscal_fn, "prism": prism_fn, "bill": bill_fn}
+    fns = {"fiscal": fiscal_fn, "prism": prism_fn, "bill": bill_fn, "overseas": overseas_fn}
     on = {k: v is not None for k, v in fns.items()}
     # 소스가 하나라도 있으면 항상 조회한다. 기억으로 선례가 확실하다(has_precedent)고
     # 보이더라도, 제목·메타데이터를 실제로 대조해 A급 근거를 확보하고 확신도를 올린다.
     if any(on.values()):
-        qk = {"fiscal": "fiscal", "prism": "prism", "bill": "bill"}
-        queries = {s: (list(spec["queries"].get(qk[s], []))[:3] if on[s] else [])
-                   for s in fns}
+        def _q(s):
+            # 해외(OPSI)는 영어 질의어(overseas)를 쓴다. 구버전 명세에 없으면 빈 목록.
+            return list(spec["queries"].get(s, []))[:3]
+        queries = {s: (_q(s) if on[s] else []) for s in fns}
 
         def _safe(fn, q):
             try:
@@ -581,14 +584,14 @@ def originality_axis(transcript, fiscal_fn=None, prism_fn=None, bill_fn=None,
             except Exception:
                 return []
 
-        collected = {"fiscal": [], "prism": [], "bill": []}
-        with ThreadPoolExecutor(max_workers=9) as ex:
+        collected = {s: [] for s in fns}
+        with ThreadPoolExecutor(max_workers=12) as ex:
             futs = {s: [ex.submit(_safe, fns[s], q) for q in queries[s]] if on[s] else []
                     for s in fns}
             for s in fns:
                 for fut in futs[s]:
                     collected[s] += fut.result()
-        dedup_key = {"fiscal": "name", "prism": "title", "bill": "name"}
+        dedup_key = {"fiscal": "name", "prism": "title", "bill": "name", "overseas": "url"}
         hits = {s: _dedup(collected[s], dedup_key[s])[:5] for s in fns}
         hits["queries"] = queries
         hits["profile"] = _profile_bits(hits, on)

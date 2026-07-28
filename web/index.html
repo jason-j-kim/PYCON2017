@@ -1056,7 +1056,7 @@ function renderResult(ev) {
 }
 
 // ── 축 B(실질 독창성 · 선례 조사) — 서버(/api/evaluate)에서 조회 ──
-const SRC_KO = {fiscal: "재정", prism: "연구", bill: "입법", knowledge: "기억"};
+const SRC_KO = {fiscal: "재정", prism: "연구", bill: "입법", overseas: "해외", knowledge: "기억"};
 
 async function startOriginality() {
   const box = $("axis-b");
@@ -1133,18 +1133,27 @@ function renderOriginality(b, targetId, withDefense) {
   if (lk) {
     const q = lk.queries || {}, pf = lk.profile || {};
     const bit = v => (v == null ? "-" : (v ? "○" : "✗"));
-    const bills = lk.bill || [], fisc = lk.fiscal || [], pris = lk.prism || [];
+    const bills = lk.bill || [], fisc = lk.fiscal || [], pris = lk.prism || [], over = lk.overseas || [];
     const rc = {};
     bills.forEach(x => { const r = x.result || "계류"; rc[r] = (rc[r] || 0) + 1; });
     const rcTxt = Object.keys(rc).length
       ? " (" + Object.entries(rc).map(([k, v]) => `${esc(k)} ${v}`).join(", ") + ")" : "";
+    const intlTxt = (pf.intl == null && !over.length) ? "" : ` · 해외 ${over.length}건`;
     let cov = '<div class="card"><b>조회 커버리지</b>'
-      + `<div class="subscores">재정 ${fisc.length}건 · PRISM ${pris.length}건 · 국회 의안 ${bills.length}건${rcTxt}<br>`
-      + `집행/검토/입법 = ${bit(pf.exec)}/${bit(pf.review)}/${bit(pf.law)}</div>`
+      + `<div class="subscores">재정 ${fisc.length}건 · PRISM ${pris.length}건 · 국회 의안 ${bills.length}건${rcTxt}${intlTxt}<br>`
+      + `집행/검토/입법/해외 = ${bit(pf.exec)}/${bit(pf.review)}/${bit(pf.law)}/${bit(pf.intl)}</div>`
       + '<div class="subscores">질의어 — '
       + `재정: ${esc((q.fiscal || []).join(", ") || "—")} · `
       + `연구: ${esc((q.prism || []).join(", ") || "—")} · `
-      + `입법: ${esc((q.bill || []).join(", ") || "—")}</div>`;
+      + `입법: ${esc((q.bill || []).join(", ") || "—")}`
+      + ((q.overseas && q.overseas.length) ? ` · 해외: ${esc(q.overseas.join(", "))}` : "")
+      + `</div>`;
+    if (over.length) {
+      cov += '<b style="display:block;margin-top:10px">해외 사례(OPSI)</b><ul class="hit-list">'
+        + over.map(x => `<li>${esc(x.title)} <span class="meta">— ${esc(x.country || "")}`
+            + (x.year ? ` · ${esc(x.year)}` : "") + (x.level ? ` · ${esc(x.level)}` : "") + "</span>"
+            + (x.summary ? `<div class="meta">${esc(x.summary.slice(0, 120))}…</div>` : "") + "</li>").join("") + "</ul>";
+    }
     if (bills.length) {
       cov += '<b style="display:block;margin-top:10px">국회 의안</b><ul class="hit-list">'
         + bills.map(x => `<li>${esc(x.name)} <span class="meta">— ${esc(x.result)}`
