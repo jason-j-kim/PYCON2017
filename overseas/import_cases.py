@@ -116,6 +116,13 @@ def records_from_text(text, where="입력"):
     text = (text or "").strip()
     text = re.sub(r"^```[a-zA-Z]*\s*", "", text)      # 앞 ```json 제거
     text = re.sub(r"\s*```$", "", text)               # 뒤 ``` 제거
+    if not text:
+        raise ValueError(f"{where}가 비어 있습니다. 브라우저 콘솔에서 "
+                         "copy(JSON.stringify(window.__opsi)) 를 먼저 실행해 클립보드를 채우세요.")
+    if text[0] not in "[{":                            # JSON이 아닌 다른 걸 복사한 경우
+        head = text[:60].replace("\n", " ")
+        raise ValueError(f"{where}가 JSON이 아닙니다(맨 앞: {head!r}). "
+                         "케이스 JSON을 다시 복사하세요.")
     data = json.loads(text)
     if isinstance(data, dict):                        # {"cases":[...]} 또는 단건 dict 허용
         data = data.get("cases") or data.get("results") or [data]
