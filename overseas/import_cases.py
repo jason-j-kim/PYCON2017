@@ -154,6 +154,54 @@ def _import_records(conn, recs):
     return n
 
 
+def _looks_like_cases(recs):
+    """우리 사례 데이터처럼 보이는지(엉뚱한 복사를 무시하기 위한 안전장치)."""
+    return (isinstance(recs, list) and recs
+            and any(isinstance(r, dict) and (r.get("source_url") or r.get("title"))
+                    for r in recs))
+
+
+def watch_clipboard(conn):
+    """클립보드를 감시하다가 '사례 JSON'을 복사하면 즉시 자동 임포트한다.
+    → 페이지마다 명령을 칠 필요 없이, Claude in Chrome에서 '복사'만 하면 된다."""
+    import hashlib
+    import time
+    try:
+        import tkinter
+        root = tkinter.Tk()
+        root.withdraw()
+        def _clip():
+            try:
+                return root.clipboard_get()
+            except Exception:
+                return ""
+    except Exception:
+        def _clip():
+            return read_clipboard()
+
+    print("클립보드 감시 시작 — Claude in Chrome에서 JSON을 '복사'하면 자동 임포트됩니다.")
+    print("  (다른 페이지로 넘어가며 복사만 반복하세요. 종료: Ctrl+C)\n")
+    seen, total = set(), 0
+    try:
+        while True:
+            text = _clip() or ""
+            h = hashlib.md5(text.encode("utf-8", "ignore")).hexdigest()
+            if text.strip() and h not in seen:
+                seen.add(h)
+                try:
+                    recs = records_from_text(text)
+                except Exception:
+                    recs = None
+                if _looks_like_cases(recs):
+                    n = _import_records(conn, recs)
+                    total += n
+                    cnt = conn.execute("SELECT COUNT(*) FROM cases").fetchone()[0]
+                    print(f"  +{n}건 임포트  (이번 세션 누적 {total} · DB 전체 {cnt})")
+            time.sleep(1.2)
+    except KeyboardInterrupt:
+        print(f"\n감시 종료. 이번 세션 {total}건 임포트.")
+
+
 def _expand(args):
     """인자를 파일 목록으로 확장한다: 파일 · 와일드카드(cases*.json) · 폴더 모두 허용.
     (Windows cmd는 와일드카드를 안 풀어주므로 여기서 직접 처리한다.)"""
@@ -170,12 +218,16 @@ def _expand(args):
 
 def main():
     args = sys.argv[1:]
+    use_watch = "--watch-clip" in args or "--watch" in args
     use_clip = "--clip" in args
     use_stdin = "--stdin" in args
     conn = sqlite3.connect(DB_PATH)
     try:
         ensure_schema(conn)
         total = 0
+        if use_watch:
+            watch_clipboard(conn)
+            return
         if use_clip or use_stdin:
             # 파일 저장 없이 클립보드(복사한 JSON) 또는 표준입력에서 바로 임포트.
             text = read_clipboard() if use_clip else sys.stdin.read()
