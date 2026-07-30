@@ -429,32 +429,29 @@ BEC5_DESC: dict[str, str] = {}
 
 
 def _extract_codes(rows: list[list[str]]) -> list[tuple[str, str]]:
-    """BEC 코드 설명표에서 (코드, 설명 전체) 를 뽑는다.
+    """BEC 코드 설명표에서 (코드, 설명) 을 뽑는다.
 
-    코드 열만 특정하고, 나머지 열은 전부 설명으로 이어붙인다.
-    파일마다 열 구성이 달라 특정 열 이름에 기대지 않기 위해서다.
+    UNSD 구조표는 계층 레벨마다 열이 나뉜 들여쓰기 형태다:
+
+        Code1 | Code2 | Code3 | Description
+        1     |       |       | Intermediate goods
+              | 11    |       | Intermediate goods - primary
+              |       | 111   | ...
+
+    그래서 "코드 열 하나"를 고르면 한 레벨만 잡힌다(178행에서 6개만 나온 원인).
+    행마다 코드처럼 보이는 셀 중 가장 오른쪽(=가장 깊은 레벨)을 코드로 본다.
     """
-    scan = rows[: min(len(rows), 500)]
-    width = max(len(r) for r in scan)
-    scores = [
-        sum(1 for r in scan
-            if i < len(r) and BEC_CODE_RE.match(r[i].strip()))
-        for i in range(width)
-    ]
-    code_col = max(range(width), key=lambda i: scores[i])
-    if scores[code_col] == 0:
-        raise ValueError("BEC 코드 열을 찾지 못했습니다")
-
     out: list[tuple[str, str]] = []
     for r in rows:
-        if code_col >= len(r):
+        cells = [(i, c.strip()) for i, c in enumerate(r) if c and c.strip()]
+        codes = [(i, c) for i, c in cells if BEC_CODE_RE.match(c)]
+        if not codes:
             continue
-        code = r[code_col].strip()
-        if not BEC_CODE_RE.match(code):
-            continue
-        desc = " ".join(c.strip() for i, c in enumerate(r)
-                        if i != code_col and c.strip())
-        out.append((code, desc))
+        ci, code = codes[-1]
+        desc = " ".join(c for i, c in cells
+                        if i != ci and not BEC_CODE_RE.match(c))
+        if desc:
+            out.append((code, desc))
     return out
 
 
@@ -580,8 +577,18 @@ def normalize_bec(path: Path, out: Path) -> tuple[int, int]:
         share = unknown / len(recs)
         src = recs[0][4]
         print(f"    ! end-use 미판정 {unknown:,}건 ({share:.0%}) — 판정출처={src}")
-        if share > 0.2:
-            print("      BEC rev.5 end-use 속성표를 별도로 받아 조인해야 합니다.")
+
+        # 어느 BEC 코드에서 막혔는지 보여준다. 조상까지 못 찾은 것인지
+        # (설명표에 없음) 조상 설명에 end-use 표현이 없는 것인지 구분된다.
+        from collections import Counter
+        miss = Counter(r[2] for r in recs if r[3] == "unclassified")
+        print("      미판정 상위 BEC 코드:")
+        for code, n in miss.most_common(6):
+            anc = next((code[:k] for k in range(len(code), 0, -1)
+                        if code[:k] in BEC5_DESC), None)
+            hint = (f"조상 {anc} = {BEC5_DESC[anc][:44]!r}" if anc
+                    else "설명표에 조상 없음")
+            print(f"        {code:<8} {n:>5}건  {hint}")
     return len(recs), consumption
 
 
