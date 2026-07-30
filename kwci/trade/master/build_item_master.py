@@ -78,6 +78,27 @@ DOMAINS: dict[str, dict] = {
 }
 
 
+# --- S0 예외 -------------------------------------------------------------
+#
+# BEC의 end-use는 "경제적 기능"(투입재냐 최종재냐)을 잰다. 그래서 추가 가공의
+# 투입재가 될 수 있는 1차 농수산물은 소비재로 잡히지 않는다. 이 기준은 그
+# 자체로 타당하지만, 한류 소비재 지수의 목적과는 어긋나는 지점이 생긴다.
+#
+# 예외를 인정하되 세 조건을 건다. 그래야 자의적 끼워넣기가 되지 않는다.
+#   (1) 외부 권위에 앵커  — aT K-Food+ 공식 품목군에 포함될 것
+#   (2) 사전등록          — S3 검정 전에 확정하고 동결할 것
+#   (3) 표시              — s0_override 플래그로 남겨 민감도 분석이 가능할 것
+#
+# S3(한류 반응성 회귀)는 이 예외 품목에도 똑같이 적용된다. 반응이 없으면
+# 예외로 넣었더라도 Tier 1에 오르지 못한다 — 예외는 후보 자격일 뿐이다.
+EXCEPTIONS: dict[str, tuple[str, str]] = {
+    "121221": ("K-Food", "마른김 — aT K-Food+ 핵심 품목. BEC는 1차 수산물을 "
+                         "가공 투입재로 보나 실제로는 최종소비재로 수출된다"),
+    "121120": ("K-Food", "인삼(수삼·백삼) — aT K-Food+ 핵심 품목. BEC는 약용식물 "
+                         "원물을 중간재로 분류"),
+}
+
+
 def load_bec() -> list[dict]:
     if not BEC.exists():
         raise SystemExit(
@@ -109,9 +130,10 @@ def build(rows: list[dict], names: dict[str, str]) -> list[dict]:
     out: list[dict] = []
     for r in rows:
         hs, cls = r["hs"], r["bec_class"]
-        if cls != "consumption":          # S0
+        override = hs in EXCEPTIONS
+        if cls != "consumption" and not override:      # S0 (+예외)
             continue
-        dom = domain_of(hs)               # S1
+        dom = EXCEPTIONS[hs][0] if override else domain_of(hs)   # S1
         if not dom:
             continue
         out.append({
@@ -122,7 +144,28 @@ def build(rows: list[dict], names: dict[str, str]) -> list[dict]:
             "bec_class": cls,
             "tier": "candidate",          # S2~S4 통과 전까지 전부 관찰 등급
             "watch": "Y" if hs in DOMAINS[dom]["watch"] else "",
+            "s0_override": "Y" if override else "",
         })
+    return sorted(out, key=lambda x: (x["domain"], x["hs2022"]))
+
+
+def dropped(rows: list[dict], names: dict[str, str],
+            only: str | None = None) -> list[dict]:
+    """도메인 대역 안에 있으나 S0(소비재 필터)에서 탈락한 품목.
+
+    S0가 무엇을 버렸는지 눈에 보여야 한다. 김·인삼처럼 대표 품목이
+    조용히 사라지는 것이 이 지수에서 가장 위험한 실패다.
+    """
+    out = []
+    for r in rows:
+        hs, cls = r["hs"], r["bec_class"]
+        if cls == "consumption" or hs in EXCEPTIONS:
+            continue
+        dom = domain_of(hs)
+        if not dom or (only and dom.lower() != only.lower()):
+            continue
+        out.append({"domain": dom, "hs2022": hs, "bec_class": cls,
+                    "name": names.get(hs, "")})
     return sorted(out, key=lambda x: (x["domain"], x["hs2022"]))
 
 
@@ -152,6 +195,17 @@ def report(rows: list[dict], all_bec: list[dict], names: dict[str, str]) -> None
         print("\n    X 표시 품목은 S0(소비재 아님)에서 탈락했거나 대역이 어긋난 것입니다.")
         print("      hs_bec5.csv 에서 해당 HS의 bec_class 를 확인하세요.")
 
+    ov = [r for r in rows if r["s0_override"]]
+    if ov:
+        print(f"\n  S0 예외 {len(ov)}건 (BEC는 비소비재로 보나 후보로 인정)")
+        for r in ov:
+            print(f"    · {r['domain']:<10} {r['hs2022']}  {r['name'][:40]}")
+            print(f"      사유: {EXCEPTIONS[r['hs2022']][1]}")
+
+    drop = dropped(all_bec, names)
+    print(f"\n  S0에서 탈락한 도메인 대역 품목: {len(drop):,}건"
+          f"  (--dropped 로 확인)")
+
     if not names:
         print("\n  ! hs_names.csv 가 없어 품목명이 비어 있습니다.")
         print("    fetch_reference_tables.py 재실행 시 HS 품목명을 함께 받습니다.")
@@ -175,6 +229,8 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--freeze", action="store_true", help="생성 후 해시로 동결")
     ap.add_argument("--review", metavar="DOMAIN", help="해당 도메인 전체 목록 출력")
+    ap.add_argument("--dropped", nargs="?", const="", metavar="DOMAIN",
+                    help="S0에서 탈락한 도메인 대역 품목 목록 (章별)")
     args = ap.parse_args()
 
     all_bec = load_bec()
@@ -199,6 +255,20 @@ def main() -> int:
         print(f"\n[{args.review}] {len(sel)}개")
         for r in sel:
             print(f"  {r['hs2022']}  {r['name'][:60]}")
+
+    if args.dropped is not None:
+        drop = dropped(all_bec, names, args.dropped or None)
+        print(f"\n[S0 탈락 품목] {len(drop):,}건 — 도메인 대역에는 있으나 "
+              f"BEC가 최종소비재로 보지 않은 것")
+        cur = None
+        for r in drop:
+            ch = f"{r['domain']} / 章 {r['hs2022'][:2]}"
+            if ch != cur:
+                print(f"\n  --- {ch} ---")
+                cur = ch
+            print(f"    {r['hs2022']}  [{r['bec_class']:<12}] {r['name'][:52]}")
+        print("\n  이 중 aT K-Food+ 등 공식 품목군에 속한 것이 있으면 "
+              "EXCEPTIONS 에 사유와 함께 추가하세요.")
 
     if args.freeze:
         freeze(rows)
