@@ -88,6 +88,36 @@ def find_key() -> str:
     )
 
 
+def parse_xml(text: str):
+    """관세청은 type=json 을 무시하고 XML을 돌려준다. 태그->값 사전으로 편다."""
+    if not text.lstrip().startswith("<"):
+        return None
+    try:
+        from defusedxml import ElementTree as ET
+    except ImportError:
+        import xml.etree.ElementTree as ET
+    try:
+        root = ET.fromstring(text)
+    except Exception:
+        return None
+
+    def walk(el):
+        kids = list(el)
+        if not kids:
+            return (el.text or "").strip()
+        out: dict = {}
+        for k in kids:
+            v = walk(k)
+            if k.tag in out:
+                if not isinstance(out[k.tag], list):
+                    out[k.tag] = [out[k.tag]]
+                out[k.tag].append(v)
+            else:
+                out[k.tag] = v
+        return out
+    return {root.tag: walk(root)}
+
+
 def flatten(obj, out: dict | None = None) -> dict:
     """응답 구조가 제각각이라 잎 노드를 평평하게 펴서 필드를 찾는다."""
     out = {} if out is None else out
@@ -118,11 +148,11 @@ def probe() -> int:
             result["tests"][name] = {"error": type(e).__name__}
             continue
 
-        payload = None
+        payload, fmt = None, None
         try:
-            payload = r.json()
+            payload, fmt = r.json(), "json"
         except ValueError:
-            pass
+            payload, fmt = parse_xml(body), "xml"   # 관세청은 XML로 응답한다
 
         flat = flatten(payload) if payload else {}
         # 공공데이터포털은 오류도 200으로 주고 본문에 코드를 넣는다.
@@ -136,10 +166,11 @@ def probe() -> int:
                ("~" if st == 200 else "x")
         print(f"  {mark} {name:<18} {desc}")
         print(f"      HTTP {st}" + (f"  오류: {err[:70]}" if err else "")
-              + ("" if payload else f"  (JSON 아님) {body[:70]}"))
+              + f"  [{fmt}]"
+              + ("" if payload else f"  {body[:70]}"))
 
         result["tests"][name] = {
-            "status": st, "json": payload is not None,
+            "status": st, "format": fmt,
             "error": err, "keys": sorted(flat)[:40],
         }
 
