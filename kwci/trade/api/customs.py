@@ -190,6 +190,28 @@ def probe() -> int:
                 result["endpoint"] = {"name": name, "url": url}
         time.sleep(0.6)
 
+    # 한 호출이 얼마나 담는지 재서 수집 규모를 정한다.
+    ep = result["endpoint"]
+    if ep:
+        print("\n[수집 범위] 한 호출이 담는 양")
+        cover = [
+            ("국가 무관", dict(hsSgn="190230", strtYymm="202401", endYymm="202412")),
+            ("전기간 8년", dict(hsSgn="190230", strtYymm="201801", endYymm="202512")),
+            ("HS 4자리", dict(hsSgn="1902", strtYymm="202401", endYymm="202412")),
+        ]
+        for label, extra in cover:
+            try:
+                rr = requests.get(ep["url"],
+                                  params={"serviceKey": key, **extra},
+                                  timeout=TIMEOUT)
+                fl = flatten(parse_xml(rr.text) or {})
+                n = fl.get("totalCount", "?")
+                print(f"    {label:<12} totalCount={n}")
+                result.setdefault("coverage", {})[label] = str(n)
+            except requests.RequestException as e:
+                print(f"    {label:<12} {type(e).__name__}")
+            time.sleep(0.6)
+
     PROBE_OUT.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n",
                          encoding="utf-8")
     print(f"\n= {PROBE_OUT.name} 기록")
