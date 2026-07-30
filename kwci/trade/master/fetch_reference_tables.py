@@ -96,6 +96,16 @@ SOURCES: dict[str, dict] = {
         "require": [("bec",), ("hs",)],
         "bonus": ("5", "rev5", "rev.5", "correspondence", "conversion"),
     },
+    # BEC5 코드 자체의 설명표. end-use는 코드 자릿수가 아니라 여기서 온다.
+    "bec5_codes": {
+        "label": "BEC 코드·설명 (end-use 판정용)",
+        "pinned": [
+            "https://unstats.un.org/unsd/classifications/Econ/Download/"
+            "In%20Text/BECCodeandDescription.xlsx",
+        ],
+        "require": [("bec",), ("code", "description")],
+        "bonus": ("description",),
+    },
 }
 
 # --- 최종용도(end-use) 판정 -------------------------------------------------
@@ -118,11 +128,19 @@ BEC4_ENDUSE = {
 }
 BEC4_LOOKUP = {c: cls for cls, codes in BEC4_ENDUSE.items() for c in codes}
 
-ENDUSE_WORDS = {
-    "consumption": "consumption", "consumer": "consumption",
-    "intermediate": "intermediate",
-    "capital": "capital",
-}
+# BEC rev.5 실제 코드는 계층형 가변길이(11 / 1111 / 111210 / 712010)로
+# rev.4의 3자리 체계와 무관하다. 따라서 end-use는 코드에서 추론할 수 없고
+# BECCodeandDescription 의 설명문에서 읽어야 한다.
+# 긴 표현을 먼저 검사한다 ("gross fixed capital formation"이 "consumption"보다
+# 우선해야 하는 문장이 있을 수 있으므로 순서가 의미를 갖는다).
+ENDUSE_PATTERNS = [
+    ("capital",      ("gross fixed capital", "capital formation", "capital good")),
+    ("intermediate", ("intermediate",)),
+    ("consumption",  ("household consumption", "final consumption",
+                      "consumption good", "consumer good", "consumption")),
+    ("capital",      ("capital",)),
+]
+ENDUSE_WORDS = {w: cls for cls, words in ENDUSE_PATTERNS for w in words}
 
 TIMEOUT = 60
 UA = {"User-Agent": "KWCI-L1/0.1 (reference table fetcher)"}
@@ -404,6 +422,80 @@ def normalize_correlation(path: Path, out: Path) -> int:
 BEC_RE = re.compile(r"^\d(\d|[A-Za-z])*$")
 
 
+BEC_CODE_RE = re.compile(r"^\d{1,6}$")
+
+# BECCodeandDescription 을 먼저 처리해 채운다. hs_bec5 정규화가 여기에 조인한다.
+BEC5_DESC: dict[str, str] = {}
+
+
+def _extract_codes(rows: list[list[str]]) -> list[tuple[str, str]]:
+    """BEC 코드 설명표에서 (코드, 설명 전체) 를 뽑는다.
+
+    코드 열만 특정하고, 나머지 열은 전부 설명으로 이어붙인다.
+    파일마다 열 구성이 달라 특정 열 이름에 기대지 않기 위해서다.
+    """
+    scan = rows[: min(len(rows), 500)]
+    width = max(len(r) for r in scan)
+    scores = [
+        sum(1 for r in scan
+            if i < len(r) and BEC_CODE_RE.match(r[i].strip()))
+        for i in range(width)
+    ]
+    code_col = max(range(width), key=lambda i: scores[i])
+    if scores[code_col] == 0:
+        raise ValueError("BEC 코드 열을 찾지 못했습니다")
+
+    out: list[tuple[str, str]] = []
+    for r in rows:
+        if code_col >= len(r):
+            continue
+        code = r[code_col].strip()
+        if not BEC_CODE_RE.match(code):
+            continue
+        desc = " ".join(c.strip() for i, c in enumerate(r)
+                        if i != code_col and c.strip())
+        out.append((code, desc))
+    return out
+
+
+def _enduse_of(text: str) -> str | None:
+    low = text.lower()
+    for cls, words in ENDUSE_PATTERNS:
+        if any(w in low for w in words):
+            return cls
+    return None
+
+
+def resolve_enduse(code: str, desc: dict[str, str]) -> str:
+    """BEC5 계층 코드의 end-use를 결정한다.
+
+    end-use가 잎 코드 설명에 없고 상위 계층에만 적힌 경우가 있으므로,
+    잎에서 맞지 않으면 코드를 한 자리씩 줄여 조상으로 거슬러 올라간다.
+    """
+    for n in range(len(code), 0, -1):
+        cls = _enduse_of(desc.get(code[:n], ""))
+        if cls:
+            return cls
+    return "unclassified"
+
+
+def normalize_codes(path: Path, out: Path) -> dict[str, str]:
+    recs = best_sheet(path, _extract_codes, "BEC 코드")
+    desc = {c: d for c, d in recs}
+
+    with out.open("w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(["bec", "description", "enduse"])
+        for c in sorted(desc):
+            w.writerow([c, desc[c], resolve_enduse(c, desc)])
+
+    hit = sum(1 for c in desc if resolve_enduse(c, desc) != "unclassified")
+    print(f"    = {out.name}  {len(desc):,} 코드  (end-use 판정 {hit:,})")
+    if hit == 0:
+        print("    ! 설명문에서 end-use 표현을 찾지 못했습니다 — --inspect 로 확인 필요")
+    return desc
+
+
 def _extract_bec(rows: list[list[str]]) -> list[tuple[str, str, str, str]]:
     scan = rows[: min(len(rows), 400)]
     width = max(len(r) for r in scan)
@@ -440,17 +532,24 @@ def _extract_bec(rows: list[list[str]]) -> list[tuple[str, str, str, str]]:
     enduse_col = max(range(width), key=enduse_score)
     if enduse_score(enduse_col) <= 0:
         enduse_col = None
-    src = "file" if enduse_col is not None else "bec4_mapping"
 
-    head = " ".join(rows[0]) if rows else ""
+    if enduse_col is not None:
+        src = "file"
+    elif BEC5_DESC:
+        src = "bec5_description"      # BECCodeandDescription 조인
+    else:
+        src = "bec4_mapping"          # 최후의 수단
+
+    head = " ".join(rows[0] + (rows[1] if len(rows) > 1 else [])) if rows else ""
     edition = "HS2022" if "2022" in head else "HS2017"
 
     def classify(bec: str, row: list[str]) -> str:
         if enduse_col is not None and enduse_col < len(row):
-            low = row[enduse_col].lower()
-            for word, cls in ENDUSE_WORDS.items():
-                if word in low:
-                    return cls
+            cls = _enduse_of(row[enduse_col])
+            if cls:
+                return cls
+        if BEC5_DESC:
+            return resolve_enduse(bec, BEC5_DESC)
         return BEC4_LOOKUP.get(bec, "unclassified")
 
     rec: dict[str, tuple[str, str, str]] = {}
@@ -579,7 +678,9 @@ def main() -> int:
         return 0
 
     failed = []
-    for key, spec in SOURCES.items():
+    # bec5_codes 를 hs_bec5 보다 먼저 — end-use 판정에 그 결과가 필요하다.
+    for key in ("hs2017_hs2022", "bec5_codes", "hs_bec5"):
+        spec = SOURCES[key]
         print(f"\n[{spec['label']}]")
 
         path = find_raw(key) if args.normalize else None
@@ -597,6 +698,8 @@ def main() -> int:
             if key == "hs2017_hs2022":
                 n = normalize_correlation(path, HERE / "hs2017_hs2022.csv")
                 print(f"    = hs2017_hs2022.csv  {n:,} 매핑")
+            elif key == "bec5_codes":
+                BEC5_DESC.update(normalize_codes(path, HERE / "bec5_codes.csv"))
             else:
                 n, cons = normalize_bec(path, HERE / "hs_bec5.csv")
                 print(f"    = hs_bec5.csv  {n:,} 품목  (소비재 {cons:,} — S0 통과 후보)")
