@@ -189,3 +189,5 @@ overseas/.pw-profile/
 kwci/trade/data/raw/
 kwci/trade/data/processed/
 kwci/trade/master/raw/
+
+kwci/trade/master/dropped_by_s0.csv

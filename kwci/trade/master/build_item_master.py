@@ -258,16 +258,29 @@ def main() -> int:
 
     if args.dropped is not None:
         drop = dropped(all_bec, names, args.dropped or None)
+        path = HERE / "dropped_by_s0.csv"
+        with path.open("w", newline="", encoding="utf-8-sig") as f:
+            w = csv.DictWriter(f, fieldnames=["domain", "hs2022",
+                                              "bec_class", "name"])
+            w.writeheader()
+            w.writerows(drop)
+
         print(f"\n[S0 탈락 품목] {len(drop):,}건 — 도메인 대역에는 있으나 "
               f"BEC가 최종소비재로 보지 않은 것")
+        print(f"  전체 목록 -> {path.name}  (엑셀로 열어 검토)\n")
+
+        from collections import Counter
+        by_ch = Counter((r["domain"], r["hs2022"][:2]) for r in drop)
         cur = None
-        for r in drop:
-            ch = f"{r['domain']} / 章 {r['hs2022'][:2]}"
-            if ch != cur:
-                print(f"\n  --- {ch} ---")
-                cur = ch
-            print(f"    {r['hs2022']}  [{r['bec_class']:<12}] {r['name'][:52]}")
-        print("\n  이 중 aT K-Food+ 등 공식 품목군에 속한 것이 있으면 "
+        for (dom, ch), n in sorted(by_ch.items()):
+            if dom != cur:
+                print(f"  {dom}")
+                cur = dom
+            sample = [r["name"][:38] for r in drop
+                      if r["domain"] == dom and r["hs2022"].startswith(ch)][:2]
+            print(f"    章 {ch}  {n:>4}건   {' / '.join(sample)}")
+
+        print("\n  aT K-Food+ 등 공식 품목군에 속한 것이 있으면 "
               "EXCEPTIONS 에 사유와 함께 추가하세요.")
 
     if args.freeze:
