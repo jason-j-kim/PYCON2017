@@ -156,10 +156,14 @@ def probe() -> int:
 
         flat = flatten(payload) if payload else {}
         # 공공데이터포털은 오류도 200으로 주고 본문에 코드를 넣는다.
-        err = next((str(flat[k]) for k in ("resultCode", "returnAuthMsg",
-                                           "errMsg", "resultMsg")
-                    if k in flat and str(flat[k]) not in ("00", "0", "NORMAL SERVICE.")),
-                   None)
+        # 성공 판정은 resultCode 로만 한다 — resultMsg 는 "정상서비스."(한글)와
+        # "NORMAL SERVICE."(영문)가 섞여 나와 문자열로 가리면 성공을 오류로 읽는다.
+        code = str(flat.get("resultCode", "")).strip()
+        if code and code not in ("00", "0"):
+            err = f"resultCode={code} {flat.get('resultMsg', '')}"[:100]
+        else:
+            err = next((str(flat[k]) for k in ("returnAuthMsg", "errMsg")
+                        if flat.get(k)), None)
         has_data = any(h in flat for hints in FIELD_HINTS.values() for h in hints)
 
         mark = "o" if (st == 200 and has_data and not err) else \
@@ -173,6 +177,8 @@ def probe() -> int:
             "status": st, "format": fmt,
             "error": err, "keys": sorted(flat)[:40],
         }
+        if payload and not has_data:
+            print(f"      응답 태그: {sorted(flat)[:14]}")
 
         if mark == "o":
             print("      응답 필드 확인:")
