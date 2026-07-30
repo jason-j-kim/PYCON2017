@@ -629,30 +629,36 @@ def main() -> int:
                     help="탐색된 링크를 점수순으로 출력만 (다운로드 안 함)")
     ap.add_argument("--grep", metavar="TERM",
                     help="탐색된 링크 중 TERM을 포함한 것만 출력")
-    ap.add_argument("--inspect", action="store_true",
-                    help="raw/의 파일 구조(시트·헤더·표본)를 덤프 (네트워크 불필요)")
+    ap.add_argument("--inspect", nargs="?", const="all", metavar="KEY",
+                    help="raw/의 파일 구조를 덤프 (네트워크 불필요). "
+                         "KEY 지정 시 그 파일만: hs2017_hs2022 | bec5_codes | hs_bec5")
     ap.add_argument("--normalize", action="store_true", help="raw/의 기존 파일만 정규화")
     args = ap.parse_args()
 
     if args.inspect:
-        for key in SOURCES:
+        keys = list(SOURCES) if args.inspect == "all" else [args.inspect]
+        for key in keys:
+            if key not in SOURCES:
+                print(f"알 수 없는 KEY: {key} — {list(SOURCES)}")
+                return 1
             path = find_raw(key)
-            print(f"\n{'='*70}\n[{key}] {path.name if path else '(raw/에 파일 없음)'}")
+            print(f"\n{'='*72}\n[{key}] {path.name if path else '(raw/에 파일 없음)'}")
             if not path:
                 continue
             for name, rows in read_sheets(path):
-                print(f"\n  --- 시트 '{name}'  {len(rows):,}행 ---")
-                for i, r in enumerate(rows[:4]):
-                    print(f"    {i}: {r[:8]}")
+                width = max((len(r) for r in rows), default=0)
+                print(f"\n  --- 시트 '{name}'  {len(rows):,}행 x {width}열 ---")
+                for i, r in enumerate(rows[:8]):
+                    print(f"    {i}: {r}")
                 if not rows:
                     continue
-                width = max(len(r) for r in rows[: min(len(rows), 500)])
-                for c in range(min(width, 10)):
-                    vals = [r[c] for r in rows[1:400] if c < len(r) and r[c]]
+                print()
+                for c in range(min(width, 12)):
+                    vals = [r[c] for r in rows[1:500] if c < len(r) and r[c]]
                     uniq = sorted(set(vals))
                     head = rows[0][c] if c < len(rows[0]) else "?"
-                    print(f"    col{c} [{head[:26]:<26}] 고유{len(uniq):>5}  "
-                          f"예: {uniq[:6]}")
+                    print(f"    col{c} [{head[:24]:<24}] 채움{len(vals):>5} "
+                          f"고유{len(uniq):>5}  예: {uniq[:4]}")
         return 0
 
     links: list[tuple[str, str]] = []
