@@ -73,15 +73,26 @@ FALLBACK_PAGES = [
 
 DATA_EXT = (".txt", ".csv", ".xlsx", ".xls", ".zip")
 
+# 2026-07 --list 탐색으로 확인된 실제 경로. UNSD는 중첩 폴더가 아니라
+# Econ/tables/ 바로 아래 평면 구조로 파일을 둔다.
+UNSD_TABLES = "https://unstats.un.org/unsd/classifications/Econ/tables/"
+
 SOURCES: dict[str, dict] = {
     "hs2017_hs2022": {
         "label": "HS2017 <-> HS2022 correlation",
-        # (필수 토큰군, 가점 토큰)
+        "pinned": [
+            UNSD_TABLES + "HS2022toHS2017ConversionAndCorrelationTables.xlsx",
+        ],
+        # 고정 URL이 죽었을 때를 위한 탐색 조건 (필수 토큰군 / 가점 토큰)
         "require": [("2017", "h17"), ("2022", "h22")],
         "bonus": ("hs", "correlation", "correspondence", "conversion"),
     },
     "hs_bec5": {
         "label": "HS -> BEC rev.5 correspondence",
+        "pinned": [
+            UNSD_TABLES + "HS2022toBEC5ConversionAndCorrelationTables.xlsx",
+            UNSD_TABLES + "HS-SITC-BEC Correlations_2022.xlsx",
+        ],
         "require": [("bec",), ("hs",)],
         "bonus": ("5", "rev5", "rev.5", "correspondence", "conversion"),
     },
@@ -190,16 +201,16 @@ def score(url: str, text: str, spec: dict) -> int:
 
 
 def download(key: str, spec: dict, links: list[tuple[str, str]]) -> Path | None:
-    ranked = sorted(
-        ((score(u, t, spec), u, t) for u, t in links),
+    # 확인된 고정 URL을 먼저, 실패하면 탐색 결과로 넘어간다.
+    ranked = [(999, u, "(고정)") for u in spec.get("pinned", ())]
+    ranked += sorted(
+        (r for r in ((score(u, t, spec), u, t) for u, t in links) if r[0] > 0),
         key=lambda x: -x[0],
     )
-    ranked = [r for r in ranked if r[0] > 0]
     if not ranked:
-        print("    · 목록 페이지에서 후보 링크를 찾지 못했습니다")
+        print("    · 후보 링크를 찾지 못했습니다")
         return None
 
-    print(f"    · 후보 {len(ranked)}건, 상위부터 시도")
     RAW.mkdir(parents=True, exist_ok=True)
 
     for sc, url, text in ranked[:6]:
@@ -227,41 +238,82 @@ def download(key: str, spec: dict, links: list[tuple[str, str]]) -> Path | None:
 
 # ---------------------------------------------------------------- 파싱
 
-def read_rows(path: Path) -> list[list[str]]:
-    """UNSD 배포 형식(txt/csv/zip/xlsx)을 행 리스트로 통일해 읽는다."""
+def read_sheets(path: Path) -> list[tuple[str, list[list[str]]]]:
+    """UNSD 배포 형식(txt/csv/zip/xlsx)을 (시트명, 행 리스트) 목록으로 읽는다.
+
+    UNSD의 ...ConversionAndCorrelationTables.xlsx 는 conversion 표와
+    correlation 표를 별도 시트로 담는다. 어느 시트가 쓸 것인지는 파일마다
+    다르므로 전부 읽어 호출부가 고르게 한다.
+    """
     suffix = path.suffix.lower()
 
     if suffix == ".zip":
         with zipfile.ZipFile(path) as z:
-            inner = next(
-                (n for n in z.namelist()
-                 if n.lower().endswith((".txt", ".csv", ".xlsx"))), None
-            )
-            if inner is None:
+            names = [n for n in z.namelist() if n.lower().endswith(DATA_EXT)]
+            if not names:
                 raise ValueError(f"{path.name}: zip 안에 읽을 파일이 없습니다")
-            tmp = RAW / Path(inner).name
-            tmp.write_bytes(z.read(inner))
-            return read_rows(tmp)
+            out: list[tuple[str, list[list[str]]]] = []
+            for n in names:
+                tmp = RAW / Path(n).name
+                tmp.write_bytes(z.read(n))
+                out += [(f"{Path(n).name}:{s}", r) for s, r in read_sheets(tmp)]
+            return out
 
     if suffix in (".xlsx", ".xls"):
         try:
             from openpyxl import load_workbook
         except ImportError:
             raise SystemExit("xlsx를 읽으려면:  pip install openpyxl")
-        ws = load_workbook(path, read_only=True, data_only=True).active
+        wb = load_workbook(path, read_only=True, data_only=True)
         return [
-            ["" if c is None else str(c).strip() for c in row]
-            for row in ws.iter_rows(values_only=True)
+            (ws.title, [
+                ["" if c is None else str(c).strip() for c in row]
+                for row in ws.iter_rows(values_only=True)
+            ])
+            for ws in wb.worksheets
         ]
 
     text = path.read_bytes().decode("utf-8-sig", errors="replace")
     sample = text[:4096]
     delim = max(",", ";", "\t", key=sample.count)
-    return [
+    rows = [
         [c.strip().strip('"') for c in row]
         for row in csv.reader(io.StringIO(text), delimiter=delim)
         if any(c.strip() for c in row)
     ]
+    return [(path.name, rows)]
+
+
+def best_sheet(path: Path, extract, want: str):
+    """전 시트에 extract를 돌려 가장 많은 레코드를 낸 시트를 고른다.
+
+    correlation 시트(다대다 전체)가 conversion 시트(1:1 축약)보다 행이 많으므로
+    이 규칙이 자연스럽게 correlation을 고른다 — 1:N·N:1 판정에 그쪽이 필요하다.
+    """
+    sheets = read_sheets(path)
+    results, errors = [], []
+    for name, rows in sheets:
+        if not rows:
+            continue
+        try:
+            recs = extract(rows)
+        except Exception as e:
+            errors.append(f"{name}: {e}")
+            continue
+        if recs:
+            results.append((len(recs), name, recs))
+
+    if not results:
+        detail = " | ".join(errors[:3]) if errors else "유효 행 없음"
+        raise ValueError(f"{path.name}: 쓸 수 있는 시트가 없습니다 ({detail})")
+
+    results.sort(key=lambda x: -x[0])
+    n, name, recs = results[0]
+    if len(sheets) > 1:
+        others = ", ".join(f"{s}({c})" for c, s, _ in results[1:4])
+        print(f"    · 시트 {len(sheets)}개 중 '{name}' 채택 ({n:,}행)"
+              + (f" — 그 외 {others}" if others else ""))
+    return recs
 
 
 HS_RE = re.compile(r"^\d{6}$")
@@ -303,11 +355,11 @@ def find_hs_columns(rows: list[list[str]]) -> tuple[int, int, int]:
     return a, b, header_rows
 
 
-def normalize_correlation(path: Path, out: Path) -> int:
-    rows = read_rows(path)
+def _extract_pairs(rows: list[list[str]]) -> list[tuple[str, str]]:
     a, b, skip = find_hs_columns(rows)
 
     # 파일이 HS2022->HS2017 방향일 수도 있어 열 순서를 헤더로 판정한다.
+    # UNSD 실제 파일명이 HS2022toHS2017... 이므로 이 판정이 실제로 쓰인다.
     head = " ".join(rows[0]).lower() if rows else ""
     first_is_2017 = True
     if "2022" in head and "2017" in head:
@@ -320,9 +372,11 @@ def normalize_correlation(path: Path, out: Path) -> int:
         x, y = clean_hs(r[a]), clean_hs(r[b])
         if x and y:
             pairs.append((x, y) if first_is_2017 else (y, x))
+    return pairs
 
-    if not pairs:
-        raise ValueError(f"{path.name}: 유효한 HS 쌍이 없습니다")
+
+def normalize_correlation(path: Path, out: Path) -> int:
+    pairs = best_sheet(path, _extract_pairs, "HS 쌍")
 
     # 관계 유형 판정: 1:N(분할)·N:1(통합)은 안분 규칙이 필요하므로 표시해 둔다.
     from collections import Counter
@@ -350,8 +404,7 @@ def normalize_correlation(path: Path, out: Path) -> int:
 BEC_RE = re.compile(r"^\d(\d|[A-Za-z])*$")
 
 
-def normalize_bec(path: Path, out: Path) -> tuple[int, int]:
-    rows = read_rows(path)
+def _extract_bec(rows: list[list[str]]) -> list[tuple[str, str, str, str]]:
     scan = rows[: min(len(rows), 400)]
     width = max(len(r) for r in scan)
 
@@ -387,8 +440,10 @@ def normalize_bec(path: Path, out: Path) -> tuple[int, int]:
     enduse_col = max(range(width), key=enduse_score)
     if enduse_score(enduse_col) <= 0:
         enduse_col = None
+    src = "file" if enduse_col is not None else "bec4_mapping"
 
-    edition = "HS2022" if "2022" in path.stem or "2022" in " ".join(rows[0] if rows else []) else "HS2017"
+    head = " ".join(rows[0]) if rows else ""
+    edition = "HS2022" if "2022" in head else "HS2017"
 
     def classify(bec: str, row: list[str]) -> str:
         if enduse_col is not None and enduse_col < len(row):
@@ -398,7 +453,7 @@ def normalize_bec(path: Path, out: Path) -> tuple[int, int]:
                     return cls
         return BEC4_LOOKUP.get(bec, "unclassified")
 
-    rec: dict[str, tuple[str, str]] = {}
+    rec: dict[str, tuple[str, str, str]] = {}
     for r in rows:
         if len(r) <= max(hs_col, bec_col):
             continue
@@ -406,27 +461,29 @@ def normalize_bec(path: Path, out: Path) -> tuple[int, int]:
         bec = r[bec_col].strip()
         if not hs or not bec or not BEC_RE.match(bec):
             continue
-        rec[hs] = (bec, classify(bec, r))
+        rec[hs] = (bec, classify(bec, r), src)
 
-    if not rec:
-        raise ValueError(f"{path.name}: 유효한 HS-BEC 쌍이 없습니다")
+    return [(hs, edition, *rec[hs]) for hs in sorted(rec)]
+
+
+def normalize_bec(path: Path, out: Path) -> tuple[int, int]:
+    recs = best_sheet(path, _extract_bec, "HS-BEC 쌍")
 
     with out.open("w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(["hs", "hs_edition", "bec", "bec_class", "enduse_source"])
-        src = "file" if enduse_col is not None else "bec4_mapping"
-        for hs in sorted(rec):
-            bec, cls = rec[hs]
+        for hs, edition, bec, cls, src in recs:
             w.writerow([hs, edition, bec, cls, src])
 
-    consumption = sum(1 for _, c in rec.values() if c == "consumption")
-    unknown = sum(1 for _, c in rec.values() if c == "unclassified")
+    consumption = sum(1 for r in recs if r[3] == "consumption")
+    unknown = sum(1 for r in recs if r[3] == "unclassified")
     if unknown:
-        share = unknown / len(rec)
-        print(f"    ! end-use 미판정 {unknown:,}건 ({share:.0%}) — 출처={src}")
+        share = unknown / len(recs)
+        src = recs[0][4]
+        print(f"    ! end-use 미판정 {unknown:,}건 ({share:.0%}) — 판정출처={src}")
         if share > 0.2:
             print("      BEC rev.5 end-use 속성표를 별도로 받아 조인해야 합니다.")
-    return len(rec), consumption
+    return len(recs), consumption
 
 
 # ---------------------------------------------------------------- main
