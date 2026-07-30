@@ -96,6 +96,20 @@ SOURCES: dict[str, dict] = {
         "require": [("bec",), ("hs",)],
         "bonus": ("5", "rev5", "rev.5", "correspondence", "conversion"),
     },
+    # HS 코드 품목명. 1,481개 후보를 사람이 검토하려면 이름이 있어야 한다.
+    # BECCodeandDescription 과 같은 폴더·명명 규칙을 따를 것으로 보고 고정하되,
+    # 빗나가면 탐색으로 폴백한다.
+    "hs_codes": {
+        "label": "HS 코드·품목명",
+        "pinned": [
+            "https://unstats.un.org/unsd/classifications/Econ/Download/"
+            "In%20Text/HSCodeandDescription.xlsx",
+            UNSD_TABLES + "HSCodeandDescription.xlsx",
+        ],
+        "require": [("hs",), ("code", "description")],
+        "bonus": ("description", "2022"),
+        "optional": True,          # 없어도 나머지 산출은 계속한다
+    },
     # BEC5 코드 자체의 설명표. end-use는 코드 자릿수가 아니라 여기서 온다.
     "bec5_codes": {
         "label": "BEC 코드·설명 (end-use 판정용)",
@@ -475,6 +489,39 @@ def _extract_codes(rows: list[list[str]]) -> list[tuple[str, str, str]]:
     return out
 
 
+def _extract_hs_names(rows: list[list[str]]) -> list[tuple[str, str]]:
+    """HS 코드 설명표에서 (HS6, 품목명) 을 뽑는다. 헤더 기반."""
+    hdr_i, hdr = None, {}
+    for i, r in enumerate(rows[:10]):
+        names = {c.strip().lower(): j for j, c in enumerate(r) if c.strip()}
+        if "code" in names and "description" in names:
+            hdr_i, hdr = i, names
+            break
+    if hdr_i is None:
+        raise ValueError("헤더(Code/Description)를 찾지 못했습니다")
+
+    ci, di = hdr["code"], hdr["description"]
+    out: list[tuple[str, str]] = []
+    for r in rows[hdr_i + 1:]:
+        if max(ci, di) >= len(r):
+            continue
+        hs, name = clean_hs(r[ci]), r[di].strip()
+        if hs and name:
+            out.append((hs, name))
+    return out
+
+
+def normalize_hs_names(path: Path, out: Path) -> dict[str, str]:
+    recs = best_sheet(path, _extract_hs_names, "HS 품목명")
+    names = dict(recs)
+    with out.open("w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(["hs", "name"])
+        w.writerows(sorted(names.items()))
+    print(f"    = {out.name}  {len(names):,} 품목명")
+    return names
+
+
 def _enduse_of(text: str) -> str | None:
     """설명문에서 end-use를 읽는다. 파이프 경로의 마디 완전일치를 우선한다."""
     for seg in text.split("|"):
@@ -756,7 +803,7 @@ def main() -> int:
 
     failed = []
     # bec5_codes 를 hs_bec5 보다 먼저 — end-use 판정에 그 결과가 필요하다.
-    for key in ("hs2017_hs2022", "bec5_codes", "hs_bec5"):
+    for key in ("hs2017_hs2022", "hs_codes", "bec5_codes", "hs_bec5"):
         spec = SOURCES[key]
         print(f"\n[{spec['label']}]")
 
@@ -767,14 +814,18 @@ def main() -> int:
             path = download(key, spec, links) or find_raw(key)
 
         if not path:
-            print("    ! 원본 없음")
-            failed.append(key)
+            print("    ! 원본 없음" + ("  (선택 항목 — 건너뜀)"
+                                       if spec.get("optional") else ""))
+            if not spec.get("optional"):
+                failed.append(key)
             continue
 
         try:
             if key == "hs2017_hs2022":
                 n = normalize_correlation(path, HERE / "hs2017_hs2022.csv")
                 print(f"    = hs2017_hs2022.csv  {n:,} 매핑")
+            elif key == "hs_codes":
+                normalize_hs_names(path, HERE / "hs_names.csv")
             elif key == "bec5_codes":
                 d, pa = normalize_codes(path, HERE / "bec5_codes.csv")
                 BEC5_DESC.update(d)
@@ -784,7 +835,8 @@ def main() -> int:
                 print(f"    = hs_bec5.csv  {n:,} 품목  (소비재 {cons:,} — S0 통과 후보)")
         except Exception as e:
             print(f"    ! 정규화 실패: {e}")
-            failed.append(key)
+            if not spec.get("optional"):
+                failed.append(key)
 
     if failed:
         manual_notice()
