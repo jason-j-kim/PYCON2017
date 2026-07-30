@@ -142,6 +142,18 @@ ENDUSE_PATTERNS = [
 ]
 ENDUSE_WORDS = {w: cls for cls, words in ENDUSE_PATTERNS for w in words}
 
+# BEC rev.5 구조표의 Description은 파이프 구분 경로다:
+#   "Agriculture, forestry, ... |Goods|Intermediate Consumption|Processed|Generic"
+# end-use는 그 경로의 한 마디로 명시된다. 부분문자열 매칭에 기대면
+# "Intermediate Consumption"이 consumption 으로 오분류될 위험이 있으므로
+# 마디 단위 완전일치를 먼저 시도한다.
+BEC5_ENDUSE_SEGMENT = {
+    "intermediate consumption": "intermediate",
+    "final consumption": "consumption",
+    "gross fixed capital formation": "capital",
+    "gross fixed capital formation (gfcf)": "capital",
+}
+
 TIMEOUT = 60
 UA = {"User-Agent": "KWCI-L1/0.1 (reference table fetcher)"}
 
@@ -426,36 +438,49 @@ BEC_CODE_RE = re.compile(r"^\d{1,6}$")
 
 # BECCodeandDescription 을 먼저 처리해 채운다. hs_bec5 정규화가 여기에 조인한다.
 BEC5_DESC: dict[str, str] = {}
+BEC5_PARENT: dict[str, str] = {}
 
 
-def _extract_codes(rows: list[list[str]]) -> list[tuple[str, str]]:
-    """BEC 코드 설명표에서 (코드, 설명) 을 뽑는다.
+def _extract_codes(rows: list[list[str]]) -> list[tuple[str, str, str]]:
+    """BEC 구조표에서 (코드, 설명, 부모코드) 를 뽑는다.
 
-    UNSD 구조표는 계층 레벨마다 열이 나뉜 들여쓰기 형태다:
+    실제 구조 (BECCodeandDescription.xlsx):
+        Classification | Code | Description | Parent Code | Level | IsBasicLevel
+        BE5 | 111210 | '... |Goods|Intermediate Consumption|Processed|Generic' | 1112 | 6 | 1
 
-        Code1 | Code2 | Code3 | Description
-        1     |       |       | Intermediate goods
-              | 11    |       | Intermediate goods - primary
-              |       | 111   | ...
-
-    그래서 "코드 열 하나"를 고르면 한 레벨만 잡힌다(178행에서 6개만 나온 원인).
-    행마다 코드처럼 보이는 셀 중 가장 오른쪽(=가장 깊은 레벨)을 코드로 본다.
+    Level·IsBasicLevel 도 숫자라, "숫자처럼 보이는 열"을 고르는 방식은 여기서
+    IsBasicLevel(0/1)을 코드로 오인한다. 헤더 이름으로 열을 잡는다.
     """
-    out: list[tuple[str, str]] = []
-    for r in rows:
-        cells = [(i, c.strip()) for i, c in enumerate(r) if c and c.strip()]
-        codes = [(i, c) for i, c in cells if BEC_CODE_RE.match(c)]
-        if not codes:
+    hdr_i, hdr = None, {}
+    for i, r in enumerate(rows[:10]):
+        names = {c.strip().lower(): j for j, c in enumerate(r) if c.strip()}
+        if "code" in names and "description" in names:
+            hdr_i, hdr = i, names
+            break
+    if hdr_i is None:
+        raise ValueError("헤더(Code/Description)를 찾지 못했습니다")
+
+    ci, di = hdr["code"], hdr["description"]
+    pi = hdr.get("parent code")
+
+    out: list[tuple[str, str, str]] = []
+    for r in rows[hdr_i + 1:]:
+        if max(ci, di) >= len(r):
             continue
-        ci, code = codes[-1]
-        desc = " ".join(c for i, c in cells
-                        if i != ci and not BEC_CODE_RE.match(c))
-        if desc:
-            out.append((code, desc))
+        code, desc = r[ci].strip(), r[di].strip()
+        if not code or not desc:
+            continue
+        parent = r[pi].strip() if pi is not None and pi < len(r) else ""
+        out.append((code, desc, parent))
     return out
 
 
 def _enduse_of(text: str) -> str | None:
+    """설명문에서 end-use를 읽는다. 파이프 경로의 마디 완전일치를 우선한다."""
+    for seg in text.split("|"):
+        cls = BEC5_ENDUSE_SEGMENT.get(seg.strip().lower())
+        if cls:
+            return cls
     low = text.lower()
     for cls, words in ENDUSE_PATTERNS:
         if any(w in low for w in words):
@@ -463,59 +488,98 @@ def _enduse_of(text: str) -> str | None:
     return None
 
 
-def resolve_enduse(code: str, desc: dict[str, str]) -> str:
-    """BEC5 계층 코드의 end-use를 결정한다.
+def resolve_enduse(code: str, desc: dict[str, str],
+                   parent: dict[str, str] | None = None) -> str:
+    """BEC 계층 코드의 end-use를 결정한다.
 
-    end-use가 잎 코드 설명에 없고 상위 계층에만 적힌 경우가 있으므로,
-    잎에서 맞지 않으면 코드를 한 자리씩 줄여 조상으로 거슬러 올라간다.
+    잎 설명에서 못 찾으면 조상으로 거슬러 올라간다. Parent Code 열이 있으면
+    그 정식 계층을 쓰고, 없으면 코드를 한 자리씩 줄이는 방식으로 대체한다.
     """
-    for n in range(len(code), 0, -1):
-        cls = _enduse_of(desc.get(code[:n], ""))
+    seen: set[str] = set()
+    cur = code
+    while cur and cur not in seen:
+        seen.add(cur)
+        cls = _enduse_of(desc.get(cur, ""))
         if cls:
             return cls
+        if parent and cur in parent:
+            nxt = parent[cur]
+            cur = nxt if nxt and nxt.upper() != "TOTAL" else ""
+        else:
+            cur = cur[:-1]
     return "unclassified"
 
 
-def normalize_codes(path: Path, out: Path) -> dict[str, str]:
+def normalize_codes(path: Path, out: Path) -> tuple[dict[str, str], dict[str, str]]:
     recs = best_sheet(path, _extract_codes, "BEC 코드")
-    desc = {c: d for c, d in recs}
+    desc = {c: d for c, d, _ in recs}
+    parent = {c: p for c, _, p in recs if p}
 
+    rows_out = [(c, desc[c], resolve_enduse(c, desc, parent)) for c in sorted(desc)]
     with out.open("w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(["bec", "description", "enduse"])
-        for c in sorted(desc):
-            w.writerow([c, desc[c], resolve_enduse(c, desc)])
+        w.writerows(rows_out)
 
-    hit = sum(1 for c in desc if resolve_enduse(c, desc) != "unclassified")
-    print(f"    = {out.name}  {len(desc):,} 코드  (end-use 판정 {hit:,})")
+    hit = sum(1 for _, _, e in rows_out if e != "unclassified")
+    print(f"    = {out.name}  {len(desc):,} 코드  (end-use 판정 {hit:,})"
+          + (f", 계층=Parent Code" if parent else ", 계층=코드 접두"))
     if hit == 0:
         print("    ! 설명문에서 end-use 표현을 찾지 못했습니다 — --inspect 로 확인 필요")
-    return desc
+    return desc, parent
+
+
+def _hs_bec_header(rows: list[list[str]]) -> tuple[int, int, int] | None:
+    """헤더 행에서 HS 열과 BEC 열을 찾는다. (헤더행, hs열, bec열)
+
+    실제 파일 헤더:
+        Conversions  : ['From HS 2022', 'To BEC 5']
+        Correlations : ['Between','','']  /  ['HS 2022','BEC 5','Relationship']
+    """
+    for i, r in enumerate(rows[:10]):
+        hs_i = bec_i = None
+        for j, c in enumerate(r):
+            low = c.strip().lower()
+            if not low:
+                continue
+            if "bec" in low and bec_i is None:
+                bec_i = j
+            elif "hs" in low and hs_i is None:
+                hs_i = j
+        if hs_i is not None and bec_i is not None and hs_i != bec_i:
+            return i, hs_i, bec_i
+    return None
 
 
 def _extract_bec(rows: list[list[str]]) -> list[tuple[str, str, str, str]]:
     scan = rows[: min(len(rows), 400)]
     width = max(len(r) for r in scan)
 
-    hs_scores = [sum(1 for r in scan if i < len(r) and clean_hs(r[i])) for i in range(width)]
-    hs_col = max(range(width), key=lambda i: hs_scores[i])
-    if hs_scores[hs_col] == 0:
-        raise ValueError("HS 코드 열을 찾지 못했습니다")
+    # 헤더 우선. BEC5 코드는 6자리(112010)라 HS 코드와 형태가 겹치므로
+    # 값 모양만으로 두 열을 가르면 오인한다.
+    # 판(HS2017/HS2022) 인식은 헤더에서만 가능하므로 잘라내기 전에 잡아둔다.
+    header_text = " ".join(c for r in rows[:3] for c in r)
 
-    def bec_score(i: int) -> int:
-        if i == hs_col:
-            return -1
-        n = 0
-        for r in scan:
-            if i < len(r):
-                v = r[i].strip()
-                if v and BEC_RE.match(v) and len(v) <= 5 and not clean_hs(v):
-                    n += 1
-        return n
+    hdr = _hs_bec_header(rows)
+    if hdr:
+        skip, hs_col, bec_col = hdr
+        rows = rows[skip + 1:]
+    else:
+        hs_scores = [sum(1 for r in scan if i < len(r) and clean_hs(r[i]))
+                     for i in range(width)]
+        hs_col = max(range(width), key=lambda i: hs_scores[i])
+        if hs_scores[hs_col] == 0:
+            raise ValueError("HS 코드 열을 찾지 못했습니다")
 
-    bec_col = max(range(width), key=bec_score)
-    if bec_score(bec_col) <= 0:
-        raise ValueError("BEC 코드 열을 찾지 못했습니다 — 원본 형식을 확인하세요")
+        def bec_score(i: int) -> int:
+            if i == hs_col:
+                return -1
+            return sum(1 for r in scan
+                       if i < len(r) and BEC_RE.match(r[i].strip() or "x"))
+
+        bec_col = max(range(width), key=bec_score)
+        if bec_score(bec_col) <= 0:
+            raise ValueError("BEC 코드 열을 찾지 못했습니다 — 원본 형식을 확인하세요")
 
     # (1) end-use 열 탐색 — consumption/intermediate/capital 문자열이 있는 열.
     def enduse_score(i: int) -> int:
@@ -537,8 +601,7 @@ def _extract_bec(rows: list[list[str]]) -> list[tuple[str, str, str, str]]:
     else:
         src = "bec4_mapping"          # 최후의 수단
 
-    head = " ".join(rows[0] + (rows[1] if len(rows) > 1 else [])) if rows else ""
-    edition = "HS2022" if "2022" in head else "HS2017"
+    edition = "HS2022" if "2022" in header_text else "HS2017"
 
     def classify(bec: str, row: list[str]) -> str:
         if enduse_col is not None and enduse_col < len(row):
@@ -546,7 +609,7 @@ def _extract_bec(rows: list[list[str]]) -> list[tuple[str, str, str, str]]:
             if cls:
                 return cls
         if BEC5_DESC:
-            return resolve_enduse(bec, BEC5_DESC)
+            return resolve_enduse(bec, BEC5_DESC, BEC5_PARENT)
         return BEC4_LOOKUP.get(bec, "unclassified")
 
     rec: dict[str, tuple[str, str, str]] = {}
@@ -586,6 +649,7 @@ def normalize_bec(path: Path, out: Path) -> tuple[int, int]:
         for code, n in miss.most_common(6):
             anc = next((code[:k] for k in range(len(code), 0, -1)
                         if code[:k] in BEC5_DESC), None)
+            _ = anc
             hint = (f"조상 {anc} = {BEC5_DESC[anc][:44]!r}" if anc
                     else "설명표에 조상 없음")
             print(f"        {code:<8} {n:>5}건  {hint}")
@@ -712,7 +776,9 @@ def main() -> int:
                 n = normalize_correlation(path, HERE / "hs2017_hs2022.csv")
                 print(f"    = hs2017_hs2022.csv  {n:,} 매핑")
             elif key == "bec5_codes":
-                BEC5_DESC.update(normalize_codes(path, HERE / "bec5_codes.csv"))
+                d, pa = normalize_codes(path, HERE / "bec5_codes.csv")
+                BEC5_DESC.update(d)
+                BEC5_PARENT.update(pa)
             else:
                 n, cons = normalize_bec(path, HERE / "hs_bec5.csv")
                 print(f"    = hs_bec5.csv  {n:,} 품목  (소비재 {cons:,} — S0 통과 후보)")
