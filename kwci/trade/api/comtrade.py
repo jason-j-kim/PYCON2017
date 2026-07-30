@@ -22,6 +22,7 @@ RCA·초과점유율·단가프리미엄은 전부 "세계는 얼마를 팔았�
 사용법
 ------
   python comtrade.py --probe        # 키 확인 + 쿼리 전략 실측 -> probe.json
+  python comtrade.py --probe-scale  # 수집 규모 실측 -> probe_scale.json
   python comtrade.py --quota        # 남은 호출 여유 확인
 """
 
@@ -240,6 +241,114 @@ def probe() -> int:
     return 0 if ws else 1
 
 
+def probe_scale() -> int:
+    """수집 규모를 재는 2단계 프로브.
+
+    all_reporters 전략은 품목·연도당 2,300여 신고국 행을 돌려준다.
+    928품목 x 8년이면 1,700만 행이라 그대로는 무료 티어로 불가능하다.
+    설계를 정하려면 세 가지를 실측해야 한다.
+      A) 서버가 신고국을 합산해 주는가 (aggregateBy) — 되면 비용이 수천분의 1
+      B) 한 호출에 품목을 몇 개까지 묶을 수 있고 몇 행/몇 바이트가 오는가
+      C) 응답이 잘리는가 (묶음 결과가 개별 결과의 합과 맞는가)
+    """
+    api = Comtrade(find_key())
+    out: dict = {"tests": {}}
+
+    def call(label: str, **params) -> tuple[list[dict], int]:
+        t0 = time.time()
+        st, payload, note = api.get(**params)
+        rows = api.rows(payload)
+        size = len(json.dumps(payload)) if payload else 0
+        dt = time.time() - t0
+        print(f"    HTTP {st}  행 {len(rows):>7,}  {size/1e6:>6.2f}MB  {dt:>5.1f}s"
+              + (f"  {note[:60]}" if note else ""))
+        out["tests"][label] = {"status": st, "rows": len(rows),
+                               "bytes": size, "seconds": round(dt, 1),
+                               "note": note[:200]}
+        time.sleep(1.5)
+        return rows, size
+
+    print("[A] 서버측 집계 — 신고국을 합쳐서 주는가")
+    agg_ok = False
+    for mode in ("cmdCode", "cmdCode,period"):
+        print(f"  aggregateBy={mode}")
+        rows, _ = call(f"aggregate_{mode.replace(',', '_')}",
+                       period=PERIOD, cmdCode=SAMPLE_HS,
+                       partnerCode=WORLD_PARTNER, flowCode="X",
+                       aggregateBy=mode, breakdownMode="aggregate")
+        if rows and len(rows) <= 5:
+            agg_ok = True
+            print(f"      -> 집계 성공. 표본 primaryValue="
+                  f"{rows[0].get('primaryValue')}")
+            break
+
+    print("\n[B] 품목 묶음 규모 — 한 호출에 몇 개까지")
+    import csv as _csv
+    master = TRADE / "master" / "item_master.csv"
+    if master.exists():
+        with master.open(encoding="utf-8") as f:
+            codes = [r["hs2022"] for r in _csv.DictReader(f)]
+    else:
+        codes = [SAMPLE_HS, "200599", "330499", "620342"] * 10
+    print(f"  후보 {len(codes):,}개 중 앞에서 잘라 시험")
+
+    per_item = None
+    for n in (1, 10, 40):
+        if n > len(codes):
+            break
+        print(f"  품목 {n}개")
+        rows, size = call(f"chunk_{n}", period=PERIOD,
+                          cmdCode=",".join(codes[:n]),
+                          partnerCode=WORLD_PARTNER, flowCode="X")
+        got = len({str(r.get("cmdCode")) for r in rows})
+        print(f"      회수 품목 {got}/{n}")
+        out["tests"][f"chunk_{n}"]["distinct_cmd"] = got
+        if n == 1 and rows:
+            per_item = len(rows)
+        if per_item and rows and len(rows) < per_item * n * 0.5:
+            print(f"      ! 응답이 잘린 것으로 보입니다 "
+                  f"(예상 ~{per_item*n:,}행)")
+            out["tests"][f"chunk_{n}"]["truncated"] = True
+
+    print("\n[C] 세계 총수출 (RCA 분모의 분모)")
+    rows, _ = call("world_total", period=PERIOD, cmdCode="TOTAL",
+                   partnerCode=WORLD_PARTNER, flowCode="X")
+    total = sum(float(r.get("primaryValue") or 0) for r in rows)
+    print(f"      신고국 {len(rows):,}개 합계 ${total/1e12:.2f}조")
+    out["tests"]["world_total"]["sum_usd"] = total
+
+    print(f"\n[한도] {api.limit_note()}")
+    print(f"[호출] {api.calls}회")
+
+    # 수집 계획 추정
+    print("\n[수집 계획 추정]")
+    if agg_ok:
+        print("  aggregateBy 사용 가능 -> 품목당 1행. 928품목 x 3년을"
+              "\n  묶음 호출 수십 회로 끝낼 수 있습니다.")
+        out["plan"] = "aggregate"
+    elif per_item:
+        best = max((n for n in (1, 10, 40)
+                    if out["tests"].get(f"chunk_{n}", {}).get("rows")
+                    and not out["tests"][f"chunk_{n}"].get("truncated")),
+                   default=1)
+        bytes_1y = out["tests"][f"chunk_{best}"]["bytes"] / best * len(codes)
+        print(f"  서버 집계 불가 -> 신고국 행을 받아 직접 합산합니다.")
+        print(f"  묶음 {best}개 기준: 1년치 약 {len(codes)//best + 1:,}회 호출, "
+              f"{bytes_1y/1e9:.1f}GB")
+        print(f"  RCA는 3개년(2022~2024) 평균으로 산출하면 "
+              f"약 {(len(codes)//best + 1) * 3:,}회.")
+        out["plan"] = f"sum_reporters(chunk={best})"
+    else:
+        print("  ! 규모를 재지 못했습니다. probe_scale.json 을 보여주세요.")
+        out["plan"] = None
+
+    p = HERE / "probe_scale.json"
+    p.write_text(json.dumps(out, ensure_ascii=False, indent=2) + "\n",
+                 encoding="utf-8")
+    print(f"\n= {p.name} 기록")
+    return 0
+
+
 def quota() -> int:
     api = Comtrade(find_key())
     st, _, note = api.get(reporterCode=KOREA, period=PERIOD,
@@ -255,12 +364,16 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--probe", action="store_true",
                     help="키 확인 + 쿼리 전략 실측 (호출 ~8회)")
+    ap.add_argument("--probe-scale", action="store_true", dest="probe_scale",
+                    help="수집 규모 실측 — 서버측 집계·묶음 한계·응답 크기")
     ap.add_argument("--quota", action="store_true", help="한도 헤더만 확인")
     args = ap.parse_args()
 
     CACHE.mkdir(parents=True, exist_ok=True)
     if args.quota:
         return quota()
+    if args.probe_scale:
+        return probe_scale()
     if args.probe:
         return probe()
     ap.print_help()
