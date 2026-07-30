@@ -71,7 +71,7 @@ FALLBACK_PAGES = [
      "https://unstats.un.org/unsd/trade/bec%20classification.htm"),
 ]
 
-DATA_EXT = (".txt", ".csv", ".xlsx", ".xls", ".zip")
+DATA_EXT = (".txt", ".csv", ".xlsx", ".xls", ".zip", ".json")
 
 # 2026-07 --list 탐색으로 확인된 실제 경로. UNSD는 중첩 폴더가 아니라
 # Econ/tables/ 바로 아래 평면 구조로 파일을 둔다.
@@ -102,9 +102,12 @@ SOURCES: dict[str, dict] = {
     "hs_codes": {
         "label": "HS 코드·품목명",
         "pinned": [
+            # UN Comtrade 공개 참조 파일(키 불필요). H6 = HS2022.
+            # UNSD 쪽에 HSCodeandDescription 이 없어 이쪽을 1순위로 둔다.
+            "https://comtradeapi.un.org/files/v1/app/reference/H6.json",
+            "https://comtradeapi.un.org/files/v1/app/reference/HS.json",
             "https://unstats.un.org/unsd/classifications/Econ/Download/"
             "In%20Text/HSCodeandDescription.xlsx",
-            UNSD_TABLES + "HSCodeandDescription.xlsx",
         ],
         "require": [("hs",), ("code", "description")],
         "bonus": ("description", "2022"),
@@ -316,6 +319,26 @@ def read_sheets(path: Path) -> list[tuple[str, list[list[str]]]]:
             ])
             for ws in wb.worksheets
         ]
+
+    if suffix == ".json":
+        import json
+        data = json.loads(path.read_bytes().decode("utf-8-sig", errors="replace"))
+        # 참조 파일은 {"results": [...]} 또는 최상위 배열로 온다.
+        items = data.get("results", data) if isinstance(data, dict) else data
+        if not isinstance(items, list):
+            raise ValueError(f"{path.name}: 배열을 찾지 못했습니다")
+        rows = [["Code", "Description"]]
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            code = next((str(it[k]) for k in ("id", "code", "cmdCode", "Code")
+                         if it.get(k) not in (None, "")), None)
+            desc = next((str(it[k]) for k in ("text", "description", "cmdDesc",
+                                              "Description")
+                         if it.get(k) not in (None, "")), None)
+            if code and desc:
+                rows.append([code, desc])
+        return [(path.name, rows)]
 
     text = path.read_bytes().decode("utf-8-sig", errors="replace")
     sample = text[:4096]
