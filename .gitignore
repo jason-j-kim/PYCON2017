@@ -195,3 +195,4 @@ kwci/trade/master/dropped_by_s0.csv
 # 키 파일 (확장자 숨김 대비)
 keys.local
 kwci/trade/api/probe.json
+kwci/trade/api/probe_customs.json
