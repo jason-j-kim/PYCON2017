@@ -13,10 +13,13 @@ KWCI L1 — 기준 대응표(reference table) 수집·정규화
 
 인증키 불필요(공개 자료). 단 UN 도메인이 막힌 네트워크에서는 --manual 경로를 쓴다.
 
+UNSD는 대응표 경로·파일명 규칙이 일관되지 않으므로(같은 계열에 CPCv21_HS12 와
+CPCv21_HS2017 이 공존) URL을 추측하지 않고 목록 페이지의 링크를 탐색한다.
+
 사용법
 ------
-  python fetch_reference_tables.py --probe        # URL 후보 도달성만 확인
-  python fetch_reference_tables.py                # 다운로드 + 정규화
+  python fetch_reference_tables.py --list         # 탐색된 후보 링크만 점수순 출력
+  python fetch_reference_tables.py                # 탐색 + 다운로드 + 정규화
   python fetch_reference_tables.py --normalize    # 이미 raw/에 받아둔 파일만 정규화
 
 산출
@@ -34,7 +37,9 @@ import io
 import re
 import sys
 import zipfile
+from html.parser import HTMLParser
 from pathlib import Path
+from urllib.parse import unquote, urljoin
 
 try:
     import requests
@@ -44,28 +49,41 @@ except ImportError:
 HERE = Path(__file__).resolve().parent
 RAW = HERE / "raw"
 
-LANDING = "https://unstats.un.org/unsd/trade/classifications/correspondence-tables.asp"
+# UNSD는 대응표 파일 경로·명명 규칙이 일관되지 않다
+# (같은 계열인데 .../tables/CPC/CPCv21_HS12/ 와 .../tables/CPC/CPCv21_HS2017/ 이 공존).
+# 그래서 URL을 추측하지 않고 목록 페이지에서 링크를 탐색한다.
+DISCOVERY_PAGES = [
+    "https://unstats.un.org/unsd/trade/classifications/correspondence-tables.asp",
+    "https://unstats.un.org/unsd/classifications/Econ",
+    "https://unstats.un.org/unsd/classifications/Econ/tables",
+]
 
-# UNSD는 파일 경로를 개편한 적이 있어 후보를 순서대로 시도한다.
-# 전부 실패하면 LANDING에서 수동 내려받아 raw/에 두고 --normalize 를 쓴다.
+# 자동 탐색이 실패했을 때 사람이 직접 볼 곳. 순서대로 시도할 것.
+FALLBACK_PAGES = [
+    ("UNSD 대응표 목록",
+     "https://unstats.un.org/unsd/trade/classifications/correspondence-tables.asp"),
+    ("WCO 공식 HS2017-2022 correlation table",
+     "https://www.wcoomd.org/en/topics/nomenclature/instrument-and-tools/"
+     "hs-nomenclature-2022-edition/correlation-tables-hs-2017-2022.aspx"),
+    ("World Bank WITS product concordance (HS 판간·HS-BEC)",
+     "https://wits.worldbank.org/product_concordance.html"),
+    ("UNSD BEC Rev.5 매뉴얼 (대응표 소재 안내 포함)",
+     "https://unstats.un.org/unsd/trade/bec%20classification.htm"),
+]
+
+DATA_EXT = (".txt", ".csv", ".xlsx", ".xls", ".zip")
+
 SOURCES: dict[str, dict] = {
     "hs2017_hs2022": {
         "label": "HS2017 <-> HS2022 correlation",
-        "candidates": [
-            "https://unstats.un.org/unsd/classifications/Econ/tables/HS/HS2017_HS2022/HS2017_HS2022.txt",
-            "https://unstats.un.org/unsd/classifications/Econ/Download/In%20Text/HS2017_HS2022.txt",
-            "https://unstats.un.org/unsd/classifications/Econ/tables/HS/HS2022_HS2017/HS2022_HS2017.txt",
-            "https://unstats.un.org/unsd/classifications/Econ/Download/In%20Text/HS2022_HS2017.txt",
-        ],
+        # (필수 토큰군, 가점 토큰)
+        "require": [("2017", "h17"), ("2022", "h22")],
+        "bonus": ("hs", "correlation", "correspondence", "conversion"),
     },
     "hs_bec5": {
         "label": "HS -> BEC rev.5 correspondence",
-        "candidates": [
-            "https://unstats.un.org/unsd/classifications/Econ/tables/BEC/HS2022_BEC5/HS2022_BEC5.txt",
-            "https://unstats.un.org/unsd/classifications/Econ/Download/In%20Text/HS2022toBEC5.txt",
-            "https://unstats.un.org/unsd/classifications/Econ/tables/BEC/HS2017_BEC5/HS2017_BEC5.txt",
-            "https://unstats.un.org/unsd/classifications/Econ/Download/In%20Text/HS2017toBEC5.txt",
-        ],
+        "require": [("bec",), ("hs",)],
+        "bonus": ("5", "rev5", "rev.5", "correspondence", "conversion"),
     },
 }
 
@@ -101,30 +119,108 @@ UA = {"User-Agent": "KWCI-L1/0.1 (reference table fetcher)"}
 
 # ---------------------------------------------------------------- 다운로드
 
-def probe(url: str) -> tuple[bool, str]:
-    try:
-        r = requests.get(url, headers=UA, timeout=TIMEOUT, stream=True)
-        ok = r.status_code == 200
-        return ok, f"HTTP {r.status_code}"
-    except requests.RequestException as e:
-        return False, type(e).__name__
+class _LinkParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.links: list[tuple[str, str]] = []   # (href, 링크 텍스트)
+        self._href: str | None = None
+        self._buf: list[str] = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "a":
+            self._href = dict(attrs).get("href")
+            self._buf = []
+
+    def handle_data(self, data):
+        if self._href:
+            self._buf.append(data)
+
+    def handle_endtag(self, tag):
+        if tag == "a" and self._href:
+            self.links.append((self._href, " ".join(self._buf).strip()))
+            self._href, self._buf = None, []
 
 
-def download(key: str, spec: dict) -> Path | None:
+def discover() -> list[tuple[str, str]]:
+    """목록 페이지들을 훑어 (절대 URL, 링크 텍스트) 목록을 모은다."""
+    found: dict[str, str] = {}
+    for page in DISCOVERY_PAGES:
+        try:
+            r = requests.get(page, headers=UA, timeout=TIMEOUT)
+        except requests.RequestException as e:
+            print(f"  x {type(e).__name__}  {page}")
+            continue
+        if r.status_code != 200:
+            print(f"  x HTTP {r.status_code}  {page}")
+            continue
+        p = _LinkParser()
+        p.feed(r.text)
+        for href, text in p.links:
+            if not href or href.startswith(("#", "mailto:", "javascript:")):
+                continue
+            found.setdefault(urljoin(r.url, href), text)
+        print(f"  o {len(p.links):>4} 링크  {page}")
+    return sorted(found.items())
+
+
+def score(url: str, text: str, spec: dict) -> int:
+    """링크가 찾는 대응표일 가능성을 점수화. 0 이하면 후보에서 제외."""
+    hay = f"{unquote(url)} {text}".lower()
+
+    # 필수 토큰군: 각 그룹에서 최소 하나는 나와야 한다.
+    for group in spec["require"]:
+        if not any(t in hay for t in group):
+            return 0
+
+    s = 10
+    s += sum(3 for t in spec["bonus"] if t in hay)
+
+    ext = Path(unquote(url).split("?")[0]).suffix.lower()
+    if ext in DATA_EXT:
+        s += 20                       # 기계가 읽을 수 있는 데이터 파일
+    elif ext == ".pdf":
+        s -= 15                       # 기술노트·매뉴얼은 대응표가 아니다
+    elif ext in ("", ".asp", ".htm", ".html"):
+        s += 2                        # 폴더/색인 페이지 — 한 단계 더 들어가야 함
+
+    for bad in ("technical_note", "readme", "manual", "presentation", "note"):
+        if bad in hay:
+            s -= 12
+    return s
+
+
+def download(key: str, spec: dict, links: list[tuple[str, str]]) -> Path | None:
+    ranked = sorted(
+        ((score(u, t, spec), u, t) for u, t in links),
+        key=lambda x: -x[0],
+    )
+    ranked = [r for r in ranked if r[0] > 0]
+    if not ranked:
+        print("    · 목록 페이지에서 후보 링크를 찾지 못했습니다")
+        return None
+
+    print(f"    · 후보 {len(ranked)}건, 상위부터 시도")
     RAW.mkdir(parents=True, exist_ok=True)
-    for url in spec["candidates"]:
+
+    for sc, url, text in ranked[:6]:
+        label = text[:50] or Path(unquote(url)).name
         try:
             r = requests.get(url, headers=UA, timeout=TIMEOUT)
         except requests.RequestException as e:
-            print(f"    x {type(e).__name__}  {url}")
+            print(f"      x [{sc:>3}] {type(e).__name__}  {label}")
             continue
         if r.status_code != 200 or not r.content:
-            print(f"    x HTTP {r.status_code}  {url}")
+            print(f"      x [{sc:>3}] HTTP {r.status_code}  {label}")
             continue
-        suffix = Path(url.split("?")[0]).suffix or ".txt"
-        dest = RAW / f"{key}{suffix}"
+
+        ext = Path(unquote(url).split("?")[0]).suffix.lower()
+        if ext not in DATA_EXT:
+            print(f"      · [{sc:>3}] 데이터 파일 아님(건너뜀)  {label}")
+            continue
+
+        dest = RAW / f"{key}{ext}"
         dest.write_bytes(r.content)
-        print(f"    o {len(r.content):,} bytes -> {dest.relative_to(HERE)}")
+        print(f"      o [{sc:>3}] {len(r.content):,} bytes -> {dest.name}   {url}")
         return dest
     return None
 
@@ -336,16 +432,23 @@ def normalize_bec(path: Path, out: Path) -> tuple[int, int]:
 # ---------------------------------------------------------------- main
 
 def manual_notice() -> None:
+    pages = "\n".join(f"         - {n}\n           {u}" for n, u in FALLBACK_PAGES)
     print(f"""
-  자동 다운로드 실패. 수동 경로:
+  자동 탐색 실패. 수동 경로:
 
-    1) 브라우저로 열기:  {LANDING}
-    2) 아래 두 파일을 내려받아 {RAW} 에 저장
-         hs2017_hs2022.<txt|csv|xlsx|zip>   (HS2017 <-> HS2022 correlation)
-         hs_bec5.<txt|csv|xlsx|zip>         (HS -> BEC rev.5)
+    1) 아래 페이지를 브라우저로 열어 대응표 파일을 내려받습니다
+{pages}
+
+    2) 받은 파일을 {RAW} 에 저장 (없으면 폴더 생성)
+         hs2017_hs2022.<txt|csv|xlsx|zip>   HS2017 <-> HS2022 correlation
+         hs_bec5.<txt|csv|xlsx|zip>         HS -> BEC 대응표
+
+       파일명은 위 접두어만 맞으면 확장자는 무관합니다.
+
     3) python fetch_reference_tables.py --normalize
 
-  파일명은 위 접두어(hs2017_hs2022 / hs_bec5)만 맞으면 확장자는 무관합니다.
+  --list 로 탐색된 링크 전체를 점수순으로 볼 수 있습니다.
+  올바른 링크를 찾으셨다면 알려주시면 스크립트에 고정하겠습니다.
 """)
 
 
@@ -359,16 +462,30 @@ def find_raw(key: str) -> Path | None:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--probe", action="store_true", help="URL 도달성만 확인")
+    ap.add_argument("--list", action="store_true",
+                    help="탐색된 링크를 점수순으로 출력만 (다운로드 안 함)")
     ap.add_argument("--normalize", action="store_true", help="raw/의 기존 파일만 정규화")
     args = ap.parse_args()
 
-    if args.probe:
+    links: list[tuple[str, str]] = []
+    if not args.normalize:
+        print("[목록 페이지 탐색]")
+        links = discover()
+        if not links:
+            print("\n  목록 페이지에 접근하지 못했습니다.")
+            manual_notice()
+            return 1
+
+    if args.list:
         for key, spec in SOURCES.items():
-            print(f"\n[{spec['label']}]")
-            for url in spec["candidates"]:
-                ok, msg = probe(url)
-                print(f"  {'o' if ok else 'x'} {msg:<24} {url}")
+            print(f"\n[{spec['label']}] 후보")
+            ranked = sorted(((score(u, t, spec), u, t) for u, t in links),
+                            key=lambda x: -x[0])
+            hits = [r for r in ranked if r[0] > 0][:15]
+            if not hits:
+                print("  (없음)")
+            for sc, u, t in hits:
+                print(f"  [{sc:>3}] {t[:55]:<55} {u}")
         return 0
 
     failed = []
@@ -379,7 +496,7 @@ def main() -> int:
         if path:
             print(f"    · 기존 파일 사용: {path.relative_to(HERE)}")
         elif not args.normalize:
-            path = download(key, spec) or find_raw(key)
+            path = download(key, spec, links) or find_raw(key)
 
         if not path:
             print("    ! 원본 없음")
