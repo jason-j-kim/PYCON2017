@@ -521,8 +521,33 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--list", action="store_true",
                     help="탐색된 링크를 점수순으로 출력만 (다운로드 안 함)")
+    ap.add_argument("--grep", metavar="TERM",
+                    help="탐색된 링크 중 TERM을 포함한 것만 출력")
+    ap.add_argument("--inspect", action="store_true",
+                    help="raw/의 파일 구조(시트·헤더·표본)를 덤프 (네트워크 불필요)")
     ap.add_argument("--normalize", action="store_true", help="raw/의 기존 파일만 정규화")
     args = ap.parse_args()
+
+    if args.inspect:
+        for key in SOURCES:
+            path = find_raw(key)
+            print(f"\n{'='*70}\n[{key}] {path.name if path else '(raw/에 파일 없음)'}")
+            if not path:
+                continue
+            for name, rows in read_sheets(path):
+                print(f"\n  --- 시트 '{name}'  {len(rows):,}행 ---")
+                for i, r in enumerate(rows[:4]):
+                    print(f"    {i}: {r[:8]}")
+                if not rows:
+                    continue
+                width = max(len(r) for r in rows[: min(len(rows), 500)])
+                for c in range(min(width, 10)):
+                    vals = [r[c] for r in rows[1:400] if c < len(r) and r[c]]
+                    uniq = sorted(set(vals))
+                    head = rows[0][c] if c < len(rows[0]) else "?"
+                    print(f"    col{c} [{head[:26]:<26}] 고유{len(uniq):>5}  "
+                          f"예: {uniq[:6]}")
+        return 0
 
     links: list[tuple[str, str]] = []
     if not args.normalize:
@@ -532,6 +557,14 @@ def main() -> int:
             print("\n  목록 페이지에 접근하지 못했습니다.")
             manual_notice()
             return 1
+
+    if args.grep:
+        term = args.grep.lower()
+        hits = [(u, t) for u, t in links if term in unquote(u).lower() or term in t.lower()]
+        print(f"\n['{args.grep}' 포함 링크 {len(hits)}건]")
+        for u, t in hits:
+            print(f"  {t[:52]:<52} {u}")
+        return 0
 
     if args.list:
         for key, spec in SOURCES.items():
