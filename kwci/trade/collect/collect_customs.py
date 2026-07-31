@@ -49,7 +49,8 @@ URL = "https://apis.data.go.kr/1220000/nitemtrade/getNitemtradeList"
 # 정해진 뒤 상위 품목에만 받으면 되므로, A단계는 2024 한 해만 훑는다.
 YEARS = ["2024"]
 SLEEP = 0.2
-TIMEOUT = 60
+TIMEOUT = 20        # 응답이 멎는 경우가 있어 짧게 잡고 재시도한다
+RETRY = 2
 
 
 def items_of(payload) -> list[dict]:
@@ -89,14 +90,19 @@ def fetch(sess, key: str, hs: str, year: str) -> list[dict] | None:
         if ok_response(text):
             return items_of(parse_xml(text))
         cached.unlink()          # 오류 응답이 캐시된 경우 버리고 다시 받는다
-    try:
-        r = sess.get(URL, params={"serviceKey": key, "hsSgn": hs,
-                                  "strtYymm": f"{year}01",
-                                  "endYymm": f"{year}12"},
-                     timeout=TIMEOUT)
-    except requests.RequestException:
-        return None
-    if r.status_code != 200:
+    r = None
+    for attempt in range(RETRY + 1):
+        try:
+            r = sess.get(URL, params={"serviceKey": key, "hsSgn": hs,
+                                      "strtYymm": f"{year}01",
+                                      "endYymm": f"{year}12"},
+                         timeout=TIMEOUT)
+            break
+        except requests.RequestException as e:
+            print(f"    재시도 {hs} ({attempt+1}/{RETRY}) {type(e).__name__}",
+                  flush=True)
+            time.sleep(1.5)
+    if r is None or r.status_code != 200:
         return None
     if "LIMITED NUMBER" in r.text or "NOT REGISTERED" in r.text:
         print(f"\n  ! API 한도/권한 오류: {r.text[:140]}")
@@ -151,7 +157,11 @@ def main() -> int:
 
     print(f"\n관세청 A단계 — {len(master):,}품목 x {'/'.join(YEARS)} (국가 무관)")
     print(f"호출 {len(master)*len(YEARS):,}회, 예상 "
-          f"{len(master)*len(YEARS)*(SLEEP+0.35)/60:.0f}분\n")
+          f"{len(master)*len(YEARS)*(SLEEP+0.35)/60:.0f}분", flush=True)
+    done = len(list(CACHE.glob("*.xml")))
+    if done:
+        print(f"캐시 {done:,}건 재사용 (중단 지점부터 이어받음)", flush=True)
+    print(flush=True)
 
     for i, m in enumerate(master, 1):
         hs = m["hs2022"]
@@ -186,11 +196,11 @@ def main() -> int:
         if got == 0:
             empty += 1
 
-        if i % 25 == 0 or i == len(master):
+        if i <= 3 or i % 10 == 0 or i == len(master):
             el = time.time() - t0
             eta = el / i * (len(master) - i)
-            print(f"  {i:>4}/{len(master)}  행 {len(rows):>6,}  "
-                  f"빈품목 {empty}  실패 {fail}  남은 {eta/60:.1f}분")
+            print(f"  {i:>4}/{len(master)}  {hs}  행 {len(rows):>5,}  "
+                  f"빈 {empty}  실패 {fail}  남은 {eta/60:.1f}분", flush=True)
 
     with OUT.open("w", newline="", encoding="utf-8-sig") as f:
         w = csv.DictWriter(f, fieldnames=["hs2022", "domain", "name", "year",
