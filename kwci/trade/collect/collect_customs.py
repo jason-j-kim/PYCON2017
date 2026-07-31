@@ -21,9 +21,10 @@ from __future__ import annotations
 
 import argparse
 import csv
-import json
 import sys
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 try:
@@ -48,9 +49,21 @@ URL = "https://apis.data.go.kr/1220000/nitemtrade/getNitemtradeList"
 # 순위는 최근 실적만으로 정해진다. 기준연도(2018) 대비 성장배수는 순위가
 # 정해진 뒤 상위 품목에만 받으면 되므로, A단계는 2024 한 해만 훑는다.
 YEARS = ["2024"]
-SLEEP = 0.2
-TIMEOUT = 20        # 응답이 멎는 경우가 있어 짧게 잡고 재시도한다
+# 관세청 응답이 호출당 4초 안팎으로 느리다. 순차로 돌면 928건에 65분이라
+# 스레드로 병렬 호출한다. 서버 부담을 고려해 동시 8개로 제한.
+WORKERS = 8
+SLEEP = 0.05
+TIMEOUT = 30
 RETRY = 2
+
+_local = threading.local()
+
+
+def session() -> "requests.Session":
+    """스레드마다 별도 세션을 쓴다."""
+    if not hasattr(_local, "s"):
+        _local.s = requests.Session()
+    return _local.s
 
 
 def items_of(payload) -> list[dict]:
@@ -83,7 +96,8 @@ def ok_response(text: str) -> bool:
     return "<resultCode>00</resultCode>" in text.replace(" ", "")
 
 
-def fetch(sess, key: str, hs: str, year: str) -> list[dict] | None:
+def fetch(key: str, hs: str, year: str) -> list[dict] | None:
+    sess = session()
     cached = CACHE / f"{hs}_{year}.xml"
     if cached.exists():
         text = cached.read_text(encoding="utf-8")
@@ -150,57 +164,67 @@ def main() -> int:
     OUT.parent.mkdir(parents=True, exist_ok=True)
 
     key = find_key()
-    sess = requests.Session()
     rows: list[dict] = []
     t0 = time.time()
     empty = fail = 0
 
     print(f"\n관세청 A단계 — {len(master):,}품목 x {'/'.join(YEARS)} (국가 무관)")
-    print(f"호출 {len(master)*len(YEARS):,}회, 예상 "
-          f"{len(master)*len(YEARS)*(SLEEP+0.35)/60:.0f}분", flush=True)
+    print(f"호출 {len(master)*len(YEARS):,}회, 동시 {WORKERS}개, 예상 "
+          f"{len(master)*len(YEARS)*4.2/WORKERS/60:.0f}분", flush=True)
     done = len(list(CACHE.glob("*.xml")))
     if done:
         print(f"캐시 {done:,}건 재사용 (중단 지점부터 이어받음)", flush=True)
     print(flush=True)
 
-    for i, m in enumerate(master, 1):
-        hs = m["hs2022"]
-        got = 0
+    def one(m: dict) -> tuple[dict, list[dict]]:
+        """품목 하나의 연도별 실적 행을 만든다."""
+        hs, made = m["hs2022"], []
         for year in YEARS:
-            fresh = not (CACHE / f"{hs}_{year}.xml").exists()
-            items = fetch(sess, key, hs, year)
+            items = fetch(key, hs, year)
             if items is None:
-                fail += 1
+                made.append({"_fail": True})
+                continue
+            # 응답에는 '총계' 행과 월별 행이 섞여 있다. 연간 합계는
+            # '총계' 행이 담고 있으므로 그것을 연도 실적으로 쓴다.
+            usd = kg = 0.0
+            for it in items:
+                if str(it.get("year", "")).strip() in ("총계", "합계", "계"):
+                    usd, kg = num(it.get("expDlr")), num(it.get("expWgt"))
+                    break
             else:
-                # 응답에는 '총계' 행과 월별 행이 섞여 있다. 연간 합계는
-                # '총계' 행이 담고 있으므로 그것을 연도 실적으로 쓴다.
-                usd = kg = 0.0
-                for it in items:
-                    lab = str(it.get("year", "")).strip()
-                    if lab in ("총계", "합계", "계"):
-                        usd, kg = num(it.get("expDlr")), num(it.get("expWgt"))
-                        break
-                else:
-                    for it in items:      # 총계 행이 없으면 월별을 더한다
-                        usd += num(it.get("expDlr"))
-                        kg += num(it.get("expWgt"))
-                if usd or kg:
-                    rows.append({
-                        "hs2022": hs, "domain": m["domain"], "name": m["name"],
-                        "year": year, "exp_usd": usd, "exp_kg": kg,
-                        "unit_value": round(usd / kg, 4) if kg else "",
-                    })
-                    got += 1
-            if fresh:
-                time.sleep(SLEEP)
-        if got == 0:
-            empty += 1
+                for it in items:      # 총계 행이 없으면 월별을 더한다
+                    usd += num(it.get("expDlr"))
+                    kg += num(it.get("expWgt"))
+            if usd or kg:
+                made.append({
+                    "hs2022": hs, "domain": m["domain"], "name": m["name"],
+                    "year": year, "exp_usd": usd, "exp_kg": kg,
+                    "unit_value": round(usd / kg, 4) if kg else "",
+                })
+        return m, made
 
-        if i <= 3 or i % 10 == 0 or i == len(master):
-            el = time.time() - t0
-            eta = el / i * (len(master) - i)
-            print(f"  {i:>4}/{len(master)}  {hs}  행 {len(rows):>5,}  "
-                  f"빈 {empty}  실패 {fail}  남은 {eta/60:.1f}분", flush=True)
+    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
+        futures = {pool.submit(one, m): m for m in master}
+        for i, fut in enumerate(as_completed(futures), 1):
+            try:
+                m, made = fut.result()
+            except Exception as e:
+                fail += 1
+                print(f"    오류 {type(e).__name__}: {e}", flush=True)
+                continue
+            good = [r for r in made if not r.get("_fail")]
+            failed = len(made) - len(good)
+            fail += failed
+            rows.extend(good)
+            if not good and not failed:   # 호출은 됐는데 실적이 0인 품목
+                empty += 1
+            if i <= 3 or i % 25 == 0 or i == len(master):
+                el = time.time() - t0
+                eta = el / i * (len(master) - i)
+                print(f"  {i:>4}/{len(master)}  행 {len(rows):>5,}  "
+                      f"빈 {empty}  실패 {fail}  남은 {eta/60:.1f}분", flush=True)
+
+    rows.sort(key=lambda r: (r["domain"], r["hs2022"], r["year"]))
 
     with OUT.open("w", newline="", encoding="utf-8-sig") as f:
         w = csv.DictWriter(f, fieldnames=["hs2022", "domain", "name", "year",
