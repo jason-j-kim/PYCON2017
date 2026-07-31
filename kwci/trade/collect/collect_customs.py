@@ -99,7 +99,23 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--test", action="store_true", help="앞 5품목만")
     ap.add_argument("--limit", type=int, help="앞 N품목만")
+    ap.add_argument("--dump", metavar="HS", nargs="?", const="",
+                    help="캐시된 응답의 item 을 그대로 출력 (형식 확인용)")
     args = ap.parse_args()
+
+    if args.dump is not None:
+        files = sorted(CACHE.glob(f"{args.dump or '*'}*.xml"))
+        if not files:
+            sys.exit(f"캐시가 없습니다: {CACHE}")
+        for fp in files[:2]:
+            items = items_of(parse_xml(fp.read_text(encoding="utf-8")))
+            print(f"\n--- {fp.name}  item {len(items)}개 ---")
+            for it in items[:8]:
+                print("  ", it)
+            if not items:
+                print("  (expDlr 를 가진 노드 없음) 원문 앞부분:")
+                print("  ", fp.read_text(encoding="utf-8")[:600])
+        return 0
 
     if not MASTER.exists():
         sys.exit(f"{MASTER} 이 없습니다. build_item_master.py 를 먼저 돌리세요.")
@@ -157,6 +173,15 @@ def main() -> int:
                                           "exp_usd", "exp_kg", "unit_value"])
         w.writeheader()
         w.writerows(rows)
+
+    if not rows:
+        print("\n  ! 0행 — 응답 형식이 예상과 다릅니다. 첫 응답의 item:")
+        for fp in sorted(CACHE.glob("*.xml"))[:1]:
+            items = items_of(parse_xml(fp.read_text(encoding="utf-8")))
+            for it in items[:6]:
+                print("    ", it)
+            if not items:
+                print("    ", fp.read_text(encoding="utf-8")[:600])
 
     print(f"\n= {OUT.name}  {len(rows):,}행  ({time.time()-t0:.0f}초)")
     print(f"  수출실적 있는 품목 {len(master)-empty-fail:,} / {len(master):,}")
