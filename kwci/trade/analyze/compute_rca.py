@@ -41,7 +41,12 @@ TOP = TRADE / "data" / "processed" / "top_items.csv"
 OUT = TRADE / "data" / "processed" / "rca.csv"
 
 KOREA = 410
-PERIODS = ["2022", "2023"]   # 단년도는 노이즈에 취약해 복수년으로 본다
+# 관세청 횡단이 2024년이므로 RCA도 2024를 기준으로 맞춘다.
+# 2023을 함께 받는 것은 비교용 — Comtrade는 신고 지연이 있어 최근 연도의
+# 신고국 수가 적을 수 있고, 그러면 세계 합계가 과소집계되어 RCA가 부풀어 오른다.
+# 두 해의 신고국 수를 함께 출력해 2024가 쓸 만한지 눈으로 판정한다.
+PERIODS = ["2023", "2024"]
+MAIN_PERIOD = "2024"
 # cmdCode=TOTAL 은 전 신고국 총수출이라 응답이 수 MB다. 연도를 쪼개 받고
 # 타임아웃을 넉넉히 준다(기본 90초로는 ReadTimeout).
 TOTAL_TIMEOUT = 300
@@ -52,18 +57,24 @@ SLEEP = 0.4
 def aggregate(rows: list[dict]) -> tuple[dict, dict]:
     """전 신고국 응답에서 (한국 집계, 세계 집계)를 뽑는다.
 
-    반환값은 {period: {"usd":..., "kg":...}} 형태.
+    반환값은 {period: {"usd":..., "kg":..., "n":신고국수}} 형태.
+    신고국 수를 세는 것은 최근 연도의 신고 지연을 판정하기 위해서다.
     """
     kr: dict[str, dict[str, float]] = {}
     wd: dict[str, dict[str, float]] = {}
+    seen: dict[str, set] = {}
     for r in rows:
         p = str(r.get("period", ""))
         usd = float(r.get("primaryValue") or 0)
         kg = float(r.get("netWgt") or 0)
+        seen.setdefault(p, set()).add(str(r.get("reporterCode")))
         for tgt in (wd, kr) if str(r.get("reporterCode")) == str(KOREA) else (wd,):
-            d = tgt.setdefault(p, {"usd": 0.0, "kg": 0.0})
+            d = tgt.setdefault(p, {"usd": 0.0, "kg": 0.0, "n": 0})
             d["usd"] += usd
             d["kg"] += kg
+    for p, s in seen.items():
+        if p in wd:
+            wd[p]["n"] = len(s)
     return kr, wd
 
 
@@ -105,7 +116,17 @@ def main() -> int:
         sys.exit("총수출 조회 실패 — 모든 연도에서 응답을 받지 못했습니다.")
     for p in sorted(tot_wd):
         print(f"  {p} 총수출  한국 {tot_kr.get(p, {}).get('usd', 0)/1e9:>7,.0f}십억$"
-              f"   세계 {tot_wd[p]['usd']/1e12:>6,.1f}조$", flush=True)
+              f"   세계 {tot_wd[p]['usd']/1e12:>6,.1f}조$"
+              f"   신고국 {tot_wd[p].get('n', 0):>4}개", flush=True)
+    # 최근 연도의 신고국이 크게 적으면 세계 합계가 과소집계되어 RCA가 부풀어 오른다.
+    ns = {p: tot_wd[p].get("n", 0) for p in tot_wd}
+    if len(ns) > 1:
+        lo, hi = min(ns.values()), max(ns.values())
+        if hi and lo / hi < 0.85:
+            worst = min(ns, key=ns.get)
+            print(f"\n  ! {worst}년 신고국이 {lo}개로 다른 해({hi}개)보다 적습니다."
+                  f"\n    세계 합계가 과소집계되어 그 해 RCA가 부풀 수 있습니다."
+                  f" 해석 시 유의하세요.", flush=True)
     print(flush=True)
 
     rows: list[dict] = []
@@ -166,7 +187,8 @@ def main() -> int:
     print(f"\n= {OUT.name}  {len(rows):,}행  ({time.time()-t0:.0f}초)")
 
     # 도메인별 S2 통과율 — K-Fashion 이 낮게 나오면 계획서 4.2의 진단이 된다.
-    last = max((r["period"] for r in rows), default=None)
+    last = MAIN_PERIOD if any(r["period"] == MAIN_PERIOD for r in rows) \
+        else max((r["period"] for r in rows), default=None)
     print(f"\n[S2 통과 (RCA >= 1), {last}]")
     for d in sorted({r["domain"] for r in rows}):
         sel = [r for r in rows if r["domain"] == d and r["period"] == last]
