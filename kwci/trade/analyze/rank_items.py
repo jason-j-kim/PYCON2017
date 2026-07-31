@@ -30,6 +30,12 @@ OUT = TRADE / "data" / "processed" / "top_items.csv"
 CALIB_HS = "190230"
 CALIB_USD = 1.2e9
 
+# 도메인마다 집중도가 달라 상위 N을 따로 잡는다.
+# 첫 산출 기준 상위 15개의 도메인 총액 설명력: K-Beauty 99.8%, K-Food 64.3%,
+# K-Fashion 60.5%. 뒤 둘은 분산이 커서 30개로 늘려야 대표성이 확보된다.
+TOP_N = {"K-Beauty": 15, "K-Food": 30, "K-Fashion": 30}
+TOP_DEFAULT = 15
+
 
 def load() -> list[dict]:
     if not SRC.exists():
@@ -52,7 +58,8 @@ def money(v: float, unit: float) -> str:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--top", type=int, default=15)
+    ap.add_argument("--top", type=int,
+                    help=f"모든 도메인에 같은 N 적용 (기본은 도메인별: {TOP_N})")
     ap.add_argument("--domain")
     ap.add_argument("--all", action="store_true", help="상위 N 대신 전체 출력")
     args = ap.parse_args()
@@ -86,7 +93,7 @@ def main() -> int:
         print(f"■ {d}   총액 {money(tot_usd, unit)}   "
               f"총량 {tot_kg/1e6:,.0f}천톤   품목 {live}/{len(sel)}")
 
-        n = len(sel) if args.all else args.top
+        n = len(sel) if args.all else (args.top or TOP_N.get(d, TOP_DEFAULT))
         cum = 0.0
         for i, r in enumerate(sel[:n], 1):
             cum += r["exp_usd"]
