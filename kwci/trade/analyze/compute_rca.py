@@ -59,6 +59,11 @@ RETRY_429 = 4
 # 세계 총수출이 부풀어 오른다(첫 산출 55조$ vs 공표 약 24조$).
 # partnerCode=0(World) 행만 쓰고, 알려진 집계 코드를 제외한다.
 AGGREGATE_REPORTERS = {"0", "97", "975", "1830", "899"}
+
+# 한 신고국이 여러 행으로 오는 진짜 원인은 분해 차원이다(첫 산출에서 독일 276이
+# 같은 값으로 3번). Comtrade 는 지정하지 않으면 운송수단·통관구분·2차파트너
+# 분해를 모두 돌려준다. 요청에 집계값을 명시하고, 응답에서도 한 번 더 거른다.
+CANON = {"motCode": "0", "customsCode": "C00", "partner2Code": "0"}
 WORLD_TOTAL_REF = {"2023": 23.8e12, "2024": 24.4e12}   # WTO 공표 상품수출 근사
 
 
@@ -77,6 +82,12 @@ def aggregate(rows: list[dict]) -> tuple[dict, dict]:
         if rep in AGGREGATE_REPORTERS:
             continue
         if str(r.get("partnerCode", "0")) != "0":
+            continue
+        if str(r.get("flowCode", "X")) != "X":       # 재수출(RX) 등 제외
+            continue
+        # 분해 차원이 집계값이 아닌 행은 중복이다.
+        if any(k in r and str(r[k]) not in (v, "None", "")
+               for k, v in CANON.items()):
             continue
         p = str(r.get("period", ""))
         usd = float(r.get("primaryValue") or 0)
@@ -120,12 +131,22 @@ def main() -> int:
         print(f"  총수출 {p} 조회 중 (전 신고국, 수 MB)...", flush=True)
         st, payload, note = api.get(period=p, cmdCode="TOTAL",
                                     partnerCode=0, flowCode="X",
-                                    timeout=TOTAL_TIMEOUT)
+                                    timeout=TOTAL_TIMEOUT, **CANON)
         raw = api.rows(payload)
         top = sorted(raw, key=lambda r: -float(r.get("primaryValue") or 0))[:5]
         print("    상위 신고국: " + ", ".join(
             f"{r.get('reporterCode')}={float(r.get('primaryValue') or 0)/1e12:.1f}조"
             for r in top), flush=True)
+        # 같은 신고국이 여러 행이면 분해 차원이 아직 섞인 것이다.
+        reps = [str(r.get("reporterCode")) for r in raw]
+        if reps and len(reps) != len(set(reps)):
+            from collections import Counter
+            worst, cnt = Counter(reps).most_common(1)[0]
+            keys = [k for k in ("motCode", "customsCode", "partner2Code",
+                                "flowCode", "partnerCode")
+                    if k in raw[0]]
+            print(f"    ! 신고국 중복: {worst} 가 {cnt}행. "
+                  f"응답에 있는 분해키 {keys}", flush=True)
         k, w = aggregate(raw)
         tot_kr.update(k)
         tot_wd.update(w)
@@ -162,7 +183,7 @@ def main() -> int:
         for attempt in range(RETRY_429 + 1):
             st, payload, note = api.get(period=",".join(PERIODS), cmdCode=hs,
                                         partnerCode=0, flowCode="X",
-                                        timeout=180)
+                                        timeout=180, **CANON)
             if st != 429:
                 break
             wait = 15 * (attempt + 1)
