@@ -106,6 +106,7 @@ def main() -> int:
         plan.append((f"data/reference/{n}", MASTER / n))
     plan += CODE
     plan.append(("00_한장요약.md", DOCS / "00_요약.md"))
+    plan.append(("00_한장요약.docx", DOCS / "00_한장요약.docx"))
     plan.append(("README.md", DOCS / "02_데이터셋_배포_요약.md"))
     plan.append(("방법론_상세.md", DOCS / "01_품목선정_및_수집계획.md"))
 
