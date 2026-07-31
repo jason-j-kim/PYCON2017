@@ -41,7 +41,10 @@ TOP = TRADE / "data" / "processed" / "top_items.csv"
 OUT = TRADE / "data" / "processed" / "rca.csv"
 
 KOREA = 410
-PERIODS = "2022,2023"      # 단년도는 노이즈에 취약해 복수년 평균으로 본다
+PERIODS = ["2022", "2023"]   # 단년도는 노이즈에 취약해 복수년으로 본다
+# cmdCode=TOTAL 은 전 신고국 총수출이라 응답이 수 MB다. 연도를 쪼개 받고
+# 타임아웃을 넉넉히 준다(기본 90초로는 ReadTimeout).
+TOTAL_TIMEOUT = 300
 WORKERS = 4                # 무료 티어를 고려해 낮게
 SLEEP = 0.4
 
@@ -81,16 +84,25 @@ def main() -> int:
     api = Comtrade(find_key())
     t0 = time.time()
 
-    print(f"\nS2 RCA — {len(items)}품목 x {PERIODS}")
+    print(f"\nS2 RCA — {len(items)}품목 x {','.join(PERIODS)}")
     print(f"  전 신고국 응답에서 한국·세계를 한 번에 집계 (품목당 1회 호출)\n",
           flush=True)
 
-    # 분모의 분모: 한국 총수출 / 세계 총수출
-    st, payload, note = api.get(period=PERIODS, cmdCode="TOTAL",
-                                partnerCode=0, flowCode="X")
-    tot_kr, tot_wd = aggregate(api.rows(payload))
+    # 분모의 분모: 한국 총수출 / 세계 총수출. 연도별로 나눠 받는다.
+    tot_kr: dict[str, dict[str, float]] = {}
+    tot_wd: dict[str, dict[str, float]] = {}
+    for p in PERIODS:
+        print(f"  총수출 {p} 조회 중 (전 신고국, 수 MB)...", flush=True)
+        st, payload, note = api.get(period=p, cmdCode="TOTAL",
+                                    partnerCode=0, flowCode="X",
+                                    timeout=TOTAL_TIMEOUT)
+        k, w = aggregate(api.rows(payload))
+        tot_kr.update(k)
+        tot_wd.update(w)
+        if not w:
+            print(f"    ! {p} 실패: HTTP {st} {note[:100]}", flush=True)
     if not tot_wd:
-        sys.exit(f"총수출 조회 실패: HTTP {st} {note[:120]}")
+        sys.exit("총수출 조회 실패 — 모든 연도에서 응답을 받지 못했습니다.")
     for p in sorted(tot_wd):
         print(f"  {p} 총수출  한국 {tot_kr.get(p, {}).get('usd', 0)/1e9:>7,.0f}십억$"
               f"   세계 {tot_wd[p]['usd']/1e12:>6,.1f}조$", flush=True)
@@ -101,8 +113,8 @@ def main() -> int:
 
     def one(m: dict):
         hs = m["hs2022"]
-        st, payload, note = api.get(period=PERIODS, cmdCode=hs,
-                                    partnerCode=0, flowCode="X")
+        st, payload, note = api.get(period=",".join(PERIODS), cmdCode=hs,
+                                    partnerCode=0, flowCode="X", timeout=180)
         time.sleep(SLEEP)
         if st != 200:
             return m, None, f"HTTP {st} {note[:60]}"

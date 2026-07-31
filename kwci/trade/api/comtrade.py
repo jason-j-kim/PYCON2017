@@ -106,13 +106,24 @@ class Comtrade:
         self.calls = 0
         self.last_headers: dict[str, str] = {}
 
-    def get(self, freq: str = "A", **params) -> tuple[int, dict | None, str]:
-        """(status, payload, note). 예외를 던지지 않고 상태를 돌려준다."""
+    def get(self, freq: str = "A", timeout: int | None = None,
+            retry: int = 2, **params) -> tuple[int, dict | None, str]:
+        """(status, payload, note). 예외를 던지지 않고 상태를 돌려준다.
+
+        cmdCode=TOTAL 처럼 전 신고국을 받는 질의는 응답이 수 MB라 기본
+        타임아웃으로는 끊긴다. 호출부가 timeout 을 올려 잡을 수 있게 한다.
+        """
         url = f"{BASE}/C/{freq}/HS"
-        try:
-            r = self.s.get(url, params=params, timeout=TIMEOUT)
-        except requests.RequestException as e:
-            return 0, None, type(e).__name__
+        r = None
+        for attempt in range(retry + 1):
+            try:
+                r = self.s.get(url, params=params,
+                               timeout=timeout or TIMEOUT)
+                break
+            except requests.RequestException as e:
+                if attempt == retry:
+                    return 0, None, f"{type(e).__name__} (재시도 {retry}회)"
+                time.sleep(2.0 * (attempt + 1))
         self.calls += 1
         self.last_headers = {k.lower(): v for k, v in r.headers.items()}
 
