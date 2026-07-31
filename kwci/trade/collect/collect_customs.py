@@ -45,7 +45,9 @@ URL = "https://apis.data.go.kr/1220000/nitemtrade/getNitemtradeList"
 # 그래서 연도별로 나눠 부른다. 기본은 2018(KWCI 기준연도)과 2024(최근 실적)
 # 두 해만 — 순위 선정과 성장배수 산출에 이 둘이면 충분하고, 8년 전수(7,424회)를
 # 피할 수 있다. 상위 품목의 전 연도는 B단계에서 채운다.
-YEARS = ["2018", "2024"]
+# 순위는 최근 실적만으로 정해진다. 기준연도(2018) 대비 성장배수는 순위가
+# 정해진 뒤 상위 품목에만 받으면 되므로, A단계는 2024 한 해만 훑는다.
+YEARS = ["2024"]
 SLEEP = 0.2
 TIMEOUT = 60
 
@@ -110,6 +112,7 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--test", action="store_true", help="앞 5품목만")
     ap.add_argument("--limit", type=int, help="앞 N품목만")
+    ap.add_argument("--years", help="쉼표 구분 연도 (기본 2024)")
     ap.add_argument("--dump", metavar="HS", nargs="?", const="",
                     help="캐시된 응답의 item 을 그대로 출력 (형식 확인용)")
     args = ap.parse_args()
@@ -133,6 +136,8 @@ def main() -> int:
     with MASTER.open(encoding="utf-8") as f:
         master = list(csv.DictReader(f))
 
+    if args.years:
+        YEARS[:] = [y.strip() for y in args.years.split(",") if y.strip()]
     n = 5 if args.test else (args.limit or len(master))
     master = master[:n]
     CACHE.mkdir(parents=True, exist_ok=True)
