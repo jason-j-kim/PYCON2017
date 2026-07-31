@@ -50,8 +50,16 @@ MAIN_PERIOD = "2024"
 # cmdCode=TOTAL 은 전 신고국 총수출이라 응답이 수 MB다. 연도를 쪼개 받고
 # 타임아웃을 넉넉히 준다(기본 90초로는 ReadTimeout).
 TOTAL_TIMEOUT = 300
-WORKERS = 4                # 무료 티어를 고려해 낮게
-SLEEP = 0.4
+# 무료 티어는 429(Rate limit)를 낸다. 동시 호출을 없애고 간격을 둔다.
+WORKERS = 1
+SLEEP = 2.0
+RETRY_429 = 4
+
+# 신고국 합계에는 집계 그룹이 섞일 수 있고, 그러면 회원국과 중복 계상되어
+# 세계 총수출이 부풀어 오른다(첫 산출 55조$ vs 공표 약 24조$).
+# partnerCode=0(World) 행만 쓰고, 알려진 집계 코드를 제외한다.
+AGGREGATE_REPORTERS = {"0", "97", "975", "1830", "899"}
+WORLD_TOTAL_REF = {"2023": 23.8e12, "2024": 24.4e12}   # WTO 공표 상품수출 근사
 
 
 def aggregate(rows: list[dict]) -> tuple[dict, dict]:
@@ -64,11 +72,17 @@ def aggregate(rows: list[dict]) -> tuple[dict, dict]:
     wd: dict[str, dict[str, float]] = {}
     seen: dict[str, set] = {}
     for r in rows:
+        rep = str(r.get("reporterCode"))
+        # 집계 그룹(EU 등)과 World partner 이외 행은 중복 계상의 원인이 된다.
+        if rep in AGGREGATE_REPORTERS:
+            continue
+        if str(r.get("partnerCode", "0")) != "0":
+            continue
         p = str(r.get("period", ""))
         usd = float(r.get("primaryValue") or 0)
         kg = float(r.get("netWgt") or 0)
-        seen.setdefault(p, set()).add(str(r.get("reporterCode")))
-        for tgt in (wd, kr) if str(r.get("reporterCode")) == str(KOREA) else (wd,):
+        seen.setdefault(p, set()).add(rep)
+        for tgt in (wd, kr) if rep == str(KOREA) else (wd,):
             d = tgt.setdefault(p, {"usd": 0.0, "kg": 0.0, "n": 0})
             d["usd"] += usd
             d["kg"] += kg
@@ -107,7 +121,12 @@ def main() -> int:
         st, payload, note = api.get(period=p, cmdCode="TOTAL",
                                     partnerCode=0, flowCode="X",
                                     timeout=TOTAL_TIMEOUT)
-        k, w = aggregate(api.rows(payload))
+        raw = api.rows(payload)
+        top = sorted(raw, key=lambda r: -float(r.get("primaryValue") or 0))[:5]
+        print("    상위 신고국: " + ", ".join(
+            f"{r.get('reporterCode')}={float(r.get('primaryValue') or 0)/1e12:.1f}조"
+            for r in top), flush=True)
+        k, w = aggregate(raw)
         tot_kr.update(k)
         tot_wd.update(w)
         if not w:
@@ -118,6 +137,12 @@ def main() -> int:
         print(f"  {p} 총수출  한국 {tot_kr.get(p, {}).get('usd', 0)/1e9:>7,.0f}십억$"
               f"   세계 {tot_wd[p]['usd']/1e12:>6,.1f}조$"
               f"   신고국 {tot_wd[p].get('n', 0):>4}개", flush=True)
+        ref = WORLD_TOTAL_REF.get(p)
+        if ref:
+            gap = tot_wd[p]["usd"] / ref
+            mark = "정합" if 0.8 <= gap <= 1.25 else "★불일치"
+            print(f"       공표 세계 상품수출 {ref/1e12:.1f}조$ 대비 "
+                  f"{gap:.2f}배  {mark}", flush=True)
     # 최근 연도의 신고국이 크게 적으면 세계 합계가 과소집계되어 RCA가 부풀어 오른다.
     ns = {p: tot_wd[p].get("n", 0) for p in tot_wd}
     if len(ns) > 1:
@@ -134,8 +159,15 @@ def main() -> int:
 
     def one(m: dict):
         hs = m["hs2022"]
-        st, payload, note = api.get(period=",".join(PERIODS), cmdCode=hs,
-                                    partnerCode=0, flowCode="X", timeout=180)
+        for attempt in range(RETRY_429 + 1):
+            st, payload, note = api.get(period=",".join(PERIODS), cmdCode=hs,
+                                        partnerCode=0, flowCode="X",
+                                        timeout=180)
+            if st != 429:
+                break
+            wait = 15 * (attempt + 1)
+            print(f"    429 대기 {wait}초 ({hs})", flush=True)
+            time.sleep(wait)
         time.sleep(SLEEP)
         if st != 200:
             return m, None, f"HTTP {st} {note[:60]}"
