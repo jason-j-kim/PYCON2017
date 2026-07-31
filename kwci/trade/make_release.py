@@ -29,6 +29,7 @@ DATA = [
     "panel.csv", "item_totals.csv", "top_items.csv", "country_totals.csv",
     "base_2018.csv", "rca.csv",
     "l1_cross.csv", "l1_series.csv", "l1_diversity.csv",
+    "fashion_defs.csv", "fashion_defs_country.csv",
 ]
 MASTER_FILES = [
     "item_master.csv", "item_master.lock.json",
@@ -45,6 +46,7 @@ CODE = [
     ("code/analyze/rank_items.py", HERE / "analyze" / "rank_items.py"),
     ("code/analyze/compute_rca.py", HERE / "analyze" / "compute_rca.py"),
     ("code/analyze/build_l1.py", HERE / "analyze" / "build_l1.py"),
+    ("code/analyze/fashion_definitions.py", HERE / "analyze" / "fashion_definitions.py"),
 ]
 
 RUN_MD = """# 재현 순서
