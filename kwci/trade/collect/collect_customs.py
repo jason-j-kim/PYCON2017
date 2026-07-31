@@ -41,8 +41,12 @@ CACHE = TRADE / "data" / "raw" / "customs"
 OUT = TRADE / "data" / "processed" / "item_totals.csv"
 URL = "https://apis.data.go.kr/1220000/nitemtrade/getNitemtradeList"
 
-START, END = "201801", "202512"
-SLEEP = 0.35
+# 관세청은 1회 조회기간을 1년 이내로 제한한다(resultCode 99).
+# 그래서 연도별로 나눠 부른다. 기본은 2018(KWCI 기준연도)과 2024(최근 실적)
+# 두 해만 — 순위 선정과 성장배수 산출에 이 둘이면 충분하고, 8년 전수(7,424회)를
+# 피할 수 있다. 상위 품목의 전 연도는 B단계에서 채운다.
+YEARS = ["2018", "2024"]
+SLEEP = 0.2
 TIMEOUT = 60
 
 
@@ -71,27 +75,34 @@ def num(v) -> float:
         return 0.0
 
 
-def fetch(sess, key: str, hs: str) -> list[dict] | None:
-    cached = CACHE / f"{hs}.xml"
-    if cached.exists() and cached.stat().st_size > 200:
-        return items_of(parse_xml(cached.read_text(encoding="utf-8")))
+def ok_response(text: str) -> bool:
+    """resultCode 00 인 응답만 유효하다. 오류도 HTTP 200으로 오므로 본문을 본다."""
+    return "<resultCode>00</resultCode>" in text.replace(" ", "")
+
+
+def fetch(sess, key: str, hs: str, year: str) -> list[dict] | None:
+    cached = CACHE / f"{hs}_{year}.xml"
+    if cached.exists():
+        text = cached.read_text(encoding="utf-8")
+        if ok_response(text):
+            return items_of(parse_xml(text))
+        cached.unlink()          # 오류 응답이 캐시된 경우 버리고 다시 받는다
     try:
         r = sess.get(URL, params={"serviceKey": key, "hsSgn": hs,
-                                  "strtYymm": START, "endYymm": END},
+                                  "strtYymm": f"{year}01",
+                                  "endYymm": f"{year}12"},
                      timeout=TIMEOUT)
     except requests.RequestException:
         return None
     if r.status_code != 200:
         return None
-    payload = parse_xml(r.text)
-    if not payload:
-        return None
-    # 한도 초과·미승인은 200으로 오므로 본문을 봐야 한다.
     if "LIMITED NUMBER" in r.text or "NOT REGISTERED" in r.text:
-        print(f"\n  ! API 한도/권한 오류: {r.text[:120]}")
+        print(f"\n  ! API 한도/권한 오류: {r.text[:140]}")
         raise SystemExit(1)
+    if not ok_response(r.text):
+        return None
     cached.write_text(r.text, encoding="utf-8")
-    return items_of(payload)
+    return items_of(parse_xml(r.text))
 
 
 def main() -> int:
@@ -133,34 +144,42 @@ def main() -> int:
     t0 = time.time()
     empty = fail = 0
 
-    print(f"\n관세청 A단계 — {len(master):,}품목 x {START}~{END} (국가 무관)")
-    print(f"예상 {len(master)*(SLEEP+0.4)/60:.0f}분\n")
+    print(f"\n관세청 A단계 — {len(master):,}품목 x {'/'.join(YEARS)} (국가 무관)")
+    print(f"호출 {len(master)*len(YEARS):,}회, 예상 "
+          f"{len(master)*len(YEARS)*(SLEEP+0.35)/60:.0f}분\n")
 
     for i, m in enumerate(master, 1):
         hs = m["hs2022"]
-        items = fetch(sess, key, hs)
-        if items is None:
-            fail += 1
-        else:
-            got = 0
-            for it in items:
-                year = str(it.get("year", "")).strip()
-                # '총계' 행과 국가 소계는 건너뛰고 연도 행만 취한다.
-                if not year.isdigit() or len(year) != 4:
-                    continue
-                usd, kg = num(it.get("expDlr")), num(it.get("expWgt"))
-                if usd == 0 and kg == 0:
-                    continue
-                rows.append({
-                    "hs2022": hs, "domain": m["domain"], "name": m["name"],
-                    "year": year, "exp_usd": usd, "exp_kg": kg,
-                    "unit_value": round(usd / kg, 4) if kg else "",
-                })
-                got += 1
-            if got == 0:
-                empty += 1
-        if not (CACHE / f"{hs}.xml").exists():
-            time.sleep(SLEEP)
+        got = 0
+        for year in YEARS:
+            fresh = not (CACHE / f"{hs}_{year}.xml").exists()
+            items = fetch(sess, key, hs, year)
+            if items is None:
+                fail += 1
+            else:
+                # 응답에는 '총계' 행과 월별 행이 섞여 있다. 연간 합계는
+                # '총계' 행이 담고 있으므로 그것을 연도 실적으로 쓴다.
+                usd = kg = 0.0
+                for it in items:
+                    lab = str(it.get("year", "")).strip()
+                    if lab in ("총계", "합계", "계"):
+                        usd, kg = num(it.get("expDlr")), num(it.get("expWgt"))
+                        break
+                else:
+                    for it in items:      # 총계 행이 없으면 월별을 더한다
+                        usd += num(it.get("expDlr"))
+                        kg += num(it.get("expWgt"))
+                if usd or kg:
+                    rows.append({
+                        "hs2022": hs, "domain": m["domain"], "name": m["name"],
+                        "year": year, "exp_usd": usd, "exp_kg": kg,
+                        "unit_value": round(usd / kg, 4) if kg else "",
+                    })
+                    got += 1
+            if fresh:
+                time.sleep(SLEEP)
+        if got == 0:
+            empty += 1
 
         if i % 25 == 0 or i == len(master):
             el = time.time() - t0
@@ -176,7 +195,7 @@ def main() -> int:
 
     if not rows:
         print("\n  ! 0행 — 응답 형식이 예상과 다릅니다. 첫 응답의 item:")
-        for fp in sorted(CACHE.glob("*.xml"))[:1]:
+        for fp in sorted(CACHE.glob("*.xml"))[-1:]:
             items = items_of(parse_xml(fp.read_text(encoding="utf-8")))
             for it in items[:6]:
                 print("    ", it)
