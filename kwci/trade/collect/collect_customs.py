@@ -96,9 +96,11 @@ def ok_response(text: str) -> bool:
     return "<resultCode>00</resultCode>" in text.replace(" ", "")
 
 
-def fetch(key: str, hs: str, year: str) -> list[dict] | None:
+def fetch(key: str, hs: str, year: str,
+          cnty: str | None = None) -> list[dict] | None:
+    """국가(cnty)를 주면 그 국가만, 없으면 전 교역국 합계를 받는다."""
     sess = session()
-    cached = CACHE / f"{hs}_{year}.xml"
+    cached = CACHE / (f"{hs}_{year}_{cnty}.xml" if cnty else f"{hs}_{year}.xml")
     if cached.exists():
         text = cached.read_text(encoding="utf-8")
         if ok_response(text):
@@ -107,10 +109,11 @@ def fetch(key: str, hs: str, year: str) -> list[dict] | None:
     r = None
     for attempt in range(RETRY + 1):
         try:
-            r = sess.get(URL, params={"serviceKey": key, "hsSgn": hs,
-                                      "strtYymm": f"{year}01",
-                                      "endYymm": f"{year}12"},
-                         timeout=TIMEOUT)
+            params = {"serviceKey": key, "hsSgn": hs,
+                      "strtYymm": f"{year}01", "endYymm": f"{year}12"}
+            if cnty:
+                params["cntyCd"] = cnty
+            r = sess.get(URL, params=params, timeout=TIMEOUT)
             break
         except requests.RequestException as e:
             print(f"    재시도 {hs} ({attempt+1}/{RETRY}) {type(e).__name__}",
