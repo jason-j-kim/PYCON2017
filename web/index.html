@@ -186,13 +186,20 @@ ul { margin: 6px 0; padding-left: 20px; }
 
     <!-- 실질 독창성 평가에 쓰는 자료 (히어로 상단에서 이동) -->
     <div class="card">
-      <b>실질 독창성 평가에 쓰는 자료 (선례 검증)</b>
+      <b>실질 독창성 평가 — 검증 통로 <span style="color:var(--accent)">4개</span> (선례 검증)</b>
       <div class="trustbar" id="trustbar">
-        <span class="src" id="src-fiscal"><b>재정 <span class="state"></span></b><span>예산으로 집행됐나</span></span>
-        <span class="src" id="src-prism"><b>KDI <span class="state"></span></b><span>연구로 검토됐나</span></span>
-        <span class="src" id="src-bill"><b>국회 의안 <span class="state"></span></b><span>입법이 시도됐나</span></span>
+        <span class="src" id="src-fiscal"><b>① 재정 <span class="state"></span></b><span>예산으로 집행됐나 (국내)</span></span>
+        <span class="src" id="src-prism"><b>② KDI 연구 <span class="state"></span></b><span>연구로 검토됐나 (국내)</span></span>
+        <span class="src" id="src-bill"><b>③ 국회 의안 <span class="state"></span></b><span>입법이 시도됐나 (국내)</span></span>
+        <span class="src" id="src-overseas"><b>④ 해외사례</b><span>다른 나라가 시행했나 (OECD OPSI)</span></span>
       </div>
-      <div class="note-sub">문답이 끝나면 이 세 자료원과 모델 지식으로 선례를 조사해 실질 독창성을 판정합니다. (의안 키는 서버에 미리 설정)</div>
+      <div class="note-sub">문답이 끝나면 이 <b>네 가지 통로</b>(재정 · KDI 연구 · 국회 의안 · 해외사례)와 모델 지식으로 선례를 조사해 실질 독창성을 판정합니다.</div>
+      <div style="display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin-top:12px;font-size:.85rem;color:var(--sub)">
+        <b style="color:var(--accent)">① 재정</b><span>예산이 붙어 <b>집행</b>되었나 (국내 세출예산)</span>
+        <b style="color:var(--accent)">② KDI 연구</b><span>연구로 <b>검토</b>되었나 (KDI 정책연구 · 중첩도·역할 판정)</span>
+        <b style="color:var(--accent)">③ 국회 의안</b><span><b>입법</b>이 시도되었나 (발의·의결 현황)</span>
+        <b style="color:var(--accent)">④ 해외사례</b><span>다른 나라 정부가 <b>실제 시행</b>했나 (OECD OPSI 1,015건)</span>
+      </div>
     </div>
 
     <div class="card">
@@ -1188,9 +1195,9 @@ function renderOriginality(b, targetId, withDefense) {
     + '재정·연구 자료는 제목·메타데이터만 담고, 국회 의안은 제안이유 본문을 받을 수 있습니다. '
     + '제목만 겹치는 경우 유사 후보가 있다는 신호일 뿐 내용이 같다는 증거가 아니며(설계가 다르면 독창적일 수 있음), '
     + '반대로 미발견이라 해도 이름이 달라 놓쳤거나 자료원 밖에 있을 수 있어 독창성이 확정되지는 않습니다. '
-    + '세 자료원은 대략 2000년대 후반 이후를 덮고, 임기만료폐기는 아이디어의 기각을 뜻하지 않습니다. '
-    + '세 자료원은 모두 한국 국내 자료입니다 — 해외·국제기구 사례는 정부 데이터 조회 밖이라 '
-    + '모델 지식(B급·추정)으로만 보완됩니다. '
+    + '국내 세 자료원(재정·KDI·의안)은 대략 2000년대 후반 이후를 덮고, 임기만료폐기는 아이디어의 기각을 뜻하지 않습니다. '
+    + '네 번째 통로인 해외사례는 OECD OPSI 코퍼스(약 1,015건) 조회로 보완합니다 — '
+    + '조회에서 걸린 해외 사례는 A급 근거, 조회 밖 해외·국제기구 사례는 모델 지식(B급·추정)으로 보완됩니다. '
     + '이 판정은 정책 영역 간 비교에 쓰지 않습니다.</div></div>');
 
   $(targetId).innerHTML = parts.join("");
