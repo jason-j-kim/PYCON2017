@@ -914,9 +914,15 @@ def _kdinov_lookup(query):
 
 
 def _kdi_available():
-    if _kdi_corpus():                      # kdinov docs 코퍼스가 있으면 활성
-        return True
-    if not KDI_DB.exists():
+    # 가벼운 체크: 코퍼스 전체를 로딩하지 않고 존재·건수만 확인(첫 화면 상태용).
+    if _kdinov() and KDI_SQLITE.exists():
+        try:
+            with sqlite3.connect(str(KDI_SQLITE)) as c:
+                if c.execute("SELECT COUNT(*) FROM docs").fetchone()[0] > 0:
+                    return True
+        except Exception:
+            pass
+    if not KDI_DB.exists():                # naive reports 폴백
         return False
     try:
         with sqlite3.connect(KDI_DB) as c:
