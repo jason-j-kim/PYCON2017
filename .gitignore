@@ -184,3 +184,7 @@ overseas/*.db
 overseas/.pw-profile/
 kdi/*.db
 kdi/*.sqlite
+
+# 로컬 실행 배치(초대 코드 포함 — 커밋 금지)
+run_policy.bat
+*.local.bat
