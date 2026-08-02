@@ -772,9 +772,23 @@ def _opsi_available():
         return False
 
 
+# OPSI 사례 거의 전부에 등장해 변별력이 없는 초일반어(검색 잡음 제거).
+_OPSI_STOP = {
+    "the", "and", "for", "with", "from", "that", "this", "are", "was", "has", "have",
+    "not", "but", "all", "any", "can", "will", "new", "use", "using", "used", "based",
+    "into", "per", "via", "its", "their", "our", "your", "more", "most", "such", "than",
+    "then", "they", "them", "also", "may", "one", "two", "who", "how", "what", "when",
+    "where", "which", "while", "been", "being", "were", "would", "could", "should",
+    "about", "over", "under", "between", "within", "across", "through",
+    "public", "government", "governmental", "service", "services", "sector", "innovation",
+    "innovative", "project", "programme", "program", "initiative", "national", "citizen",
+    "citizens", "people", "community", "development", "management",
+}
+
+
 def _opsi_lookup(query):
-    q = (query or "").strip()
-    toks = [w.lower() for w in re.findall(r"[A-Za-z][A-Za-z0-9\-]{2,}", q)]
+    raw = [w.lower() for w in re.findall(r"[A-Za-z][A-Za-z0-9\-]{2,}", query or "")]
+    toks = [t for t in raw if t not in _OPSI_STOP] or raw
     if not toks or not OPSI_DB.exists():
         return []
     try:
@@ -785,15 +799,24 @@ def _opsi_lookup(query):
         for t in toks:
             params += [f"%{t}%", f"%{t}%", f"%{t}%"]
         rows = [dict(r) for r in conn.execute(
-            f"SELECT * FROM cases WHERE {where} LIMIT 60", params).fetchall()]
+            f"SELECT * FROM cases WHERE {where} LIMIT 120", params).fetchall()]
         conn.close()
     except Exception as e:
         print("opsi lookup 실패:", e, file=sys.stderr)
         return []
     scored = []
     for d in rows:
-        hay = f"{d.get('title') or ''} {d.get('cleaned_content') or ''}".lower()
-        score = sum(1 for t in toks if t in hay)
+        title = (d.get("title") or "").lower()
+        hay = f"{title} {(d.get('cleaned_content') or '').lower()}"
+        score = 0
+        for t in toks:
+            if t in title:
+                score += 3
+            elif t in hay:
+                score += 1
+        for a, b in zip(toks, toks[1:]):
+            if f"{a} {b}" in hay:
+                score += 3
         if score:
             scored.append((score, d))
     scored.sort(key=lambda x: x[0], reverse=True)

@@ -718,10 +718,30 @@ def _opsi_available():
         return False
 
 
+# OPSI 사례 거의 전부에 등장해 변별력이 없는 초일반어(검색 잡음 제거).
+_OPSI_STOP = {
+    "the", "and", "for", "with", "from", "that", "this", "are", "was", "has", "have",
+    "not", "but", "all", "any", "can", "will", "new", "use", "using", "used", "based",
+    "into", "per", "via", "its", "their", "our", "your", "more", "most", "such", "than",
+    "then", "they", "them", "also", "may", "one", "two", "who", "how", "what", "when",
+    "where", "which", "while", "been", "being", "were", "would", "could", "should",
+    "about", "over", "under", "between", "within", "across", "through",
+    "public", "government", "governmental", "service", "services", "sector", "innovation",
+    "innovative", "project", "programme", "program", "initiative", "national", "citizen",
+    "citizens", "people", "community", "development", "management",
+}
+
+
+def _opsi_tokens(query):
+    raw = [w.lower() for w in re.findall(r"[A-Za-z][A-Za-z0-9\-]{2,}", query or "")]
+    toks = [t for t in raw if t not in _OPSI_STOP]
+    return toks or raw            # 전부 불용어면 원본으로 폴백
+
+
 def _opsi_lookup(query):
-    """영어 질의어로 OPSI 사례(제목·본문·국가)를 검색해 상위 5건. 본문(summary) 포함."""
-    q = (query or "").strip()
-    toks = [w.lower() for w in re.findall(r"[A-Za-z][A-Za-z0-9\-]{2,}", q)]
+    """영어 질의어로 OPSI 사례(제목·본문·국가)를 검색해 상위 5건. 본문(summary) 포함.
+    제목 일치와 인접 구절(예: 'basic income')에 가중해 변별력을 높인다."""
+    toks = _opsi_tokens(query)
     if not toks or not OPSI_DB.exists():
         return []
     try:
@@ -732,15 +752,24 @@ def _opsi_lookup(query):
         for t in toks:
             params += [f"%{t}%", f"%{t}%", f"%{t}%"]
         rows = [dict(r) for r in conn.execute(
-            f"SELECT * FROM cases WHERE {where} LIMIT 60", params).fetchall()]
+            f"SELECT * FROM cases WHERE {where} LIMIT 120", params).fetchall()]
         conn.close()
     except Exception as e:
         print("opsi lookup 실패:", e, file=sys.stderr)
         return []
     scored = []
     for d in rows:
-        hay = f"{d.get('title') or ''} {d.get('cleaned_content') or ''}".lower()
-        score = sum(1 for t in toks if t in hay)
+        title = (d.get("title") or "").lower()
+        hay = f"{title} {(d.get('cleaned_content') or '').lower()}"
+        score = 0
+        for t in toks:
+            if t in title:
+                score += 3            # 제목 일치는 강한 신호
+            elif t in hay:
+                score += 1
+        for a, b in zip(toks, toks[1:]):
+            if f"{a} {b}" in hay:     # 인접 구절이 통째로 나오면 큰 보너스
+                score += 3
         if score:
             scored.append((score, d))
     scored.sort(key=lambda x: x[0], reverse=True)
