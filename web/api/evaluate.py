@@ -1029,10 +1029,12 @@ def originality_axis(transcript, api_key):
 
 
 def _sources_status():
+    # prism 슬롯은 KDI 코퍼스(kdinov)가 있으면 켜짐. 옛 PRISM 키는 플래그가 켜졌을 때만.
     return {
         "fiscal": _fiscal_available(),
-        "prism": bool(DATA_GO_KR_KEY),
+        "prism": _kdi_available() or bool(PRISM_ENABLED and DATA_GO_KR_KEY),
         "bill": bool(ASSEMBLY_KEY),
+        "overseas": _opsi_available(),
     }
 
 

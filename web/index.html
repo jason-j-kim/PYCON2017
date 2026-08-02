@@ -191,7 +191,7 @@ ul { margin: 6px 0; padding-left: 20px; }
         <span class="src" id="src-fiscal"><b>① 재정 <span class="state"></span></b><span>예산으로 집행됐나 (국내)</span></span>
         <span class="src" id="src-prism"><b>② KDI 연구 <span class="state"></span></b><span>연구로 검토됐나 (국내)</span></span>
         <span class="src" id="src-bill"><b>③ 국회 의안 <span class="state"></span></b><span>입법이 시도됐나 (국내)</span></span>
-        <span class="src" id="src-overseas"><b>④ 해외사례</b><span>다른 나라가 시행했나 (OECD OPSI)</span></span>
+        <span class="src" id="src-overseas"><b>④ 해외사례 <span class="state"></span></b><span>다른 나라가 시행했나 (OECD OPSI)</span></span>
       </div>
       <div class="note-sub">문답이 끝나면 이 <b>네 가지 통로</b>(재정 · KDI 연구 · 국회 의안 · 해외사례)와 모델 지식으로 선례를 조사해 실질 독창성을 판정합니다.</div>
       <div style="display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin-top:12px;font-size:.85rem;color:var(--sub)">
@@ -471,7 +471,7 @@ $("btn-showkey").onclick = () => {
 
 // 정부 소스(재정·KDI·의안) 가용 여부 표시 — 서버 환경변수 기준
 fetch(EVALUATE_URL).then(r => r.json()).then(d => {
-  const map = {fiscal: "src-fiscal", prism: "src-prism", bill: "src-bill"};
+  const map = {fiscal: "src-fiscal", prism: "src-prism", bill: "src-bill", overseas: "src-overseas"};
   for (const k in map) {
     const el = $(map[k]);
     const on = d.sources && d.sources[k];
