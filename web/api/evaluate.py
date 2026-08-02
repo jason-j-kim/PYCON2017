@@ -422,6 +422,9 @@ def _clean_key(name):
 
 DATA_GO_KR_KEY = _clean_key("DATA_GO_KR_KEY")   # PRISM(정책연구)
 ASSEMBLY_KEY = _clean_key("ASSEMBLY_KEY")        # 국회 의안
+# PRISM(data.go.kr API)이 불안정해 기본 정지. 되살리려면 PRISM_ENABLED=1.
+# '검토(연구)' 슬롯은 KDI 로컬 코퍼스(_kdi_lookup)가 있으면 그쪽을 우선 쓴다.
+PRISM_ENABLED = os.environ.get("PRISM_ENABLED", "0").strip().lower() in ("1", "true", "yes")
 
 # ── 공통 HTTP ─────────────────────────────────────────────────────────────
 _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -827,11 +830,76 @@ def _opsi_lookup(query):
     } for _, d in scored[:5]]
 
 
+# ── 검토(연구) 축: KDI 정책연구 로컬 코퍼스(kdi_corpus.db) ──
+# PRISM(API)을 대체한다. reports 테이블이 채워지면 자동 활성화, 비면 자동 정지.
+KDI_DB = Path(__file__).resolve().parent / "kdi_corpus.db"
+
+_KDI_STOP = {"및", "등", "관한", "관련", "대한", "위한", "통한", "그리고", "또는",
+             "the", "and", "for", "with", "of", "in", "on", "to", "study", "연구",
+             "정책", "방안", "분석", "제도", "개선", "방향", "과제"}
+
+
+def _kdi_available():
+    if not KDI_DB.exists():
+        return False
+    try:
+        with sqlite3.connect(KDI_DB) as c:
+            return c.execute("SELECT COUNT(*) FROM reports").fetchone()[0] > 0
+    except Exception:
+        return False
+
+
+def _kdi_lookup(query):
+    """KDI 정책연구 코퍼스에서 제목·본문·키워드를 검색해 상위 5건.
+    한국어 질의어 기준(제목 일치 가중 + 인접 구절 보너스). 반환 형식은 PRISM과 동일
+    ({title, org, period}) + summary."""
+    raw = [w.lower() for w in re.findall(r"[0-9A-Za-z가-힣][\w가-힣\-]{1,}", query or "")]
+    toks = [t for t in raw if t not in _KDI_STOP and len(t) >= 2] or raw
+    if not toks or not KDI_DB.exists():
+        return []
+    try:
+        conn = sqlite3.connect(KDI_DB)
+        conn.row_factory = sqlite3.Row
+        where = " OR ".join(["cleaned_content LIKE ? OR title LIKE ? OR keywords LIKE ?"] * len(toks))
+        params = []
+        for t in toks:
+            params += [f"%{t}%", f"%{t}%", f"%{t}%"]
+        rows = [dict(r) for r in conn.execute(
+            f"SELECT * FROM reports WHERE {where} LIMIT 120", params).fetchall()]
+        conn.close()
+    except Exception as e:
+        print("kdi lookup 실패:", e, file=sys.stderr)
+        return []
+    scored = []
+    for d in rows:
+        title = (d.get("title") or "").lower()
+        hay = f"{title} {(d.get('keywords') or '').lower()} {(d.get('cleaned_content') or '').lower()}"
+        score = 0
+        for t in toks:
+            if t in title:
+                score += 3
+            elif t in hay:
+                score += 1
+        for a, b in zip(toks, toks[1:]):
+            if f"{a} {b}" in hay:
+                score += 3
+        if score:
+            scored.append((score, d))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [{
+        "title": d.get("title"), "org": d.get("org") or d.get("organization"),
+        "period": d.get("period") or d.get("year"),
+        "summary": (d.get("cleaned_content") or "")[:500], "url": d.get("url") or d.get("source_url"),
+    } for _, d in scored[:5]]
+
+
 def _do_lookups(spec):
-    """명세의 질의어로 재정·PRISM·의안·해외(OPSI)를 조회한다(가용 소스만). hits 또는 None."""
+    """명세의 질의어로 재정·KDI(연구)·의안·해외(OPSI)를 조회한다(가용 소스만). hits 또는 None."""
     fns = {
         "fiscal": _fiscal_local_search if _fiscal_available() else None,
-        "prism": _prism_lookup if DATA_GO_KR_KEY else None,
+        # '검토(연구)' 슬롯: KDI 코퍼스가 있으면 그것, 없으면 PRISM(플래그 켜졌을 때만).
+        "prism": (_kdi_lookup if _kdi_available()
+                  else (_prism_lookup if (PRISM_ENABLED and DATA_GO_KR_KEY) else None)),
         "bill": _bill_lookup if ASSEMBLY_KEY else None,
         "overseas": _opsi_lookup if _opsi_available() else None,
     }
