@@ -182,3 +182,4 @@ keys.local.bat
 simulation/spec_cache/
 overseas/*.db
 overseas/.pw-profile/
+kdi/*.db
