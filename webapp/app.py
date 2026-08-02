@@ -939,18 +939,43 @@ def _originality_payload(result):
     }
 
 
+def _kdi_idea_text(spec):
+    """kdinov 분해용 '전체 아이디어 문장'을 명세에서 구성한다(키워드보다 정확).
+    대상·수단·전달경로·재원 + 제안자 지목 사업명을 이어붙인다."""
+    s = (spec or {}).get("spec") or {}
+    parts = [s.get("target"), s.get("instrument"), s.get("channel"), s.get("funding")]
+    txt = " ".join(str(p).strip() for p in parts
+                   if p and str(p).strip() and str(p).strip() != "미진술")
+    for c in (spec or {}).get("claimed_precedents") or []:
+        nm = (c or {}).get("name")
+        if nm:
+            txt += " " + str(nm)
+    if not txt.strip():
+        txt = " ".join((spec or {}).get("queries", {}).get("prism", []) or [])
+    return txt.strip()
+
+
 def _run_originality_axis(sid):
     """백그라운드 스레드: 축 B를 돌려 결과를 DB에 저장한다.
     call_claude가 블로킹이므로 asyncio 대신 스레드로 격리한다."""
     try:
         transcript = "\n\n".join(_transcript_log(sid))
+        spec = engine.extract_spec(transcript)          # 명세 1회 추출(재추출 방지)
         fiscal_fn = _fiscal_local_search if _fiscal_available() else None
-        # '검토(연구)' 슬롯: KDI 코퍼스가 있으면 그것, 없으면 PRISM(플래그 켜졌을 때만).
-        prism_fn = (_kdi_lookup if _kdi_available()
-                    else (_prism_lookup if (PRISM_ENABLED and DATA_GO_KR_KEY) else None))
         bill_fn = _bill_lookup if ASSEMBLY_KEY else None
         overseas_fn = _opsi_lookup if _opsi_available() else None
-        result = engine.originality_axis(transcript, fiscal_fn, prism_fn, bill_fn, overseas_fn)
+        # '검토(연구)' 슬롯: KDI 코퍼스가 있으면 kdinov, 없으면 PRISM(플래그 켜졌을 때만).
+        if _kdi_available():
+            # kdinov 분해는 전체 아이디어 문장으로 한다(키워드보다 정확). 엔진이 KDI를
+            # 정확히 1회 호출하도록 '연구' 질의어를 그 문장 하나로 치환한다.
+            spec.setdefault("queries", {})["prism"] = [_kdi_idea_text(spec) or "정책"]
+            prism_fn = _kdi_lookup
+        elif PRISM_ENABLED and DATA_GO_KR_KEY:
+            prism_fn = _prism_lookup
+        else:
+            prism_fn = None
+        result = engine.originality_axis(transcript, fiscal_fn, prism_fn, bill_fn,
+                                         overseas_fn, spec=spec)
         db.save_originality(sid, result)
     except Exception as e:
         db.set_originality_status(sid, "error")

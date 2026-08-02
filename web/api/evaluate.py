@@ -832,14 +832,90 @@ def _opsi_lookup(query):
 
 # ── 검토(연구) 축: KDI 정책연구 로컬 코퍼스(kdi_corpus.db) ──
 # PRISM(API)을 대체한다. reports 테이블이 채워지면 자동 활성화, 비면 자동 정지.
-KDI_DB = Path(__file__).resolve().parent / "kdi_corpus.db"
+KDI_DB = Path(__file__).resolve().parent / "kdi_corpus.db"          # naive 폴백(reports)
+KDI_SQLITE = Path(os.environ.get("KDI_SQLITE", str(Path(__file__).resolve().parent / "kdi.sqlite")))  # kdinov(docs)
 
 _KDI_STOP = {"및", "등", "관한", "관련", "대한", "위한", "통한", "그리고", "또는",
              "the", "and", "for", "with", "of", "in", "on", "to", "study", "연구",
              "정책", "방안", "분석", "제도", "개선", "방향", "과제"}
 
+_KDINOV = None
+_KDI_CORPUS = None
+
+
+def _kdinov():
+    """kdinov 모듈 묶음(없으면 None). web/api/kdinov를 경로에 넣고 한 번만 로드."""
+    global _KDINOV
+    if _KDINOV is None:
+        try:
+            sys.path.insert(0, str(Path(__file__).resolve().parent))
+            from kdinov import sources as _s, model as _m, decompose as _d
+            from kdinov import search as _se, verdict as _v
+            _KDINOV = {"sources": _s, "model": _m, "decompose": _d,
+                       "search": _se, "verdict": _v}
+        except Exception as e:
+            print("kdinov 로드 실패:", e, file=sys.stderr)
+            _KDINOV = False
+    return _KDINOV or None
+
+
+def _kdi_corpus():
+    global _KDI_CORPUS
+    if _KDI_CORPUS is None:
+        k = _kdinov()
+        if k and KDI_SQLITE.exists():
+            try:
+                _KDI_CORPUS = k["sources"].Store(str(KDI_SQLITE)).all()
+            except Exception as e:
+                print("kdi corpus 로드 실패:", e, file=sys.stderr)
+                _KDI_CORPUS = []
+        else:
+            _KDI_CORPUS = []
+    return _KDI_CORPUS
+
+
+def _kdi_idea_text(spec):
+    """kdinov 분해용 전체 아이디어 문장을 명세에서 구성한다(키워드보다 정확)."""
+    s = (spec or {}).get("spec") or {}
+    parts = [s.get("target"), s.get("instrument"), s.get("channel"), s.get("funding")]
+    txt = " ".join(str(p).strip() for p in parts
+                   if p and str(p).strip() and str(p).strip() != "미진술")
+    for c in (spec or {}).get("claimed_precedents") or []:
+        nm = (c or {}).get("name")
+        if nm:
+            txt += " " + str(nm)
+    if not txt.strip():
+        txt = " ".join((spec or {}).get("queries", {}).get("prism", []) or [])
+    return txt.strip()
+
+
+def _kdinov_lookup(query):
+    """kdinov로 KDI 코퍼스 대조: decompose→search→assess. 상위 5건에 code/role 부착."""
+    k = _kdinov()
+    corpus = _kdi_corpus()
+    if not k or not corpus:
+        return None
+    try:
+        idea = k["model"].Idea.from_dict(k["decompose"].decompose_policy_idea(query or ""))
+        hits = k["search"].search_docs(corpus, k["search"].terms_from_idea(idea), limit=5)
+        out = []
+        for h in hits:
+            d = h.doc
+            a = k["verdict"].assess(d, idea)
+            out.append({
+                "title": d.title, "org": d.kind or d.source, "period": d.year(),
+                "summary": (h.snippet or d.summary or "")[:500], "url": d.url,
+                "code": a.code, "role": a.role, "score": a.score,
+            })
+        return out
+    except Exception as e:
+        print("kdinov lookup 실패:", e, file=sys.stderr)
+        return None
+
 
 def _kdi_available():
+    if _kdi_corpus():                      # kdinov docs 코퍼스가 있으면 활성
+        return True
     if not KDI_DB.exists():
         return False
     try:
@@ -850,9 +926,15 @@ def _kdi_available():
 
 
 def _kdi_lookup(query):
-    """KDI 정책연구 코퍼스에서 제목·본문·키워드를 검색해 상위 5건.
-    한국어 질의어 기준(제목 일치 가중 + 인접 구절 보너스). 반환 형식은 PRISM과 동일
-    ({title, org, period}) + summary."""
+    """검토(연구) 슬롯: kdinov 우선, 없으면 naive reports 조회."""
+    hits = _kdinov_lookup(query)
+    if hits is not None:
+        return hits
+    return _kdi_naive_lookup(query)
+
+
+def _kdi_naive_lookup(query):
+    """폴백: KDI reports 코퍼스 LIKE 검색 상위 5건. 반환형은 PRISM과 동일 + summary."""
     raw = [w.lower() for w in re.findall(r"[0-9A-Za-z가-힣][\w가-힣\-]{1,}", query or "")]
     toks = [t for t in raw if t not in _KDI_STOP and len(t) >= 2] or raw
     if not toks or not KDI_DB.exists():
@@ -895,6 +977,9 @@ def _kdi_lookup(query):
 
 def _do_lookups(spec):
     """명세의 질의어로 재정·KDI(연구)·의안·해외(OPSI)를 조회한다(가용 소스만). hits 또는 None."""
+    # kdinov(KDI)가 활성이면 '연구' 질의어를 전체 아이디어 문장 하나로 치환(분해 정확도↑).
+    if _kdinov() and _kdi_corpus():
+        spec.setdefault("queries", {})["prism"] = [_kdi_idea_text(spec) or "정책"]
     fns = {
         "fiscal": _fiscal_local_search if _fiscal_available() else None,
         # '검토(연구)' 슬롯: KDI 코퍼스가 있으면 그것, 없으면 PRISM(플래그 켜졌을 때만).
