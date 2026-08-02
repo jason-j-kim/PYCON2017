@@ -183,3 +183,4 @@ simulation/spec_cache/
 overseas/*.db
 overseas/.pw-profile/
 kdi/*.db
+kdi/*.sqlite

@@ -714,8 +714,74 @@ _KDI_STOP = {"및", "등", "관한", "관련", "대한", "위한", "통한", "�
              "정책", "방안", "분석", "제도", "개선", "방향", "과제"}
 
 
+# kdinov(정교한 KDI 독창성 판정기) 연동 — docs 스키마 코퍼스(kdi.sqlite)를 쓴다.
+# 있으면 kdinov(분해→검색→2차원 판정)를, 없으면 위 naive reports 조회를 쓴다.
+KDI_SQLITE = Path(os.environ.get("KDI_SQLITE", str(ROOT / "kdi" / "kdi.sqlite")))
+_KDINOV = None
+_KDI_CORPUS = None
+
+
+def _kdinov():
+    """kdinov 모듈 묶음(없으면 None). 한 번만 로드."""
+    global _KDINOV
+    if _KDINOV is None:
+        try:
+            from kdinov import sources as _s, model as _m, decompose as _d
+            from kdinov import search as _se, verdict as _v
+            _KDINOV = {"sources": _s, "model": _m, "decompose": _d,
+                       "search": _se, "verdict": _v}
+        except Exception as e:
+            print("kdinov 로드 실패:", e, file=sys.stderr)
+            _KDINOV = False
+    return _KDINOV or None
+
+
+def _kdi_corpus():
+    """kdinov docs 코퍼스(list[Doc]) 캐시. 없으면 빈 리스트."""
+    global _KDI_CORPUS
+    if _KDI_CORPUS is None:
+        k = _kdinov()
+        if k and KDI_SQLITE.exists():
+            try:
+                _KDI_CORPUS = k["sources"].Store(str(KDI_SQLITE)).all()
+                print(f"kdinov 코퍼스 로드: {len(_KDI_CORPUS)}건 · {KDI_SQLITE}", file=sys.stderr)
+            except Exception as e:
+                print("kdi corpus 로드 실패:", e, file=sys.stderr)
+                _KDI_CORPUS = []
+        else:
+            _KDI_CORPUS = []
+    return _KDI_CORPUS
+
+
+def _kdinov_lookup(query):
+    """kdinov로 KDI 코퍼스 대조: decompose→search→assess. 상위 5건에 code/role 부착.
+    kdinov/코퍼스가 없으면 None(→naive 폴백)."""
+    k = _kdinov()
+    corpus = _kdi_corpus()
+    if not k or not corpus:
+        return None
+    try:
+        idea = k["model"].Idea.from_dict(k["decompose"].decompose_policy_idea(query or ""))
+        hits = k["search"].search_docs(corpus, k["search"].terms_from_idea(idea), limit=5)
+        out = []
+        for h in hits:
+            d = h.doc
+            a = k["verdict"].assess(d, idea)
+            out.append({
+                "title": d.title, "org": d.kind or d.source, "period": d.year(),
+                "summary": (h.snippet or d.summary or "")[:500], "url": d.url,
+                "code": a.code, "role": a.role, "score": a.score,
+            })
+        return out
+    except Exception as e:
+        print("kdinov lookup 실패:", e, file=sys.stderr)
+        return None
+
+
 def _kdi_available():
-    if not KDI_DB.exists():
+    if _kdi_corpus():                      # kdinov docs 코퍼스가 있으면 활성
+        return True
+    if not KDI_DB.exists():                # 아니면 naive reports 코퍼스
         return False
     try:
         with sqlite3.connect(KDI_DB) as c:
@@ -725,7 +791,15 @@ def _kdi_available():
 
 
 def _kdi_lookup(query):
-    """KDI 정책연구 코퍼스에서 제목·본문·키워드를 검색해 상위 5건.
+    """검토(연구) 슬롯: kdinov 우선, 없으면 naive reports 조회."""
+    hits = _kdinov_lookup(query)
+    if hits is not None:
+        return hits
+    return _kdi_naive_lookup(query)
+
+
+def _kdi_naive_lookup(query):
+    """폴백: KDI reports 코퍼스에서 제목·본문·키워드를 LIKE 검색해 상위 5건.
     반환 형식은 PRISM과 동일({title, org, period}) + summary."""
     raw = [w.lower() for w in re.findall(r"[0-9A-Za-z가-힣][\w가-힣\-]{1,}", query or "")]
     toks = [t for t in raw if t not in _KDI_STOP and len(t) >= 2] or raw

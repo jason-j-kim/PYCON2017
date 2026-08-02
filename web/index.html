@@ -189,10 +189,10 @@ ul { margin: 6px 0; padding-left: 20px; }
       <b>실질 독창성 평가에 쓰는 자료 (선례 검증)</b>
       <div class="trustbar" id="trustbar">
         <span class="src" id="src-fiscal"><b>재정 <span class="state"></span></b><span>예산으로 집행됐나</span></span>
-        <span class="src" id="src-prism"><b>PRISM <span class="state"></span></b><span>연구로 검토됐나</span></span>
+        <span class="src" id="src-prism"><b>KDI <span class="state"></span></b><span>연구로 검토됐나</span></span>
         <span class="src" id="src-bill"><b>국회 의안 <span class="state"></span></b><span>입법이 시도됐나</span></span>
       </div>
-      <div class="note-sub">문답이 끝나면 이 세 자료원과 모델 지식으로 선례를 조사해 실질 독창성을 판정합니다. (PRISM·의안 키는 서버에 미리 설정)</div>
+      <div class="note-sub">문답이 끝나면 이 세 자료원과 모델 지식으로 선례를 조사해 실질 독창성을 판정합니다. (의안 키는 서버에 미리 설정)</div>
     </div>
 
     <div class="card">
@@ -222,7 +222,7 @@ ul { margin: 6px 0; padding-left: 20px; }
         <button class="secondary" id="btn-showkey" type="button" style="padding:8px 12px">보기</button>
       </div>
       <div class="note-sub">키는 이 브라우저에서 Anthropic 호출에만 사용되며, Vercel 서버에 저장하지 않습니다.
-        문답·채점·선례 조사가 모두 이 키로 동작합니다. 정부 데이터 키(PRISM·의안)는 서버에 미리 설정되어 있습니다.</div>
+        문답·채점·선례 조사가 모두 이 키로 동작합니다. 정부 데이터 키(의안)는 서버에 미리 설정되어 있습니다.</div>
       <div class="row" style="margin-top:8px">
         <label style="margin:0"><input type="checkbox" id="remember"> 이 브라우저에 키 기억</label>
       </div>
@@ -462,7 +462,7 @@ $("btn-showkey").onclick = () => {
   $("btn-showkey").textContent = inp.type === "password" ? "보기" : "숨김";
 };
 
-// 정부 소스(재정·PRISM·의안) 가용 여부 표시 — 서버 환경변수 기준
+// 정부 소스(재정·KDI·의안) 가용 여부 표시 — 서버 환경변수 기준
 fetch(EVALUATE_URL).then(r => r.json()).then(d => {
   const map = {fiscal: "src-fiscal", prism: "src-prism", bill: "src-bill"};
   for (const k in map) {
@@ -907,7 +907,7 @@ $("btn-testaxis").onclick = async () => {
   if ($("remember").checked) localStorage.setItem("claude_api_key", apiKey);
   $("btn-testaxis").disabled = true;
   box.innerHTML = '<div class="axisb-status"><span class="spin"></span>'
-    + '재정·PRISM·국회 의안에서 선례를 조사하는 중… (최대 1~2분)</div>';
+    + '재정·KDI·국회 의안에서 선례를 조사하는 중… (최대 1~2분)</div>';
   window.__lastTotal = 0;
   try {
     const res = await fetch(EVALUATE_URL, {
@@ -1056,12 +1056,12 @@ function renderResult(ev) {
 }
 
 // ── 축 B(실질 독창성 · 선례 조사) — 서버(/api/evaluate)에서 조회 ──
-const SRC_KO = {fiscal: "재정", prism: "연구", bill: "입법", overseas: "해외", knowledge: "기억"};
+const SRC_KO = {fiscal: "재정", prism: "KDI", bill: "입법", overseas: "해외", knowledge: "기억"};
 
 async function startOriginality() {
   const box = $("axis-b");
   box.innerHTML = '<div class="card"><b>실질 독창성 (선례 조사)</b>'
-    + '<div class="axisb-status"><span class="spin"></span>재정·PRISM·국회 의안에서 선례를 조사하는 중… '
+    + '<div class="axisb-status"><span class="spin"></span>재정·KDI·국회 의안에서 선례를 조사하는 중… '
     + '(최대 1~2분). 준비되면 자동으로 나타납니다.</div></div>';
   const transcript = transcriptLog().join("\n\n");
   const apiKey = $("api-key").value.trim();
@@ -1140,7 +1140,7 @@ function renderOriginality(b, targetId, withDefense) {
       ? " (" + Object.entries(rc).map(([k, v]) => `${esc(k)} ${v}`).join(", ") + ")" : "";
     const intlTxt = (pf.intl == null && !over.length) ? "" : ` · 해외 ${over.length}건`;
     let cov = '<div class="card"><b>조회 커버리지</b>'
-      + `<div class="subscores">재정 ${fisc.length}건 · PRISM ${pris.length}건 · 국회 의안 ${bills.length}건${rcTxt}${intlTxt}<br>`
+      + `<div class="subscores">재정 ${fisc.length}건 · KDI ${pris.length}건 · 국회 의안 ${bills.length}건${rcTxt}${intlTxt}<br>`
       + `집행/검토/입법/해외 = ${bit(pf.exec)}/${bit(pf.review)}/${bit(pf.law)}/${bit(pf.intl)}</div>`
       + '<div class="subscores">질의어 — '
       + `재정: ${esc((q.fiscal || []).join(", ") || "—")} · `
@@ -1165,7 +1165,7 @@ function renderOriginality(b, targetId, withDefense) {
         + fisc.map(x => `<li>${esc(x.name)}</li>`).join("") + "</ul>";
     }
     if (pris.length) {
-      cov += '<b style="display:block;margin-top:10px">정책연구(PRISM)</b><ul class="hit-list">'
+      cov += '<b style="display:block;margin-top:10px">정책연구(KDI)</b><ul class="hit-list">'
         + pris.map(x => `<li>${esc(x.title)} <span class="meta">${esc(x.org || "")} ${esc(x.period || "")}</span></li>`).join("") + "</ul>";
     }
     cov += "</div>";
@@ -1184,7 +1184,7 @@ function renderOriginality(b, targetId, withDefense) {
 
   // 한계 문구
   parts.push('<div class="card limit"><div class="muted">'
-    + '실질 독창성 판정은 세출예산(집행)·PRISM(연구)·국회 의안(입법) 자료와 모델 지식에 근거합니다. '
+    + '실질 독창성 판정은 세출예산(집행)·KDI(연구)·국회 의안(입법) 자료와 모델 지식에 근거합니다. '
     + '재정·연구 자료는 제목·메타데이터만 담고, 국회 의안은 제안이유 본문을 받을 수 있습니다. '
     + '제목만 겹치는 경우 유사 후보가 있다는 신호일 뿐 내용이 같다는 증거가 아니며(설계가 다르면 독창적일 수 있음), '
     + '반대로 미발견이라 해도 이름이 달라 놓쳤거나 자료원 밖에 있을 수 있어 독창성이 확정되지는 않습니다. '

@@ -186,7 +186,7 @@
       <b>실질 독창성 평가에 쓰는 자료 (선례 검증)</b>
       <div class="trustbar">
         <span class="src"><b>재정</b><span>예산으로 집행됐나</span></span>
-        <span class="src"><b>정책연구 · PRISM</b><span>연구로 검토됐나</span></span>
+        <span class="src"><b>정책연구 · KDI</b><span>연구로 검토됐나</span></span>
         <span class="src"><b>국회 의안</b><span>입법이 시도됐나</span></span>
       </div>
       <div class="note-sub">문답이 끝나면 이 세 자료원과 모델 지식으로 선례를 조사해 실질 독창성을 판정합니다.</div>
@@ -591,7 +591,7 @@ function renderOriginality(b, targetId, withDefense) {
 
   // 7-3 근거 (A급/B급 배지 + 소스)
   if (b.evidence && b.evidence.length) {
-    const srcKo = {fiscal: "재정", prism: "연구", bill: "입법", overseas: "해외", knowledge: "기억"};
+    const srcKo = {fiscal: "재정", prism: "KDI", bill: "입법", overseas: "해외", knowledge: "기억"};
     parts.push('<div class="card"><b>근거</b><ul class="ev-list">'
       + b.evidence.map(e =>
           `<li><span class="grade-${e.grade === "A" ? "A" : "B"}">${esc(e.grade)}급</span>`
@@ -617,10 +617,15 @@ function renderOriginality(b, targetId, withDefense) {
       + `연구: ${esc((q.prism || []).join(", ") || "—")} · `
       + `입법: ${esc((q.bill || []).join(", ") || "—")}`
       + ((q.overseas && q.overseas.length) ? ` · 해외: ${esc(q.overseas.join(", "))}` : "") + `<br>`
-      + `재정 ${b.lookup.fiscal.length}건 · PRISM ${b.lookup.prism.length}건 · `
+      + `재정 ${b.lookup.fiscal.length}건 · KDI ${b.lookup.prism.length}건 · `
       + `국회 의안 ${bills.length}건${esc(rcTxt)}`
       + (over.length ? ` · 해외 ${over.length}건` : "") + `<br>`
       + `집행/검토/입법/해외 = ${bit(pf.exec)}/${bit(pf.review)}/${bit(pf.law)}/${bit(pf.intl)}`;
+    const pris = b.lookup.prism || [];
+    if (pris.length) {
+      cov += '<br><b>KDI 연구:</b> ' + pris.map(x =>
+        esc(x.title) + (x.code ? ` [${esc(x.code)}·${esc(x.role || "")}]` : "")).join("; ");
+    }
     if (over.length) {
       cov += '<br><b>해외 사례(OPSI):</b> ' + over.map(x =>
         esc(x.title) + (x.country ? ` (${esc(x.country)}${x.year ? " " + esc(x.year) : ""})` : "")).join("; ");
@@ -640,8 +645,9 @@ function renderOriginality(b, targetId, withDefense) {
 
   // 7-6 한계 문구 (고정)
   parts.push('<div class="card limit"><div class="muted">'
-    + '실질 독창성 판정은 세출예산(집행)·PRISM(연구)·국회 의안(입법) 자료와 모델 '
-    + '지식에 근거합니다. 재정·연구(PRISM) 자료는 사업명·연구명 등 제목과 '
+    + '실질 독창성 판정은 세출예산(집행)·KDI(연구)·국회 의안(입법) 자료와 모델 '
+    + '지식에 근거합니다. KDI(정책연구) 자료는 kdinov 판정기로 중첩도(N0~N4)와 '
+    + '역할(실행/경합/근거/선례)까지 산출합니다. 재정 자료는 사업명 등 제목과 '
     + '메타데이터만 담고, 국회 의안은 제안이유·주요내용 본문을 받을 수 있습니다 '
     + '(법률안만 온전하고 예산안·동의안 등은 제목만입니다). 제목만 겹치는 경우 '
     + '유사 후보가 있다는 신호일 뿐 내용이 같다는 증거가 아닙니다'
@@ -741,7 +747,7 @@ $("btn-adhoc").onclick = async () => {
   const box = $("adhoc-result");
   if (!text) { box.innerHTML = '<div class="error">먼저 파일을 불러오거나 문답을 입력하세요.</div>'; return; }
   $("btn-adhoc").disabled = true;
-  box.innerHTML = '<div class="card"><div class="axisb-status">재정·PRISM·국회 의안에서 '
+  box.innerHTML = '<div class="card"><div class="axisb-status">재정·KDI·국회 의안에서 '
     + '선례를 조사하는 중… (최대 2~3분)</div></div>';
   window.__lastTotal = 0;
   try {

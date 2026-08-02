@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kdinov"
+version = "0.2.0"
+description = "정책 아이디어 신규성 검증 파이프라인"
+requires-python = ">=3.10"
+dependencies = [
+    "requests>=2.31",
+    # 형태소 분석기. 문장 분할에만 쓰이며 없어도 전체 판정이 동작한다.
+    # KDINOV_NO_KIWI=1 로 강제 퇴화시켜 시험할 수 있다.
+    "kiwipiepy>=0.17",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+kdinov = "kdinov.cli:main"
+
+[tool.setuptools]
+packages = ["kdinov"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
