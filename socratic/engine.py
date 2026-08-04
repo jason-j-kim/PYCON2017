@@ -8,6 +8,7 @@ Claude Pro/Max 구독 로그인만으로 동작하며 API 키가 필요 없다.
 """
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -326,7 +327,8 @@ def grade(transcript, profile="원본"):
         criteria[c] = {
             "checklist": {"items": checklist[c], "total": cl_total},
             "holistic": {"score": h_score, "rationale": holistic[c]["rationale"]},
-            "final": round((cl_total + h_score) / 2, 1),
+            "final": _combine(cl_total, h_score),
+            "divergent": abs(cl_total - h_score) >= DIVERGENCE_LIMIT,
         }
     return {
         "version": 2,
@@ -340,6 +342,21 @@ def grade(transcript, profile="원본"):
 def weighted_total(result, weights):
     """weights: {"originality": w1, "practicality": w2, "acceptance": w3}"""
     return sum(result["criteria"][c]["final"] * weights[c] for c in CRITERIA)
+
+
+# 두 채점이 이만큼 벌어지면 평균을 신뢰하지 않는다(보수적으로 낮은 쪽을 쓴다).
+# 근거: 체크리스트는 '언급 여부'만 세므로 항목을 훑어 열거하면 부풀려진다.
+# 실제로 LLM 대필 세션에서 체크 9 · 종합 6(괴리 3)이 관측됐고, 평균 7.5가
+# 그 경고를 삼켰다. 괴리가 크다는 것은 '무엇을 재는지 두 채점자가 불일치한다'는
+# 뜻이므로, 높은 쪽을 채택할 근거가 없다.
+DIVERGENCE_LIMIT = int(os.environ.get("DIVERGENCE_LIMIT", "3"))
+
+
+def _combine(cl_total, h_score):
+    """기준별 최종 점수. 두 채점의 괴리가 임계 이상이면 낮은 쪽을 채택한다."""
+    if abs(cl_total - h_score) >= DIVERGENCE_LIMIT:
+        return float(min(cl_total, h_score))
+    return round((cl_total + h_score) / 2, 1)
 
 
 # ── 수정판 표현 계층 ──────────────────────────────────────────────────────

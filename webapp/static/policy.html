@@ -510,7 +510,7 @@ function renderResult(ev) {
       <div class="score-head"><b>${c.key === "originality" ? c.label + " — 방어력" : c.label}</b>
         <span><span class="score-num">${c.final}</span><span style="color:var(--sub)">/10 · 가중치 ${c.weight}</span></span>
       </div>
-      <div class="subscores">체크리스트 ${c.checklist_total}/10 · 종합판단 ${c.holistic_score}/10 → 평균 ${c.final}</div>
+      <div class="subscores">체크리스트 ${c.checklist_total}/10 · 종합판단 ${c.holistic_score}/10 → ${Math.abs(c.checklist_total - c.holistic_score) >= 3 ? "괴리 " + Math.abs(c.checklist_total - c.holistic_score) + "점 → 낮은 쪽 채택 " + c.final : "평균 " + c.final}</div>
       <div class="rationale"></div>
       <details><summary>체크리스트 판정 상세 (${c.checklist_total}/10 충족)</summary>
         <ul class="check-list">${c.items.map(() => `<li></li>`).join("")}</ul>

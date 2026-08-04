@@ -326,6 +326,12 @@ const EVALUATE_URL = "/api/evaluate";        // 축 B(선례 조사) — 정부 
 
 const CRITERIA = ["originality", "practicality", "acceptance"];
 const CRITERIA_KO = {originality: "독창성", practicality: "실용성", acceptance: "수용태도"};
+// 두 채점(체크리스트·종합판단)의 괴리가 이 값 이상이면 평균을 신뢰하지 않는다.
+const DIVERGENCE_LIMIT = 3;
+function combineScores(clTotal, hScore) {
+  if (Math.abs(clTotal - hScore) >= DIVERGENCE_LIMIT) return Math.min(clTotal, hScore);
+  return Math.round(((clTotal + hScore) / 2) * 10) / 10;
+}
 
 const STAGES = [
   ["clarify", "명료화", 2,
@@ -688,13 +694,17 @@ async function gradeSession() {
   const transcript = transcriptLog().join("\n\n");
   const [checklist, holistic] = await Promise.all([gradeChecklist(transcript), gradeHolistic(transcript)]);
   const criteria = {};
+  // 두 채점이 DIVERGENCE_LIMIT 이상 벌어지면 평균 대신 낮은 쪽을 채택한다.
+  // 체크리스트는 '언급 여부'만 세므로 항목을 훑어 열거하면 부풀려지고,
+  // 평균은 그 경고를 삼킨다(엔진 socratic/engine.py의 _combine과 동일 규칙).
   for (const c of CRITERIA) {
     const clTotal = Object.values(checklist[c]).filter(item => item.met).length;
     const hScore = holistic[c].score;
     criteria[c] = {
       checklist: {items: checklist[c], total: clTotal},
       holistic: {score: hScore, rationale: holistic[c].rationale},
-      final: Math.round(((clTotal + hScore) / 2) * 10) / 10
+      final: combineScores(clTotal, hScore),
+      divergent: Math.abs(clTotal - hScore) >= DIVERGENCE_LIMIT
     };
   }
   const result = {version: 2, criteria, strengths: holistic.strengths,
@@ -1036,7 +1046,7 @@ function renderResult(ev) {
       <div class="score-head"><b>${c.key === "originality" ? c.label + " — 방어력" : c.label}</b>
         <span><span class="score-num">${c.final}</span><span style="color:var(--sub)">/10 · 가중치 ${c.weight}</span></span>
       </div>
-      <div class="subscores">체크리스트 ${c.checklist_total}/10 · 종합판단 ${c.holistic_score}/10 → 평균 ${c.final}</div>
+      <div class="subscores">체크리스트 ${c.checklist_total}/10 · 종합판단 ${c.holistic_score}/10 → ${Math.abs(c.checklist_total - c.holistic_score) >= 3 ? "괴리 " + Math.abs(c.checklist_total - c.holistic_score) + "점 → 낮은 쪽 채택 " + c.final : "평균 " + c.final}</div>
       <div class="rationale"></div>
       <details><summary>체크리스트 판정 상세 (${c.checklist_total}/10 충족)</summary>
         <ul class="check-list">${c.items.map(() => "<li></li>").join("")}</ul>
