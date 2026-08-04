@@ -388,8 +388,8 @@ function bullets(s, items, x, y, w, size = 11, gap = 0.235, color = '333333') {
     bullets(s, t[2], x + 0.22, 2.82, w - 0.42, 10.5, 0.36);
   });
   card(s, 0.4, 4.55, 9.2, 0.85, { fill: C.CARD_ALT_BG, shadow: false });
-  txt(s, '기준별 최종점수  =  ( 체크리스트 점수  +  종합판단 점수 )  ÷  2',
-    { x: 0.4, y: 4.63, w: 9.2, h: 0.36, fontSize: 14, bold: true, color: C.PRIMARY, align: 'center' });
+  txt(s, '기준별 최종점수  =  ( 체크리스트  +  종합판단 )  ÷  2      ·      두 채점이 3점 이상 벌어지면 낮은 쪽 채택',
+    { x: 0.4, y: 4.63, w: 9.2, h: 0.36, fontSize: 12.5, bold: true, color: C.PRIMARY, align: 'center' });
   txt(s, '종합점수 = 독창성 35% + 실용성 35% + 수용태도 30% 가중 평균  (가중치 고정)',
     { x: 0.4, y: 5.0, w: 9.2, h: 0.3, fontSize: 11, color: C.TEXT_SUB, align: 'center' });
 }
@@ -462,8 +462,8 @@ function bullets(s, items, x, y, w, size = 11, gap = 0.235, color = '333333') {
         '그 평가 자체가 불확실하다는 신호입니다. 이 차이를 숨기지 않고 점수 범위로 표시합니다.',
     { x: 0.62, y: 2.05, w: 8.8, h: 0.8, fontSize: 12, lineSpacingMultiple: 1.3 });
   const ex = [
-    ['두 채점이 일치', '체크리스트 7 · 종합 7', '7.0 (범위 좁음)', '판정 신뢰 높음', C.GREEN],
-    ['두 채점이 어긋남', '체크리스트 8 · 종합 4', '6.0 (범위 넓음)', '추가 확인 필요', C.AMBER],
+    ['두 채점이 일치', '체크리스트 7 · 종합 7', '7.0 (평균)', '판정 신뢰 높음', C.GREEN],
+    ['3점 이상 벌어짐', '체크리스트 9 · 종합 6', '6.0 (낮은 쪽)', '평균을 쓰지 않음', C.AMBER],
   ];
   let y = 3.15;
   ex.forEach((e) => {
@@ -475,7 +475,7 @@ function bullets(s, items, x, y, w, size = 11, gap = 0.235, color = '333333') {
     txt(s, e[3], { x: 7.6, y, w: 1.9, h: 0.75, fontSize: 11, color: e[4], valign: 'middle' });
     y += 0.85;
   });
-  bottomBar(s, '"6.0 (5.2–6.8)" 형태로 제시 — 통계적 신뢰구간이 아니라 두 채점의 편차 폭입니다');
+  bottomBar(s, '괴리가 크면 평균이 경고를 삼킵니다 — 그래서 3점 이상이면 낮은 쪽을 채택합니다');
 }
 
 // ═══════════ 16. 5문장 결과 ═══════════
@@ -775,7 +775,7 @@ function bullets(s, items, x, y, w, size = 11, gap = 0.235, color = '333333') {
   tagline(s, '05. 왜 믿을 수 있나');
   sectionTitle(s, '판정의 검증 — 확인된 것과 확인되지 않은 것');
   // 확인된 것
-  card(s, 0.4, 1.92, 4.5, 2.52, { fill: 'F0F9F3', border: C.GREEN, lw: 1.2 });
+  card(s, 0.4, 1.92, 4.5, 2.72, { fill: 'F0F9F3', border: C.GREEN, lw: 1.2 });
   txt(s, '확인된 것', { x: 0.58, y: 2.02, w: 4.1, h: 0.3, fontSize: 13.5, bold: true, color: C.GREEN });
   txt(s, '판별력 시험 (n = 10)', { x: 0.58, y: 2.30, w: 4.1, h: 0.26, fontSize: 10.5,
     bold: true, color: C.TEXT_DARK });
@@ -790,12 +790,14 @@ function bullets(s, items, x, y, w, size = 11, gap = 0.235, color = '333333') {
     bold: true, color: C.TEXT_DARK });
   txt(s, '평균 절대차 2.03점 · 3점 이상 괴리 7건', { x: 0.62, y: 3.56, w: 4.1, h: 0.24,
     fontSize: 9.8, color: '333333' });
-  txt(s, '조작 내성 시험 (장황·유창하게 재작성)', { x: 0.58, y: 3.84, w: 4.1, h: 0.24, fontSize: 10.5,
+  txt(s, '조작 내성 · LLM 대필 시험', { x: 0.58, y: 3.84, w: 4.1, h: 0.24, fontSize: 10.5,
     bold: true, color: C.TEXT_DARK });
-  txt(s, '점수 상승 없음 — 실용성 5→4로 오히려 하락', { x: 0.62, y: 4.07, w: 4.1, h: 0.24,
+  txt(s, '장황 재작성: 점수 상승 없음 (5→4 하락)', { x: 0.62, y: 4.07, w: 4.1, h: 0.24,
     fontSize: 9.8, color: '333333' });
+  txt(s, 'LLM 대필: 5.2 → 8.0 (격차 확인 · 대응 반영)', { x: 0.62, y: 4.28, w: 4.1, h: 0.24,
+    fontSize: 9.8, color: C.RED });
   // 확인되지 않은 것
-  card(s, 5.1, 1.92, 4.5, 2.52, { fill: 'FDF2F2', border: 'F0C0C0', lw: 1.2 });
+  card(s, 5.1, 1.92, 4.5, 2.72, { fill: 'FDF2F2', border: 'F0C0C0', lw: 1.2 });
   txt(s, '확인되지 않은 것', { x: 5.28, y: 2.02, w: 4.1, h: 0.3, fontSize: 13.5, bold: true, color: C.RED });
   bullets(s, [
     '전문가 판정과의 일치도 (심사지 준비 · 미실시)',
@@ -804,12 +806,12 @@ function bullets(s, items, x, y, w, size = 11, gap = 0.235, color = '333333') {
     '표현력 편향의 크기 (일부만 확인)',
     '실제 중복 제안 탐지율',
   ], 5.3, 2.38, 4.15, 10, 0.38, C.TEXT_DARK);
-  card(s, 0.4, 4.56, 9.2, 0.86, { fill: C.CARD_ALT_BG, shadow: false });
-  txt(s, '현재 판정력이 입증된 범위', { x: 0.62, y: 4.64, w: 3, h: 0.26, fontSize: 11.5,
+  card(s, 0.4, 4.74, 9.2, 0.72, { fill: C.CARD_ALT_BG, shadow: false });
+  txt(s, '현재 판정력이 입증된 범위', { x: 0.62, y: 4.8, w: 3, h: 0.26, fontSize: 11.5,
     bold: true, color: C.PRIMARY });
   txt(s, '표본 10건 · 극단 사례(명백히 진부 vs 명백히 창의)에 한정됩니다. 시험 문항은 사람이 아니라 모델이 생성했습니다.\n' +
         '실제 국민 제안은 중간대에 몰리므로, 경계 사례 판별력과 전문가 일치도는 도입 전 별도 검증이 필요합니다.',
-    { x: 0.62, y: 4.9, w: 8.8, h: 0.48, fontSize: 10.2, lineSpacingMultiple: 1.25 });
+    { x: 0.62, y: 5.04, w: 8.8, h: 0.42, fontSize: 9.6, lineSpacingMultiple: 1.2 });
 }
 
 // ═══════════ 25. 어떻게 만들었나 ═══════════
@@ -898,12 +900,12 @@ function bullets(s, items, x, y, w, size = 11, gap = 0.235, color = '333333') {
   sectionTitle(s, '한계와 다음 단계');
   const two = [
     ['현재의 한계', C.AMBER, 'FFF8E8',
-      ['표현력 편향 — 조리 있게 말하는 제안자가 유리', '법적·규제 타당성은 채점에 미포함',
+      ['표현력·도구 격차 — LLM 대필 시 5.2→8.0 관측', '법적·규제 타당성은 채점에 미포함',
        '지자체 자체사업·기금사업 포착이 불균등', '재정 자료는 최근 5개 시점(결측 있음)',
        '해외 코퍼스는 OECD 등재·자기신고 사례', '판정은 최종 결론이 아니라 검토 후보 목록']],
     ['다음 단계', C.PRIMARY, 'EFF4FB',
       ['전문가 판정과의 일치도 측정', '동일 대화 재채점 재현성 검증',
-       '표현력 편향 보정 설계 · 법적 타당성 항목 추가', '지자체·기금 데이터 통로 추가',
+       '체크리스트에 구체성 요건 도입(열거 방지)', '모두에게 동일한 작성 보조 제공 검토',
        '부처 배정·이관 절차와 연계', '판정 이력을 국가 아이디어 코퍼스로 축적']],
   ];
   const w = 4.5, gx = 0.2;
