@@ -12,7 +12,7 @@ const F = '맑은 고딕';          // 한국어 본문
 const FB = '맑은 고딕';         // 한국어 제목(굵게 처리)
 
 const TABS = ['개요', '필요성', '시스템', '대화·채점', '검증 통로', '신뢰성·운영'];
-const TOTAL = 28;
+const TOTAL = 29;
 const HDR = '온 국민 아이디어 등록제 — 정책 아이디어 평가 시스템';
 
 const pres = new PptxGenJS();
@@ -735,43 +735,81 @@ function bullets(s, items, x, y, w, size = 11, gap = 0.235, color = '333333') {
   bottomBar(s, '결론은 "선례 없음"이 아니라 "N개 질의에서 미발견" — 확신도는 최대 \'중\'으로 제한', 4.92);
 }
 
-// ═══════════ 24. 판정의 검증 (신설) ═══════════
+// ═══════════ 24. 편향을 구조로 막는다 (신설) ═══════════
+{
+  const s = contentSlide(5);
+  tagline(s, '05. 왜 믿을 수 있나');
+  sectionTitle(s, '편향을 구조로 막는다');
+  txt(s, '"공정하게 하겠다"는 다짐이 아니라, 편향이 물리적으로 불가능하도록 역할과 절차를 나눴습니다.',
+    { x: 0.4, y: 1.88, w: 9.2, h: 0.3, fontSize: 11.5, color: C.TEXT_SUB });
+  const guards = [
+    ['①', '역할 분리', '질문자는\n점수를 모른다',
+      '질문자에게 채점 기준을\n주지 않는다 — 점수를 향해\n유도할 수 없다'],
+    ['②', '근거 인용 강제', '인용 없으면\n자동 불충족',
+      '충족 판정에는 "턴 N" 인용\n필수 — 얼버무린 답변과\n지어낸 근거를 차단'],
+    ['③', '코드가 강제', '흐름과 산술은\nAI가 손대지 않는다',
+      '단계 전이·가중평균은\n프로그램이 처리 —\nAI는 판단만 담당'],
+    ['④', '블라인드', '참가자에게\n답을 보여주지 않는다',
+      '모범답안·완성 예시·점수를\n비공개 — 앵커링과\n게임화를 방지'],
+  ];
+  const w = 2.2, gx = 0.19;
+  guards.forEach((g, i) => {
+    const x = 0.4 + i * (w + gx);
+    card(s, x, 2.3, w, 2.3);
+    s.addShape(pres.shapes.RECTANGLE, { x, y: 2.3, w, h: 0.4, fill: { color: C.PRIMARY } });
+    txt(s, `${g[0]}  ${g[1]}`, { x, y: 2.3, w, h: 0.4, fontSize: 11.5, bold: true,
+      color: C.WHITE, align: 'center', valign: 'middle' });
+    txt(s, g[2], { x: x + 0.1, y: 2.82, w: w - 0.2, h: 0.6, fontSize: 11, bold: true,
+      align: 'center', lineSpacingMultiple: 1.2 });
+    s.addShape(pres.shapes.RECTANGLE, { x: x + 0.25, y: 3.5, w: w - 0.5, h: 0.012,
+      fill: { color: C.CARD_BORDER } });
+    txt(s, g[3], { x: x + 0.1, y: 3.62, w: w - 0.2, h: 0.85, fontSize: 9.2, color: C.TEXT_SUB,
+      align: 'center', lineSpacingMultiple: 1.25 });
+  });
+  bottomBar(s, '질문자·채점자·재판장을 분리해 서로 감시하게 했습니다 — 한 모델이 묻고 답하고 채점하지 않습니다');
+}
+
+// ═══════════ 25. 판정의 검증 ═══════════
 {
   const s = contentSlide(5);
   tagline(s, '05. 왜 믿을 수 있나');
   sectionTitle(s, '판정의 검증 — 확인된 것과 확인되지 않은 것');
   // 확인된 것
-  card(s, 0.4, 1.92, 4.5, 2.4, { fill: 'F0F9F3', border: C.GREEN, lw: 1.2 });
-  txt(s, '확인된 것', { x: 0.58, y: 2.04, w: 4.1, h: 0.3, fontSize: 13.5, bold: true, color: C.GREEN });
-  txt(s, '판별력 시험 (n = 10)', { x: 0.58, y: 2.38, w: 4.1, h: 0.26, fontSize: 10.5,
+  card(s, 0.4, 1.92, 4.5, 2.52, { fill: 'F0F9F3', border: C.GREEN, lw: 1.2 });
+  txt(s, '확인된 것', { x: 0.58, y: 2.02, w: 4.1, h: 0.3, fontSize: 13.5, bold: true, color: C.GREEN });
+  txt(s, '판별력 시험 (n = 10)', { x: 0.58, y: 2.30, w: 4.1, h: 0.26, fontSize: 10.5,
     bold: true, color: C.TEXT_DARK });
   const rows = [['진부 아이디어 5건', '평균 4.23'], ['창의 아이디어 5건', '평균 8.50'],
     ['두 그룹 분포 겹침', '없음']];
   rows.forEach((r, i) => {
-    const y = 2.68 + i * 0.3;
-    txt(s, r[0], { x: 0.62, y, w: 2.5, h: 0.28, fontSize: 10, color: '333333' });
-    txt(s, r[1], { x: 3.2, y, w: 1.5, h: 0.28, fontSize: 10, bold: true, color: C.GREEN, align: 'right' });
+    const y = 2.55 + i * 0.25;
+    txt(s, r[0], { x: 0.62, y, w: 2.5, h: 0.24, fontSize: 9.8, color: '333333' });
+    txt(s, r[1], { x: 3.2, y, w: 1.5, h: 0.24, fontSize: 9.8, bold: true, color: C.GREEN, align: 'right' });
   });
-  txt(s, '두 채점 간 불일치 (30건 기준)', { x: 0.58, y: 3.62, w: 4.1, h: 0.26, fontSize: 10.5,
+  txt(s, '두 채점 간 불일치 (30건 기준)', { x: 0.58, y: 3.33, w: 4.1, h: 0.24, fontSize: 10.5,
     bold: true, color: C.TEXT_DARK });
-  txt(s, '평균 절대차 2.03점 · 3점 이상 괴리 7건', { x: 0.62, y: 3.9, w: 4.1, h: 0.26,
-    fontSize: 10, color: '333333' });
+  txt(s, '평균 절대차 2.03점 · 3점 이상 괴리 7건', { x: 0.62, y: 3.56, w: 4.1, h: 0.24,
+    fontSize: 9.8, color: '333333' });
+  txt(s, '조작 내성 시험 (장황·유창하게 재작성)', { x: 0.58, y: 3.84, w: 4.1, h: 0.24, fontSize: 10.5,
+    bold: true, color: C.TEXT_DARK });
+  txt(s, '점수 상승 없음 — 실용성 5→4로 오히려 하락', { x: 0.62, y: 4.07, w: 4.1, h: 0.24,
+    fontSize: 9.8, color: '333333' });
   // 확인되지 않은 것
-  card(s, 5.1, 1.92, 4.5, 2.4, { fill: 'FDF2F2', border: 'F0C0C0', lw: 1.2 });
-  txt(s, '확인되지 않은 것', { x: 5.28, y: 2.04, w: 4.1, h: 0.3, fontSize: 13.5, bold: true, color: C.RED });
+  card(s, 5.1, 1.92, 4.5, 2.52, { fill: 'FDF2F2', border: 'F0C0C0', lw: 1.2 });
+  txt(s, '확인되지 않은 것', { x: 5.28, y: 2.02, w: 4.1, h: 0.3, fontSize: 13.5, bold: true, color: C.RED });
   bullets(s, [
-    '전문가(연구자) 판정과의 일치도',
+    '전문가 판정과의 일치도 (심사지 준비 · 미실시)',
     '동일 대화 재채점 시 재현성',
     '경계 사례에서의 판별력',
-    '표현력 편향의 크기',
+    '표현력 편향의 크기 (일부만 확인)',
     '실제 중복 제안 탐지율',
-  ], 5.3, 2.42, 4.15, 10.3, 0.36, C.TEXT_DARK);
-  card(s, 0.4, 4.45, 9.2, 0.95, { fill: C.CARD_ALT_BG, shadow: false });
-  txt(s, '현재 판정력이 입증된 범위', { x: 0.62, y: 4.55, w: 3, h: 0.28, fontSize: 11.5,
+  ], 5.3, 2.38, 4.15, 10, 0.38, C.TEXT_DARK);
+  card(s, 0.4, 4.56, 9.2, 0.86, { fill: C.CARD_ALT_BG, shadow: false });
+  txt(s, '현재 판정력이 입증된 범위', { x: 0.62, y: 4.64, w: 3, h: 0.26, fontSize: 11.5,
     bold: true, color: C.PRIMARY });
   txt(s, '표본 10건 · 극단 사례(명백히 진부 vs 명백히 창의)에 한정됩니다. 시험 문항은 사람이 아니라 모델이 생성했습니다.\n' +
         '실제 국민 제안은 중간대에 몰리므로, 경계 사례 판별력과 전문가 일치도는 도입 전 별도 검증이 필요합니다.',
-    { x: 0.62, y: 4.85, w: 8.8, h: 0.5, fontSize: 10.3, lineSpacingMultiple: 1.25 });
+    { x: 0.62, y: 4.9, w: 8.8, h: 0.48, fontSize: 10.2, lineSpacingMultiple: 1.25 });
 }
 
 // ═══════════ 25. 어떻게 만들었나 ═══════════
