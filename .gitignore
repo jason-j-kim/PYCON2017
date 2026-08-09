@@ -198,3 +198,7 @@ kwci/trade/api/probe.json
 kwci/trade/api/probe_customs.json
 kwci/trade/data/
 kwci/trade/*.zip
+
+# --- KWCI L3 (신호) ---
+# 병합본은 사전 + 기존 486행의 파생물이라 재생성 가능
+kwci/signal/tourism/KWCI_dictionary_merged.csv
