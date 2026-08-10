@@ -203,3 +203,7 @@ kwci/trade/*.zip
 # 병합본은 사전 + 기존 486행의 파생물이라 재생성 가능
 kwci/signal/tourism/KWCI_dictionary_merged.csv
 kwci/signal/consumer/KWCI_dictionary_merged.csv
+
+# L3 사전 잠정판은 인수인계 산출물이라 커밋한다 (위 dist/ 규칙의 예외)
+!kwci/signal/dist/
+!kwci/signal/dist/**
