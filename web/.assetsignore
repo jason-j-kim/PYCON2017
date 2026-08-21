@@ -1,0 +1,14 @@
+# Cloudflare Workers 정적 자산에서 제외할 것.
+# (Vercel 배포에는 영향 없음 — wrangler만 읽는다.)
+#
+# web/api/ 는 Vercel 서버리스 함수와 번들 코퍼스가 있는 곳이다.
+# Workers 판은 코퍼스를 D1에서 읽고 API는 Worker 스크립트가 처리하므로,
+# 이 디렉터리를 통째로 올리면 안 된다:
+#   · kdi.sqlite 26MB — Workers Assets 파일당 한도(25MiB) 초과로 배포 실패
+#   · evaluate.py·kdinov/ — 서버 소스가 공개 URL로 노출
+#   · 불필요한 40MB 업로드
+
+api/
+__pycache__/
+vercel.json
+requirements.txt

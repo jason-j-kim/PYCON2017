@@ -150,6 +150,56 @@ REM → https://○○○.trycloudflare.com/policy  (실행할 때마다 주소 
 
 ---
 
+## 2.3 데이터 파일을 어디에 두어야 하는가
+
+**질문: SQLite 두 개를 폴더에 갖고 있어야 웹이 돌아가는가?**
+→ **배포 방식에 따라 다르다.** 정리하면 다음과 같다.
+
+| 배포 | 필요한 파일 | 어디서 오나 |
+|---|---|---|
+| **Vercel** | `web/api/` 안의 3개 | **git에 커밋되어 있다.** clone하면 그대로 따라옴 |
+| **터널** | `kdi/kdi.sqlite`, `overseas/opsi_policies.db` | **git 제외 대상.** 별도로 받아야 함 |
+| **Workers** | 없음 | 코퍼스가 D1에 있음 |
+
+### git에 들어 있는 것 (clone하면 자동으로 따라옴)
+
+```
+web/api/kdi.sqlite          26MB   KDI 발간물 7,362건 (본문 제거 경량본)
+web/api/opsi_policies.db    15MB   OPSI 해외사례 1,015건
+web/api/fiscal.json         2.7MB  세출예산 14,122개 사업
+```
+
+**따라서 Vercel판은 `git clone` 만으로 네 통로가 모두 작동한다.** 별도 데이터
+전달이 필요 없다.
+
+### 별도로 전달해야 하는 것 (gitignore됨)
+
+```
+kdi/kdi.sqlite              53MB   KDI 원본 (본문 포함) — kdinov 정밀 판정용
+overseas/opsi_policies.db   15MB   OPSI 원본
+```
+
+터널판에서 **kdinov의 2차원 판정**(중첩도 N0~N4 × 역할)을 쓰려면 `kdi/kdi.sqlite`가
+필요하다. 없으면 그 통로는 키워드 조회로 자동 강등된다(작동은 한다).
+
+> 경로를 바꾸고 싶으면 환경변수로 지정한다: `KDI_SQLITE=D:\어딘가\kdi.sqlite`
+
+### 파일이 없으면 어떻게 되나
+
+**중단되지 않는다.** 각 통로는 데이터 유무를 확인해 스스로 켜지고 꺼진다
+(`_kdi_available()` · `_opsi_available()` · `_fiscal_available()`). 꺼진 통로는
+결과 화면의 커버리지에 "미실행"으로 표시되며, 판정기는 그 사실을 알고 확신도를
+낮춘다. 데이터가 하나도 없어도 문답과 채점(축 A)은 정상 작동한다.
+
+### 외부 연구자에게 넘길 때
+
+1. **저장소 접근권** — 코드 + Vercel용 코퍼스 3종이 전부 들어 있다.
+2. **`kdi/kdi.sqlite` 원본 53MB** — 별도 전달(용량 때문에 git 제외). 터널판에서
+   kdinov 정밀 판정을 쓸 때만 필요하다.
+3. 이 문서와 `docs/대화기반_아이디어평가_방법론.md`.
+
+---
+
 ## 3. 데이터 확보 — 어떻게 했고 왜 그렇게 했나
 
 ### 3.1 KDI 코퍼스 (7,362건)

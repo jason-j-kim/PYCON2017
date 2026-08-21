@@ -3,6 +3,9 @@ main = "src/index.js"
 compatibility_date = "2026-01-01"
 
 # 프런트엔드는 Vercel판과 동일한 정적 파일을 그대로 쓴다.
+# 단, web/api/(서버 소스·번들 코퍼스 40MB)는 web/.assetsignore 로 제외한다.
+# 제외하지 않으면 kdi.sqlite(26MB)가 파일당 한도(25MiB)를 넘겨 배포가 실패하고,
+# evaluate.py 등 서버 소스가 공개 URL로 노출된다.
 [assets]
 directory = "../web"
 binding = "ASSETS"
