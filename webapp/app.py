@@ -300,7 +300,18 @@ LIKMS_BILLINFO = os.environ.get(
     "LIKMS_BILLINFO", "https://likms.assembly.go.kr/bill/bi/bill/detail/billInfo.do")
 LIKMS_MENU_NO = os.environ.get("LIKMS_MENU_NO", "2600044")
 BILL_SUMMARY_MAXLEN = int(os.environ.get("BILL_SUMMARY_MAXLEN", "500"))  # 본문 앞에서 500자
-FISCAL_JSON = ROOT / "data" / "fiscal.json"
+
+# 코퍼스 위치 — 터널 전용 경로가 없으면 저장소에 커밋된 web/api/ 를 쓴다.
+# 덕분에 clone 직후 파일 복사 없이 네 통로가 모두 켜진다.
+def _corpus(*candidates):
+    for c in candidates:
+        if c and Path(c).exists():
+            return Path(c)
+    return Path(candidates[0])
+
+
+FISCAL_JSON = _corpus(ROOT / "data" / "fiscal.json",
+                      ROOT / "web" / "api" / "fiscal.json")
 _TIMEOUT = 8
 _fiscal_cache = None
 
@@ -716,7 +727,9 @@ _KDI_STOP = {"및", "등", "관한", "관련", "대한", "위한", "통한", "�
 
 # kdinov(정교한 KDI 독창성 판정기) 연동 — docs 스키마 코퍼스(kdi.sqlite)를 쓴다.
 # 있으면 kdinov(분해→검색→2차원 판정)를, 없으면 위 naive reports 조회를 쓴다.
-KDI_SQLITE = Path(os.environ.get("KDI_SQLITE", str(ROOT / "kdi" / "kdi.sqlite")))
+KDI_SQLITE = _corpus(os.environ.get("KDI_SQLITE"),
+                     ROOT / "kdi" / "kdi.sqlite",
+                     ROOT / "web" / "api" / "kdi.sqlite")
 _KDINOV = None
 _KDI_CORPUS = None
 
@@ -843,7 +856,8 @@ def _kdi_naive_lookup(query):
 
 # ── 해외 축: OPSI 로컬 DB(overseas/opsi_policies.db) 검색 ──
 # 사람이 Claude in Chrome으로 수집·임포트하면 채워진다. 비어 있으면 자동으로 꺼짐.
-OPSI_DB = ROOT / "overseas" / "opsi_policies.db"
+OPSI_DB = _corpus(ROOT / "overseas" / "opsi_policies.db",
+                  ROOT / "web" / "api" / "opsi_policies.db")
 
 
 def _opsi_available():
