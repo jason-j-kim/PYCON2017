@@ -65,8 +65,11 @@ def main():
             raise SystemExit(f"파일 없음: {rel}")
         items.append((p, rel))
 
-    for name in ("1_설치.bat", "2_실행.bat", "3_터널.bat", "읽어보세요.txt"):
+    for name in ("1_설치.bat", "2_실행.bat", "3_터널.bat",
+                 "setup.py", "start.py", "tunnel.py", "읽어보세요.txt"):
         p = ROOT / "package" / name
+        if not p.exists():
+            raise SystemExit(f"파일 없음: package/{name}")
         items.append((p, name))
 
     if OUT.exists():
@@ -75,8 +78,17 @@ def main():
     raw = 0
     with zipfile.ZipFile(OUT, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as z:
         for src, dest in items:
-            z.write(src, f"{TOP}/{dest}")
-            raw += src.stat().st_size
+            if dest.endswith(".bat"):
+                # 윈도우 배치는 CRLF여야 한다. LF만 있으면 라벨·괄호 블록에서
+                # cmd 가 위치를 잃고 조용히 어긋난다(실제로 겪은 고장).
+                body = src.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+                if not body.isascii():
+                    raise SystemExit(f"배치에 비ASCII 문자: {dest} — 한국어는 .py 쪽에 두세요")
+                z.writestr(f"{TOP}/{dest}", body)
+                raw += len(body)
+            else:
+                z.write(src, f"{TOP}/{dest}")
+                raw += src.stat().st_size
 
     print(f"생성: {OUT.name}")
     print(f"  파일 {len(items)}개 · 원본 {raw/1e6:.1f}MB → 압축 {OUT.stat().st_size/1e6:.1f}MB")
