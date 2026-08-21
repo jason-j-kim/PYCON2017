@@ -623,14 +623,21 @@ function renderOriginality(b, targetId, withDefense) {
     bills.forEach(x => { const r = x.result || "계류"; rc[r] = (rc[r] || 0) + 1; });
     const rcTxt = Object.keys(rc).length
       ? " (" + Object.entries(rc).map(([k, v]) => `${k} ${v}`).join(", ") + ")" : "";
-    cov = `질의어 — 재정: ${esc((q.fiscal || []).join(", ") || "—")} · `
-      + `연구: ${esc((q.prism || []).join(", ") || "—")} · `
-      + `입법: ${esc((q.bill || []).join(", ") || "—")}`
-      + ((q.overseas && q.overseas.length) ? ` · 해외: ${esc(q.overseas.join(", "))}` : "") + `<br>`
-      + `재정 ${b.lookup.fiscal.length}건 · KDI ${b.lookup.prism.length}건 · `
-      + `국회 의안 ${bills.length}건${esc(rcTxt)}`
-      + (over.length ? ` · 해외 ${over.length}건` : "") + `<br>`
-      + `집행/검토/입법/해외 = ${bit(pf.exec)}/${bit(pf.review)}/${bit(pf.law)}/${bit(pf.intl)}`;
+    // 미실행 통로를 "0건"으로 적으면 '조회했는데 없다'로 읽힌다. 통로가 돌았는지는
+    // profile 비트가 null인지로 갈린다(null = 조회기 없음 = 미실행).
+    const ran = { fiscal: pf.exec != null, prism: pf.review != null,
+                  bill: pf.law != null, overseas: pf.intl != null };
+    const cnt = (src, n, extra) => ran[src] ? `${n}건${extra || ""}` : "미실행";
+    cov = `질의어 — 재정: ${ran.fiscal ? esc((q.fiscal || []).join(", ") || "—") : "미실행"} · `
+      + `연구: ${ran.prism ? esc((q.prism || []).join(", ") || "—") : "미실행"} · `
+      + `입법: ${ran.bill ? esc((q.bill || []).join(", ") || "—") : "미실행"} · `
+      + `해외: ${ran.overseas ? esc((q.overseas || []).join(", ") || "—") : "미실행"}<br>`
+      + `재정 ${cnt("fiscal", (b.lookup.fiscal || []).length)} · `
+      + `KDI ${cnt("prism", (b.lookup.prism || []).length)} · `
+      + `국회 의안 ${cnt("bill", bills.length, esc(rcTxt))} · `
+      + `해외 ${cnt("overseas", over.length)}<br>`
+      + `집행/검토/입법/해외 = ${bit(pf.exec)}/${bit(pf.review)}/${bit(pf.law)}/${bit(pf.intl)}`
+      + `　(- = 미실행)`;
     const pris = b.lookup.prism || [];
     if (pris.length) {
       cov += '<br><b>KDI 연구:</b> ' + pris.map(x =>

@@ -11,7 +11,7 @@
 // D1이고, KDI 통로에 kdinov가 없다는 것뿐이다(README 참조).
 
 import { SPEC_EXTRACTOR_SYSTEM, PRECEDENT_JUDGE_SYSTEM, ORIGINALITY_GRADER_SYSTEM, SPEC_SCHEMA } from './prompts.js';
-import { doLookups, sourcesStatus } from './lookups.js';
+import { doLookups, judgeLookupView, sourcesStatus } from './lookups.js';
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
@@ -112,9 +112,8 @@ async function gradeOriginality(env, specResult, judge, hits, apiKey) {
     `<정책 명세>\n${JSON.stringify(specResult, null, 2)}\n</정책 명세>`,
     `<지식 판정>\n${JSON.stringify(judge, null, 2)}\n</지식 판정>`,
   ];
-  parts.push(hits
-    ? `<조회 결과>\n${JSON.stringify(hits, null, 2)}\n</조회 결과>`
-    : '<조회 결과>\n조회가 실행되지 않았습니다(자료원 미가용).\n</조회 결과>');
+  // 미실행 통로가 빈 배열로 넘어가면 '조회했는데 0건'으로 읽힌다 — 문자열로 바꿔 보낸다.
+  parts.push(`<조회 결과>\n${JSON.stringify(judgeLookupView(hits), null, 2)}\n</조회 결과>`);
   return callClaudeJson(env, ORIGINALITY_GRADER_SYSTEM, parts.join('\n\n'), apiKey);
 }
 

@@ -1155,15 +1155,22 @@ function renderOriginality(b, targetId, withDefense) {
     bills.forEach(x => { const r = x.result || "계류"; rc[r] = (rc[r] || 0) + 1; });
     const rcTxt = Object.keys(rc).length
       ? " (" + Object.entries(rc).map(([k, v]) => `${esc(k)} ${v}`).join(", ") + ")" : "";
-    const intlTxt = (pf.intl == null && !over.length) ? "" : ` · 해외 ${over.length}건`;
+    // 미실행 통로를 "0건"으로 적으면 '조회했는데 없다'로 읽힌다. profile 비트가
+    // null이면 그 통로는 조회기가 없어 아예 돌지 않은 것이다.
+    const ran = { fiscal: pf.exec != null, prism: pf.review != null,
+                  bill: pf.law != null, overseas: pf.intl != null };
+    const cnt = (s, n, extra) => ran[s] ? `${n}건${extra || ""}` : "미실행";
+    const qs = (s, arr) => ran[s] ? (esc((arr || []).join(", ")) || "—") : "미실행";
     let cov = '<div class="card"><b>조회 커버리지</b>'
-      + `<div class="subscores">재정 ${fisc.length}건 · KDI ${pris.length}건 · 국회 의안 ${bills.length}건${rcTxt}${intlTxt}<br>`
-      + `집행/검토/입법/해외 = ${bit(pf.exec)}/${bit(pf.review)}/${bit(pf.law)}/${bit(pf.intl)}</div>`
+      + `<div class="subscores">재정 ${cnt("fiscal", fisc.length)} · KDI ${cnt("prism", pris.length)}`
+      + ` · 국회 의안 ${cnt("bill", bills.length, rcTxt)} · 해외 ${cnt("overseas", over.length)}<br>`
+      + `집행/검토/입법/해외 = ${bit(pf.exec)}/${bit(pf.review)}/${bit(pf.law)}/${bit(pf.intl)}`
+      + `　(- = 미실행)</div>`
       + '<div class="subscores">질의어 — '
-      + `재정: ${esc((q.fiscal || []).join(", ") || "—")} · `
-      + `연구: ${esc((q.prism || []).join(", ") || "—")} · `
-      + `입법: ${esc((q.bill || []).join(", ") || "—")}`
-      + ((q.overseas && q.overseas.length) ? ` · 해외: ${esc(q.overseas.join(", "))}` : "")
+      + `재정: ${qs("fiscal", q.fiscal)} · `
+      + `연구: ${qs("prism", q.prism)} · `
+      + `입법: ${qs("bill", q.bill)} · `
+      + `해외: ${qs("overseas", q.overseas)}`
       + `</div>`;
     if (over.length) {
       cov += '<b style="display:block;margin-top:10px">해외 사례(OPSI)</b><ul class="hit-list">'

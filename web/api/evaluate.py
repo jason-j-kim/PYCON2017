@@ -292,14 +292,36 @@ ORIGINALITY_GRADER_SYSTEM = """# 역할
 - **임기만료폐기 의안을 근거로 감점하지 않는다.** `부결`과 `대안반영폐기`만 판정 근거로 쓴다.
 - 조회가 실행되지 않았고 지식 판정이 `uncertain`이면 → `band: "판정 보류"`.
 
+# 미실행 통로를 "0건"으로 쓰지 않는다 (반드시 지킬 것)
+
+네 통로가 항상 다 도는 것은 아니다. 키나 데이터가 없으면 그 통로는 **아예 돌지
+않는다.** `lookup.coverage`가 통로마다 실행 여부를 명시하고, 미실행 통로는 배열이
+아니라 `"미실행(조회하지 않음)"` 문자열로 온다.
+
+**미실행과 0건은 전혀 다른 사실이다.**
+
+| 상태 | 뜻 | 판정에 쓰는 법 |
+|---|---|---|
+| 실행 — 히트 0건 | 조회했으나 못 찾음 | **약한** 미발견 근거. 그래도 부재의 증거는 아니다 |
+| **미실행** | 조회 자체를 안 함 | **아무 정보도 아니다.** 근거로 전혀 쓰지 않는다 |
+
+- 미실행 통로를 두고 "0건", "흔적이 없다", "시도되지 않았다"고 **쓰지 않는다.**
+- `reasoning`에는 **어느 통로가 미실행이었는지 한 번은 밝힌다.**
+- **미실행 통로가 하나라도 있으면 확신도 `상`을 쓰지 않는다**(최대 `중`).
+- `retraction_condition`에 그 미실행 통로를 돌렸을 때 선례가 나오면 하향한다는
+  취지를 적는다.
+
 # 미발견은 독창성을 확정하지 못한다 — 부재의 증거는 증거의 부재 (반드시 지킬 것)
+
+여기서 말하는 미발견은 **실제로 조회를 돌린 통로**에 한한다. 미실행 통로는 미발견에
+포함하지 않는다(위 절 참조).
 
 선례를 **찾은 것**은 강한 증거지만, **못 찾은 것**은 약한 증거다. 미발견은 다음 중
 무엇이든 될 수 있다: (a) 실제로 선례가 없음, (b) 이름이 달라 검색이 놓침, (c) DB가
 못 덮는 영역(지자체·기금·행정지침·해외·오래된 시기)에 존재함, (d) 질의어가 부실함.
 따라서 **판정은 비대칭으로 한다.**
 
-- 세 소스가 **모두 미발견**이고 지식 판정도 선례를 대지 못하면:
+- 실행된 소스가 **모두 미발견**이고 지식 판정도 선례를 대지 못하면:
   - `band`는 `"계열 밖 시도"`까지 갈 수 있으나 **잠정**이며, 확신도는 **`상`을 쓰지 않는다**(최대 `중`).
   - `reasoning`에 **어느 소스·어느 시기·어떤 영역을 못 덮었는지** 검색 한계를 **한 문장 이상** 반드시 적는다.
   - `retraction_condition`에 "다른 이름의 검색어나 누락 영역에서 선례가 나오면 하향" 취지를 적는다.
@@ -319,6 +341,8 @@ ORIGINALITY_GRADER_SYSTEM = """# 역할
 # 표기 금지
 
 - "선례 없음" (X) → "N개 질의에서 미발견" (O)
+- (미실행 통로를 두고) "의안 조회는 0건" (X) → "의안 통로는 미실행 — 확인하지 못함" (O)
+- (미실행 통로를 두고) "입법 시도 흔적이 없다" (X) → "입법 시도 여부는 조회하지 않아 알 수 없다" (O)
 - B급 근거로 사업명·연도 인용 (X) → "유사 취지의 바우처 계열이 존재" (O)
 - "이미 국회에서 폐기된 법안"(임기만료폐기를 두고) (X) → "발의되었으나 심사 미완으로 임기만료" (O)
 
@@ -390,12 +414,44 @@ def judge_by_knowledge(spec_result, api_key):
                            schema=_JUDGE_SCHEMA)
 
 
+SOURCE_LABEL = {"fiscal": "재정(집행)", "prism": "KDI 연구(검토)",
+                "bill": "국회 의안(입법)", "overseas": "해외 OPSI(시행)"}
+_PROFILE_KEY = {"fiscal": "exec", "prism": "review",
+                "bill": "law", "overseas": "intl"}
+
+
+def judge_lookup_view(hits):
+    """판정가에게 넘길 조회 결과 표현(터널판 socratic/engine.py와 동일 규칙).
+
+    미실행 통로를 빈 배열로 넘기면 '조회했는데 0건'과 구분되지 않아, 판정문이
+    "의안 조회는 0건으로 입법 시도 흔적이 없고"처럼 미실행을 부재로 단정한다.
+    미실행 통로는 배열 대신 문자열로 바꿔 셀 수 없게 하고 coverage로 못 박는다."""
+    if hits is None:
+        return "미실행 — 어느 통로도 조회하지 않았다. 0건이 아니다."
+    view = dict(hits)
+    prof = hits.get("profile") or {}
+    queries = dict(hits.get("queries") or {})
+    coverage = {}
+    for src, pkey in _PROFILE_KEY.items():
+        label = SOURCE_LABEL[src]
+        if prof.get(pkey) is None:
+            view[src] = "미실행(조회하지 않음)"
+            queries[src] = "미실행"
+            coverage[label] = "미실행 — 조회기가 없어 돌리지 않았다. 0건이 아니며 부재의 근거가 될 수 없다."
+        else:
+            n_q = len((hits.get("queries") or {}).get(src) or [])
+            coverage[label] = f"실행 — 질의 {n_q}개, 히트 {len(hits.get(src) or [])}건"
+    view["queries"] = queries
+    view["coverage"] = coverage
+    return view
+
+
 def grade_originality(spec_result, judge, hits, api_key):
     payload = {
         "spec": spec_result["spec"],
         "policy_type": spec_result["policy_type"],
         "knowledge_verdict": judge,
-        "lookup": hits if hits is not None else "미실행",
+        "lookup": judge_lookup_view(hits),
     }
     prompt = ("<입력>\n" + json.dumps(payload, ensure_ascii=False, indent=1)
               + "\n</입력>\n\n시스템 프롬프트의 형식에 따라 JSON 하나만 출력하라.")

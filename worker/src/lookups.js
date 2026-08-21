@@ -230,6 +230,39 @@ export function profileBits(hits, on) {
   return { exec: bit('fiscal'), review: bit('prism'), law: bit('bill'), intl: bit('overseas') };
 }
 
+const SOURCE_LABEL = {
+  fiscal: '재정(집행)', prism: 'KDI 연구(검토)',
+  bill: '국회 의안(입법)', overseas: '해외 OPSI(시행)',
+};
+const PROFILE_KEY = { fiscal: 'exec', prism: 'review', bill: 'law', overseas: 'intl' };
+
+/** 판정가에게 넘길 조회 결과 표현(터널판 socratic/engine.py와 동일 규칙).
+ *
+ * 미실행 통로를 빈 배열로 넘기면 '조회했는데 0건'과 구분되지 않아, 판정문이
+ * 미실행을 부재로 단정한다. 미실행 통로는 배열 대신 문자열로 바꿔 셀 수 없게
+ * 하고 coverage로 실행 여부를 못 박는다. */
+export function judgeLookupView(hits) {
+  if (!hits) return '미실행 — 어느 통로도 조회하지 않았다. 0건이 아니다.';
+  const prof = hits.profile || {};
+  const view = { ...hits };
+  const queries = { ...(hits.queries || {}) };
+  const coverage = {};
+  for (const [src, pkey] of Object.entries(PROFILE_KEY)) {
+    const label = SOURCE_LABEL[src];
+    if (prof[pkey] == null) {
+      view[src] = '미실행(조회하지 않음)';
+      queries[src] = '미실행';
+      coverage[label] = '미실행 — 조회기가 없어 돌리지 않았다. 0건이 아니며 부재의 근거가 될 수 없다.';
+    } else {
+      const nq = ((hits.queries || {})[src] || []).length;
+      coverage[label] = `실행 — 질의 ${nq}개, 히트 ${(hits[src] || []).length}건`;
+    }
+  }
+  view.queries = queries;
+  view.coverage = coverage;
+  return view;
+}
+
 /** 명세의 질의어로 가용한 통로를 모두 조회한다. */
 export async function doLookups(env, spec) {
   const db = env.CORPUS || null;

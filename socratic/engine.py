@@ -529,13 +529,50 @@ def judge_by_knowledge(spec_result):
     return _call_and_parse(prompt, PRECEDENT_JUDGE_PROMPT_FILE, parse)
 
 
+SOURCE_LABEL = {"fiscal": "재정(집행)", "prism": "KDI 연구(검토)",
+                "bill": "국회 의안(입법)", "overseas": "해외 OPSI(시행)"}
+# profile 비트 키 ↔ 소스키. profile 값이 None이면 그 통로는 아예 돌지 않았다.
+_PROFILE_KEY = {"fiscal": "exec", "prism": "review",
+                "bill": "law", "overseas": "intl"}
+
+
+def judge_lookup_view(hits):
+    """판정가에게 넘길 조회 결과 표현.
+
+    미실행 통로를 빈 배열로 넘기면 '조회했는데 0건'과 구분되지 않는다. 실제로
+    의안 키가 없어 통로가 꺼진 세션에서 판정문이 "의안 조회는 0건으로 입법 시도
+    흔적이 없고"라고 적힌 사례가 있었다 — 미발견≠부재 원칙에 어긋난다.
+
+    그래서 미실행 통로는 배열이 아니라 문자열로 바꿔 **애초에 셀 수 없게** 하고,
+    coverage에 통로별 실행 여부를 못 박는다. 화면·DB에 저장되는 hits 원본은
+    건드리지 않는다(프런트가 리스트를 기대한다)."""
+    if hits is None:
+        return "미실행 — 어느 통로도 조회하지 않았다. 0건이 아니다."
+    view = dict(hits)
+    prof = hits.get("profile") or {}
+    queries = dict(hits.get("queries") or {})
+    coverage = {}
+    for src, pkey in _PROFILE_KEY.items():
+        label = SOURCE_LABEL[src]
+        if prof.get(pkey) is None:          # 조회기 없음 → 통로가 꺼져 있었다
+            view[src] = "미실행(조회하지 않음)"
+            queries[src] = "미실행"
+            coverage[label] = "미실행 — 조회기가 없어 돌리지 않았다. 0건이 아니며 부재의 근거가 될 수 없다."
+        else:
+            n_q = len((hits.get("queries") or {}).get(src) or [])
+            coverage[label] = f"실행 — 질의 {n_q}개, 히트 {len(hits.get(src) or [])}건"
+    view["queries"] = queries
+    view["coverage"] = coverage
+    return view
+
+
 def grade_originality(spec_result, judge, hits=None):
     """Stage 6: 4구간 + 확신도로 실질 독창성을 판정한다(로그 미투입)."""
     payload = {
         "spec": spec_result["spec"],
         "policy_type": spec_result["policy_type"],
         "knowledge_verdict": judge,
-        "lookup": hits if hits is not None else "미실행",
+        "lookup": judge_lookup_view(hits),
     }
     prompt = ("<입력>\n" + json.dumps(payload, ensure_ascii=False, indent=1)
               + "\n</입력>\n\n시스템 프롬프트의 형식에 따라 JSON 하나만 출력하라.")
