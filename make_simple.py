@@ -65,8 +65,7 @@ def main():
             raise SystemExit(f"파일 없음: {rel}")
         items.append((p, rel))
 
-    for name in ("1_설치.bat", "2_실행.bat", "3_터널.bat",
-                 "keys.example.bat", "읽어보세요.txt"):
+    for name in ("1_설치.bat", "2_실행.bat", "3_터널.bat", "읽어보세요.txt"):
         p = ROOT / "package" / name
         items.append((p, name))
 
