@@ -728,6 +728,7 @@ _KDI_STOP = {"및", "등", "관한", "관련", "대한", "위한", "통한", "�
 # kdinov(정교한 KDI 독창성 판정기) 연동 — docs 스키마 코퍼스(kdi.sqlite)를 쓴다.
 # 있으면 kdinov(분해→검색→2차원 판정)를, 없으면 위 naive reports 조회를 쓴다.
 KDI_SQLITE = _corpus(os.environ.get("KDI_SQLITE"),
+                     ROOT / "data" / "kdi.sqlite",
                      ROOT / "kdi" / "kdi.sqlite",
                      ROOT / "web" / "api" / "kdi.sqlite")
 _KDINOV = None
@@ -856,7 +857,8 @@ def _kdi_naive_lookup(query):
 
 # ── 해외 축: OPSI 로컬 DB(overseas/opsi_policies.db) 검색 ──
 # 사람이 Claude in Chrome으로 수집·임포트하면 채워진다. 비어 있으면 자동으로 꺼짐.
-OPSI_DB = _corpus(ROOT / "overseas" / "opsi_policies.db",
+OPSI_DB = _corpus(ROOT / "data" / "opsi_policies.db",
+                  ROOT / "overseas" / "opsi_policies.db",
                   ROOT / "web" / "api" / "opsi_policies.db")
 
 

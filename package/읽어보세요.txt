@@ -1,0 +1,68 @@
+정책 아이디어 평가 시스템 — 터널판
+====================================
+
+이 폴더 안에 코드와 데이터가 다 들어 있습니다. 따로 받을 것이 없습니다.
+
+
+■ 순서
+
+  1_설치.bat   더블클릭 (처음 한 번만)
+  2_실행.bat   더블클릭 → 브라우저에서  http://localhost:8000/policy
+  3_터널.bat   더블클릭 (외부에 공개할 때만, 2번을 켜 둔 채 새 창으로)
+
+  끌 때는 2_실행.bat 창에서 Ctrl+C.
+
+
+■ 미리 준비할 것
+
+  Python 3.10 이상        python.org
+  Node.js 18 이상         nodejs.org
+  Claude 구독 계정        Pro 또는 Max — 본인 계정으로 로그인합니다.
+                          (계정은 넘겨받을 수 없습니다. 1_설치.bat 이
+                           /login 하는 곳까지 안내합니다.)
+
+
+■ 폴더 안에 무엇이 있나
+
+  data\        평가에 쓰는 데이터 3개
+                 fiscal.json         세출예산 14,122개 사업
+                 kdi.sqlite          KDI 발간물 7,362건
+                 opsi_policies.db    OECD OPSI 해외사례 1,015건 · 98개국
+  webapp\      웹 서버와 화면
+  socratic\    문답·채점 엔진과 프롬프트
+  kdinov\      KDI 코퍼스 정밀 판정기
+
+
+■ 검증 통로는 네 개
+
+  ① 재정      data\fiscal.json         바로 작동
+  ② KDI 연구  data\kdi.sqlite          바로 작동
+  ③ 국회 의안 외부 API                 키가 있어야 켜집니다(선택)
+  ④ 해외사례  data\opsi_policies.db    바로 작동
+
+  ③의 키는 공공데이터포털에서 발급받아 2_실행.bat 안의
+  ASSEMBLY_KEY 줄에 넣으면 됩니다. 없어도 됩니다 — 꺼진 통로는
+  결과 화면에 "미실행"으로 표시되고, 판정기가 그만큼 확신도를 낮춥니다.
+
+
+■ 접속 코드
+
+  2_실행.bat 안의  SOCRATIC_ACCESS_CODE=kdi2026  을 원하는 값으로
+  바꾸세요. 접속한 사람이 이 코드를 입력해야 평가를 시작합니다.
+
+
+■ 문답 이력
+
+  webapp\sessions.db 에 쌓입니다. 사람이 읽을 형태로 보려면
+  명령창에서:   python webapp\show_session.py
+
+
+■ 자주 나는 오류
+
+  [Errno 10048]                 이전 서버가 포트를 잡고 있음
+                                → taskkill /F /IM python.exe
+  claude CLI를 찾을 수 없습니다  1_설치.bat 을 다시 실행,
+                                또는 명령창을 새로 열기
+  인증 실패(401)                 명령창에서 claude 실행 → /login
+  터널 주소는 뜨는데 안 열림      2_실행.bat 이 꺼져 있음
+                                → localhost:8000 부터 확인
