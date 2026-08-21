@@ -1,0 +1,21 @@
+name = "policy-eval"
+main = "src/index.js"
+compatibility_date = "2026-01-01"
+
+# 프런트엔드는 Vercel판과 동일한 정적 파일을 그대로 쓴다.
+[assets]
+directory = "../web"
+binding = "ASSETS"
+
+# 코퍼스(재정·KDI·해외)는 D1에 적재한다. Workers는 26MB SQLite 파일을 번들할 수 없다.
+#   wrangler d1 create policy-corpus   → 출력된 database_id를 아래에 붙여넣는다.
+[[d1_databases]]
+binding = "CORPUS"
+database_name = "policy-corpus"
+database_id = "여기에-database_id-붙여넣기"
+
+[vars]
+CLAUDE_MODEL = "claude-opus-5"
+
+# 국회 의안 키는 코드에 넣지 않는다.
+#   wrangler secret put ASSEMBLY_KEY
