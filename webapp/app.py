@@ -654,8 +654,13 @@ def _bill_lookup(query):
         return []
     distinct = _bill_distinct_tokens(q)
     cand, seen = [], set()
+    # 시도와 실패를 센다. 전부 실패했다면 '0건'이 아니라 '조회 실패'다 — 그대로
+    # 빈 목록을 돌려주면 망 장애가 미발견 근거로 둔갑한다(방법론 4.5.4).
+    tries = fails = 0
+    last_err = None
     for term in terms:
         for eraco in ERACO_TERMS:
+            tries += 1
             try:
                 params = {"KEY": ASSEMBLY_KEY, "Type": "json", "pIndex": 1,
                           "pSize": BILL_PSIZE, "ERACO": eraco, "BILL_NM": term}
@@ -670,7 +675,11 @@ def _bill_lookup(query):
                         seen.add(name)
                         cand.append(r)
             except Exception as e:
+                fails += 1
+                last_err = e
                 print(f"allbillv2 lookup 실패({term}/{eraco}):", e, file=sys.stderr)
+    if tries and fails == tries:
+        raise RuntimeError(f"국회 의안 API 조회 실패: {last_err}")
     out = []
     for r in cand[:12]:                     # 본문 조회 상한(호출 최소화)
         name = _pick(r, "BILL_NM", "BILL_NAME")
@@ -951,6 +960,8 @@ def _originality_payload(result):
             "profile": lookup["profile"], "queries": lookup["queries"],
             "fiscal": lookup["fiscal"], "prism": lookup["prism"], "bill": lookup["bill"],
             "overseas": lookup.get("overseas", []),
+            # 조회를 돌렸으나 전부 오류난 통로. 화면이 '0건'과 구분해 표시한다.
+            "failed": lookup.get("failed") or {},
         },
     }
 

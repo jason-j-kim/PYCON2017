@@ -431,6 +431,7 @@ def judge_lookup_view(hits):
     view = dict(hits)
     prof = hits.get("profile") or {}
     queries = dict(hits.get("queries") or {})
+    failed = hits.get("failed") or {}
     coverage = {}
     for src, pkey in _PROFILE_KEY.items():
         label = SOURCE_LABEL[src]
@@ -438,6 +439,10 @@ def judge_lookup_view(hits):
             view[src] = "미실행(조회하지 않음)"
             queries[src] = "미실행"
             coverage[label] = "미실행 — 조회기가 없어 돌리지 않았다. 0건이 아니며 부재의 근거가 될 수 없다."
+        elif src in failed:
+            view[src] = "조회 실패(오류로 결과를 받지 못함)"
+            coverage[label] = ("조회 실패 — 시도했으나 모두 오류로 끝났다"
+                               f"({failed[src][:80]}). 0건이 아니며 부재의 근거가 될 수 없다.")
         else:
             n_q = len((hits.get("queries") or {}).get(src) or [])
             coverage[label] = f"실행 — 질의 {n_q}개, 히트 {len(hits.get(src) or [])}건"
@@ -757,8 +762,13 @@ def _bill_lookup(query):
         return []
     distinct = _bill_distinct_tokens(q)
     cand, seen = [], set()
+    # 시도와 실패를 센다. 전부 실패했다면 '0건'이 아니라 '조회 실패'다 — 그대로
+    # 빈 목록을 돌려주면 망 장애가 미발견 근거로 둔갑한다(방법론 4.5.4).
+    tries = fails = 0
+    last_err = None
     for term in terms:
         for eraco in ERACO_TERMS:
+            tries += 1
             try:
                 params = {"KEY": ASSEMBLY_KEY, "Type": "json", "pIndex": 1,
                           "pSize": BILL_PSIZE, "ERACO": eraco, "BILL_NM": term}
@@ -770,7 +780,11 @@ def _bill_lookup(query):
                         seen.add(name)
                         cand.append(r)
             except Exception as e:
+                fails += 1
+                last_err = e
                 print(f"allbillv2 lookup 실패({term}/{eraco}):", e, file=sys.stderr)
+    if tries and fails == tries:
+        raise RuntimeError(f"국회 의안 API 조회 실패: {last_err}")
     out = []
     for r in cand[:12]:
         name = _pick(r, "BILL_NM", "BILL_NAME")
@@ -1057,22 +1071,30 @@ def _do_lookups(spec):
                for s in fns}
 
     def _safe(fn, q):
+        """오류를 삼키되 삼켰다는 사실은 남긴다(터널판 engine.py와 동일).
+        통신 실패를 그냥 []로 돌리면 '조회했는데 0건'과 구분되지 않는다."""
         try:
-            return fn(q) or []
-        except Exception:
-            return []
+            return fn(q) or [], None
+        except Exception as e:
+            return [], f"{type(e).__name__}: {e}"
 
     collected = {s: [] for s in fns}
+    errors = {s: [] for s in fns}
     with ThreadPoolExecutor(max_workers=12) as ex:
         futs = {s: [ex.submit(_safe, fns[s], q) for q in queries[s]] if on[s] else []
                 for s in fns}
         for s in fns:
             for fut in futs[s]:
-                collected[s] += fut.result()
+                rows, err = fut.result()
+                collected[s] += rows
+                if err:
+                    errors[s].append(err)
     dedup_key = {"fiscal": "name", "prism": "title", "bill": "name", "overseas": "url"}
     hits = {s: _dedup(collected[s], dedup_key[s])[:5] for s in fns}
     hits["queries"] = queries
     hits["profile"] = _profile_bits(hits, on)
+    hits["failed"] = {s: errors[s][0] for s in fns
+                      if on[s] and queries[s] and len(errors[s]) == len(queries[s])}
     return hits
 
 

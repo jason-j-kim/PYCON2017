@@ -178,17 +178,21 @@ export async function billLookup(query, assemblyKey) {
   if (!terms.length) return [];
   const out = [];
   const seen = new Set();
+  // 시도와 실패를 센다. 전부 실패했다면 '0건'이 아니라 '조회 실패'다 — 그대로
+  // 빈 목록을 돌려주면 망 장애가 미발견 근거로 둔갑한다(방법론 4.5.4).
+  let tries = 0, fails = 0, lastErr = null;
 
   for (const term of terms) {
     const url = 'https://open.assembly.go.kr/portal/openapi/ALLBILL'
       + `?KEY=${encodeURIComponent(assemblyKey)}&Type=json&pIndex=1&pSize=20`
       + `&BILL_NAME=${encodeURIComponent(term)}`;
     let data;
+    tries += 1;
     try {
       const r = await fetch(url, { cf: { cacheTtl: 300 } });
-      if (!r.ok) continue;
+      if (!r.ok) { fails += 1; lastErr = `HTTP ${r.status}`; continue; }
       data = await r.json();
-    } catch { continue; }
+    } catch (e) { fails += 1; lastErr = String(e); continue; }
 
     const rows = findRows(data);
     for (const row of rows) {
@@ -206,6 +210,7 @@ export async function billLookup(query, assemblyKey) {
       if (out.length >= 5) return out;
     }
   }
+  if (tries && fails === tries) throw new Error(`국회 의안 API 조회 실패: ${lastErr}`);
   return out.slice(0, 5);
 }
 
@@ -279,16 +284,22 @@ export async function doLookups(env, spec) {
     queries[s] = on[s] ? (spec.queries?.[s] || []).slice(0, 3) : [];
   }
 
-  const run = async (fn, qs) => {
-    const lists = await Promise.all(qs.map((q) => fn(q).catch(() => [])));
+  // 오류를 삼키되 삼켰다는 사실은 남긴다. 한 통로의 질의가 전부 실패했다면
+  // '0건'이 아니라 '조회 실패'로 판정가에게 넘긴다.
+  const errors = { fiscal: 0, prism: 0, bill: 0, overseas: 0 };
+  const lastErr = {};
+  const run = async (src, fn, qs) => {
+    const lists = await Promise.all(qs.map((q) => fn(q).catch((e) => {
+      errors[src] += 1; lastErr[src] = String(e); return [];
+    })));
     return lists.flat();
   };
 
   const [fiscal, prism, bill, overseas] = await Promise.all([
-    on.fiscal ? run((q) => fiscalLookup(db, q), queries.fiscal) : [],
-    on.prism ? run((q) => kdiLookup(db, q), queries.prism) : [],
-    on.bill ? run((q) => billLookup(q, env.ASSEMBLY_KEY), queries.bill) : [],
-    on.overseas ? run((q) => opsiLookup(db, q), queries.overseas) : [],
+    on.fiscal ? run('fiscal', (q) => fiscalLookup(db, q), queries.fiscal) : [],
+    on.prism ? run('prism', (q) => kdiLookup(db, q), queries.prism) : [],
+    on.bill ? run('bill', (q) => billLookup(q, env.ASSEMBLY_KEY), queries.bill) : [],
+    on.overseas ? run('overseas', (q) => opsiLookup(db, q), queries.overseas) : [],
   ]);
 
   const hits = {
@@ -299,6 +310,12 @@ export async function doLookups(env, spec) {
   };
   hits.queries = queries;
   hits.profile = profileBits(hits, on);
+  hits.failed = {};
+  for (const s2 of ['fiscal', 'prism', 'bill', 'overseas']) {
+    if (on[s2] && queries[s2].length && errors[s2] === queries[s2].length) {
+      hits.failed[s2] = lastErr[s2];
+    }
+  }
   return hits;
 }
 

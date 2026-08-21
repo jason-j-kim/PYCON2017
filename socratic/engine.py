@@ -551,6 +551,7 @@ def judge_lookup_view(hits):
     view = dict(hits)
     prof = hits.get("profile") or {}
     queries = dict(hits.get("queries") or {})
+    failed = hits.get("failed") or {}
     coverage = {}
     for src, pkey in _PROFILE_KEY.items():
         label = SOURCE_LABEL[src]
@@ -558,6 +559,10 @@ def judge_lookup_view(hits):
             view[src] = "미실행(조회하지 않음)"
             queries[src] = "미실행"
             coverage[label] = "미실행 — 조회기가 없어 돌리지 않았다. 0건이 아니며 부재의 근거가 될 수 없다."
+        elif src in failed:                 # 돌렸으나 질의가 전부 오류
+            view[src] = "조회 실패(오류로 결과를 받지 못함)"
+            coverage[label] = ("조회 실패 — 시도했으나 모두 오류로 끝났다"
+                               f"({failed[src][:80]}). 0건이 아니며 부재의 근거가 될 수 없다.")
         else:
             n_q = len((hits.get("queries") or {}).get(src) or [])
             coverage[label] = f"실행 — 질의 {n_q}개, 히트 {len(hits.get(src) or [])}건"
@@ -633,21 +638,30 @@ def originality_axis(transcript, fiscal_fn=None, prism_fn=None, bill_fn=None,
         queries = {s: (_q(s) if on[s] else []) for s in fns}
 
         def _safe(fn, q):
+            """오류를 삼키되 삼켰다는 사실은 남긴다. 통신 실패를 그냥 []로 돌리면
+            '조회했는데 0건'과 구분되지 않아, 망 장애가 미발견 근거로 둔갑한다."""
             try:
-                return fn(q) or []
-            except Exception:
-                return []
+                return fn(q) or [], None
+            except Exception as e:
+                return [], f"{type(e).__name__}: {e}"
 
         collected = {s: [] for s in fns}
+        errors = {s: [] for s in fns}
         with ThreadPoolExecutor(max_workers=12) as ex:
             futs = {s: [ex.submit(_safe, fns[s], q) for q in queries[s]] if on[s] else []
                     for s in fns}
             for s in fns:
                 for fut in futs[s]:
-                    collected[s] += fut.result()
+                    rows, err = fut.result()
+                    collected[s] += rows
+                    if err:
+                        errors[s].append(err)
         dedup_key = {"fiscal": "name", "prism": "title", "bill": "name", "overseas": "url"}
         hits = {s: _dedup(collected[s], dedup_key[s])[:5] for s in fns}
         hits["queries"] = queries
         hits["profile"] = _profile_bits(hits, on)
+        # 질의가 하나라도 있었는데 전부 오류였다면 그 통로는 '조회 실패'다.
+        hits["failed"] = {s: errors[s][0] for s in fns
+                          if on[s] and queries[s] and len(errors[s]) == len(queries[s])}
     grade = grade_originality(spec, judge, hits)
     return {"spec": spec, "judge": judge, "lookup": hits, "originality": grade}
