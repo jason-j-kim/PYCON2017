@@ -1,0 +1,405 @@
+<title>정책평가 배포 구조</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600&family=Noto+Serif+KR:wght@600;700&display=swap">
+
+<style>
+  :root {
+    --bg: #F7F8F6;
+    --surface: #FFFFFF;
+    --surface-2: #F0F2EE;
+    --ink: #1B2127;
+    --muted: #68727C;
+    --line: #D9DEDA;
+    --line-soft: #E7EBE7;
+    --tunnel: #2E6E6B;
+    --tunnel-soft: #E4EFEE;
+    --api: #8F6226;
+    --api-soft: #F5EBDC;
+    --shared: #4A5560;
+    --warn: #8A4A2E;
+    --warn-soft: #F7E9E2;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14181C;
+      --surface: #1B2026;
+      --surface-2: #232A32;
+      --ink: #E6EAE7;
+      --muted: #98A2AB;
+      --line: #2E3640;
+      --line-soft: #262E37;
+      --tunnel: #74C3BB;
+      --tunnel-soft: #16302F;
+      --api: #DCA95F;
+      --api-soft: #2E2618;
+      --shared: #A7B1BA;
+      --warn: #DB9878;
+      --warn-soft: #2E1F18;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14181C;
+    --surface: #1B2026;
+    --surface-2: #232A32;
+    --ink: #E6EAE7;
+    --muted: #98A2AB;
+    --line: #2E3640;
+    --line-soft: #262E37;
+    --tunnel: #74C3BB;
+    --tunnel-soft: #16302F;
+    --api: #DCA95F;
+    --api-soft: #2E2618;
+    --shared: #A7B1BA;
+    --warn: #DB9878;
+    --warn-soft: #2E1F18;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "IBM Plex Sans KR", "Malgun Gothic", sans-serif;
+    font-size: 15px;
+    line-height: 1.7;
+    word-break: keep-all;
+    overflow-wrap: break-word;
+  }
+
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 56px 28px 96px; }
+
+  /* ---------- header ---------- */
+  .masthead { border-bottom: 2px solid var(--ink); padding-bottom: 22px; margin-bottom: 40px; }
+  .eyebrow {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--muted); margin: 0 0 12px;
+  }
+  h1 {
+    font-family: "Noto Serif KR", serif; font-weight: 700;
+    font-size: clamp(28px, 4.4vw, 42px); line-height: 1.25;
+    margin: 0 0 14px; text-wrap: balance; letter-spacing: -.01em;
+  }
+  .thesis { font-size: 16px; color: var(--muted); margin: 0; max-width: 62ch; }
+  .thesis b { color: var(--ink); font-weight: 600; }
+
+  /* ---------- sections ---------- */
+  section { margin-top: 52px; }
+  h2 {
+    font-family: "Noto Serif KR", serif; font-weight: 600;
+    font-size: 21px; margin: 0 0 6px; letter-spacing: -.005em;
+  }
+  .sub { color: var(--muted); font-size: 14px; margin: 0 0 22px; max-width: 66ch; }
+
+  /* ---------- shared pipeline ---------- */
+  .pipe { display: flex; gap: 0; align-items: stretch; flex-wrap: wrap; }
+  .stage {
+    flex: 1 1 190px; background: var(--surface); border: 1px solid var(--line);
+    padding: 16px 16px 18px; position: relative;
+  }
+  .stage + .stage { border-left: none; }
+  .stage-n {
+    font-family: "IBM Plex Mono", monospace; font-size: 11px;
+    color: var(--shared); letter-spacing: .1em; display: block; margin-bottom: 8px;
+  }
+  .stage-t { font-weight: 600; font-size: 15px; display: block; margin-bottom: 5px; }
+  .stage-d { font-size: 12.5px; color: var(--muted); line-height: 1.55; }
+  @media (max-width: 700px) {
+    .stage + .stage { border-left: 1px solid var(--line); border-top: none; }
+  }
+
+  /* ---------- swimlane ---------- */
+  .scroll { overflow-x: auto; border: 1px solid var(--line); background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; min-width: 720px; }
+  th, td { text-align: left; padding: 13px 16px; vertical-align: top; border-bottom: 1px solid var(--line-soft); }
+  thead th { background: var(--surface-2); font-size: 12px; letter-spacing: .04em; font-weight: 600; }
+  thead th.c-tunnel { color: var(--tunnel); border-bottom: 2px solid var(--tunnel); }
+  thead th.c-api { color: var(--api); border-bottom: 2px solid var(--api); }
+  tbody tr:last-child td { border-bottom: none; }
+  td.lane { font-weight: 600; font-size: 13.5px; width: 21%; }
+  td.v { font-size: 13.5px; width: 39.5%; }
+  .locus {
+    display: inline-block; font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px; letter-spacing: .06em; padding: 2px 7px;
+    border-radius: 3px; margin-bottom: 5px;
+  }
+  .locus.server { background: var(--tunnel-soft); color: var(--tunnel); }
+  .locus.browser { background: var(--api-soft); color: var(--api); }
+  .locus.edge { background: var(--surface-2); color: var(--muted); }
+  code {
+    font-family: "IBM Plex Mono", monospace; font-size: 12px;
+    background: var(--surface-2); padding: 1px 5px; border-radius: 3px; color: var(--ink);
+  }
+
+  /* ---------- channels ---------- */
+  .chan { display: grid; grid-template-columns: repeat(auto-fit, minmax(228px, 1fr)); gap: 12px; }
+  .ch { background: var(--surface); border: 1px solid var(--line); padding: 15px 16px 16px; }
+  .ch-h { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+  .ch-n { font-family: "IBM Plex Mono", monospace; font-size: 12px; color: var(--muted); }
+  .ch-t { font-weight: 600; font-size: 14.5px; }
+  .ch-q { font-size: 12.5px; color: var(--muted); margin-bottom: 11px; }
+  .ch-d { font-family: "IBM Plex Mono", monospace; font-size: 11.5px; line-height: 1.75; color: var(--ink); }
+  .tag {
+    display: inline-block; font-size: 10px; letter-spacing: .06em;
+    padding: 1px 6px; border-radius: 3px; margin-left: 6px;
+    font-family: "IBM Plex Sans KR", sans-serif;
+  }
+  .tag.local { background: var(--tunnel-soft); color: var(--tunnel); }
+  .tag.remote { background: var(--warn-soft); color: var(--warn); }
+
+  /* ---------- callout ---------- */
+  .call { border: 1px solid var(--line); border-left: 3px solid var(--warn); background: var(--surface); padding: 22px 24px; }
+  .call h3 { font-family: "Noto Serif KR", serif; font-size: 17px; margin: 0 0 10px; font-weight: 600; }
+  .call p { margin: 0 0 12px; font-size: 14px; }
+  .call p:last-child { margin-bottom: 0; }
+  .verdict { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin: 16px 0; }
+  .vc { background: var(--surface-2); padding: 13px 15px; border-radius: 4px; }
+  .vc-t { font-weight: 600; font-size: 13.5px; margin-bottom: 4px; }
+  .vc-t.t { color: var(--tunnel); }
+  .vc-t.a { color: var(--api); }
+  .vc-d { font-size: 12.5px; color: var(--muted); line-height: 1.6; }
+
+  .note { font-size: 13px; color: var(--muted); margin-top: 14px; }
+  .note b { color: var(--ink); font-weight: 600; }
+
+  footer {
+    margin-top: 60px; padding-top: 20px; border-top: 1px solid var(--line);
+    font-family: "IBM Plex Mono", monospace; font-size: 11.5px; color: var(--muted);
+    line-height: 1.9;
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <p class="eyebrow">정책 아이디어 평가 시스템 · 외부 배포</p>
+    <h1>대화와 선례 검증, 두 갈래 배포 구조</h1>
+    <p class="thesis">
+      평가 모델은 두 배포에서 <b>완전히 동일하다.</b> 12문답도, 이원 채점도, 네 통로의
+      선례 검증도 같은 규칙을 쓴다. 갈라지는 것은 하나뿐이다 —
+      <b>누가 오케스트레이션을 하고, Claude를 어떻게 부르는가.</b>
+    </p>
+  </header>
+
+  <section>
+    <h2>공통 평가 모델</h2>
+    <p class="sub">두 배포가 공유하는 네 단계. 프롬프트·채점 기준·판정 규칙이 동일하다.</p>
+    <div class="pipe">
+      <div class="stage">
+        <span class="stage-n">01</span>
+        <span class="stage-t">소크라테스 문답</span>
+        <span class="stage-d">12문 5단계 · 명료화 2 · 독창성 3 · 실용성 3 · 수용태도 3 · 자기평가 1</span>
+      </div>
+      <div class="stage">
+        <span class="stage-n">02</span>
+        <span class="stage-t">이원 채점</span>
+        <span class="stage-d">체크리스트 30항목 + 종합판단. 두 채점이 3점 이상 벌어지면 낮은 쪽 채택</span>
+      </div>
+      <div class="stage">
+        <span class="stage-n">03</span>
+        <span class="stage-t">선례 검증</span>
+        <span class="stage-d">명세 추출 → 4통로 조회 → 근거 등급 A/B 부착 → 4구간 밴드 판정</span>
+      </div>
+      <div class="stage">
+        <span class="stage-n">04</span>
+        <span class="stage-t">산출</span>
+        <span class="stage-d">5문장 결과 + 2×2 위치 판정. 새 모델 호출 없이 기존 결과를 재조립</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>실행 위치의 분기</h2>
+    <p class="sub">
+      같은 단계를 누가 실행하는가. 터널판은 서버가 전부 처리하고, API판은 브라우저가
+      오케스트레이션한다.
+    </p>
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>단계</th>
+            <th class="c-tunnel">터널판 &nbsp;— 연구용</th>
+            <th class="c-api">API판 &nbsp;— 공개용</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="lane">Claude 호출</td>
+            <td class="v">
+              <span class="locus server">CLI</span><br>
+              <code>claude -p</code> 를 서브프로세스로 실행. Claude Code 설치 필요
+            </td>
+            <td class="v">
+              <span class="locus edge">서버리스 프록시</span><br>
+              브라우저 → <code>/api/claude</code> → <code>api.anthropic.com</code>
+            </td>
+          </tr>
+          <tr>
+            <td class="lane">인증</td>
+            <td class="v">
+              개인 <b>Pro 계정 로그인</b>. API 키 없음
+            </td>
+            <td class="v">
+              <b>사용자 API 키(BYOK)</b>. 브라우저가 보관, 서버 미저장
+            </td>
+          </tr>
+          <tr>
+            <td class="lane">문답 진행</td>
+            <td class="v">
+              <span class="locus server">서버</span><br>
+              FastAPI가 단계를 관리. <code>engine.ask_questioner()</code>
+            </td>
+            <td class="v">
+              <span class="locus browser">브라우저</span><br>
+              JS가 단계를 관리. <code>askQuestioner()</code>
+            </td>
+          </tr>
+          <tr>
+            <td class="lane">채점</td>
+            <td class="v">
+              <span class="locus server">서버</span><br>
+              <code>grade_dual()</code> — 체크리스트·종합판단 순차 호출
+            </td>
+            <td class="v">
+              <span class="locus browser">브라우저</span><br>
+              체크리스트를 기준별 3회 <b>병렬</b> 호출 + 종합판단
+            </td>
+          </tr>
+          <tr>
+            <td class="lane">점수 결합</td>
+            <td class="v">
+              <span class="locus server">서버</span><br>
+              <code>engine._combine()</code>
+            </td>
+            <td class="v">
+              <span class="locus browser">브라우저</span><br>
+              <code>combineScores()</code> — 동일 규칙
+            </td>
+          </tr>
+          <tr>
+            <td class="lane">선례 검증</td>
+            <td class="v">
+              <span class="locus server">서버 · 백그라운드 스레드</span><br>
+              문답 종료 후 비동기 실행, 완료 시 DB 저장
+            </td>
+            <td class="v">
+              <span class="locus edge">서버리스</span><br>
+              <code>/api/evaluate</code> 단일 호출. 최대 300초
+            </td>
+          </tr>
+          <tr>
+            <td class="lane">세션 저장</td>
+            <td class="v">
+              <span class="locus server">서버 SQLite</span><br>
+              <code>webapp/sessions.db</code> — 문답·채점 이력 축적
+            </td>
+            <td class="v">
+              <span class="locus browser">브라우저</span><br>
+              <code>localStorage</code> — <b>서버는 무상태</b>
+            </td>
+          </tr>
+          <tr>
+            <td class="lane">접근 통제</td>
+            <td class="v">초대 코드 <code>SOCRATIC_ACCESS_CODE</code></td>
+            <td class="v">API 키 소지 자체가 관문</td>
+          </tr>
+          <tr>
+            <td class="lane">외부 공개</td>
+            <td class="v">cloudflared 터널. 실행할 때마다 주소 변경</td>
+            <td class="v">Vercel 상시 배포. 고정 주소</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>과거 데이터 검증 — 네 통로</h2>
+    <p class="sub">
+      네 소스는 서로 다른 질문에 답한다. 뭉뚱그리면 “없다”는 결론이 무엇에 대한 부재인지
+      알 수 없다. 두 배포 모두 같은 통로를 쓰며, 데이터 위치만 다르다.
+    </p>
+    <div class="chan">
+      <div class="ch">
+        <div class="ch-h"><span class="ch-n">①</span><span class="ch-t">재정</span></div>
+        <div class="ch-q">예산이 붙어 <b>집행</b>되었나</div>
+        <div class="ch-d">
+          세출예산 14,122개 사업<span class="tag local">로컬</span><br>
+          fiscal.json · 최근 5개 시점
+        </div>
+      </div>
+      <div class="ch">
+        <div class="ch-h"><span class="ch-n">②</span><span class="ch-t">정책연구</span></div>
+        <div class="ch-q">연구로 <b>검토</b>되었나</div>
+        <div class="ch-d">
+          KDI 발간물 7,362건<span class="tag local">로컬</span><br>
+          kdi.sqlite · kdinov 2차원 판정
+        </div>
+      </div>
+      <div class="ch">
+        <div class="ch-h"><span class="ch-n">③</span><span class="ch-t">국회 의안</span></div>
+        <div class="ch-q"><b>입법</b>이 시도되었나</div>
+        <div class="ch-d">
+          ALLBILLV2<span class="tag remote">외부 API</span><br>
+          발의·의결현황 · 본문 일부
+        </div>
+      </div>
+      <div class="ch">
+        <div class="ch-h"><span class="ch-n">④</span><span class="ch-t">해외사례</span></div>
+        <div class="ch-q">다른 나라가 <b>시행</b>했나</div>
+        <div class="ch-d">
+          OECD OPSI 1,015건 · 98개국<span class="tag local">로컬</span><br>
+          opsi_policies.db · 자기신고 자료
+        </div>
+      </div>
+    </div>
+    <p class="note">
+      <b>네 통로 중 셋이 로컬이다.</b> 외부로 나가는 통신은 Claude 호출과 국회 의안 조회
+      둘뿐이며, 나머지는 폐쇄망에서도 그대로 작동한다. 터널판은 원본 코퍼스를
+      그대로 두고, API판은 본문을 덜어낸 경량본을 배포에 번들한다.
+    </p>
+  </section>
+
+  <section>
+    <h2>기관 서버 도입 시</h2>
+    <div class="call">
+      <h3>두 배포 모두 그대로는 옮길 수 없다</h3>
+      <div class="verdict">
+        <div class="vc">
+          <div class="vc-t t">터널판의 제약</div>
+          <div class="vc-d">
+            Claude Code CLI에 <b>개인 계정</b>으로 로그인한다. 대화형 로그인이 필요해
+            무인 서버에서 유지하기 어렵고, 과금과 감사 추적이 개인에게 귀속된다.
+          </div>
+        </div>
+        <div class="vc">
+          <div class="vc-t a">API판의 제약</div>
+          <div class="vc-d">
+            <b>이용자마다 자기 키</b>를 넣는 구조다. 기관이 단일 계정으로 비용을
+            관리하고 이용 이력을 남기는 운영 방식과 맞지 않는다.
+          </div>
+        </div>
+      </div>
+      <p>
+        기관 서버에 필요한 것은 <b>제3의 구성</b>이다 — 오케스트레이션과 상태 관리는
+        터널판의 서버 방식을 쓰고, Claude 호출만 API판의 방식으로 바꾸되 키를
+        기관 환경변수에 둔다.
+      </p>
+      <p class="note">
+        구현 범위는 좁다. <code>engine.call_claude()</code>에 분기를 하나 넣어
+        <code>ANTHROPIC_API_KEY</code>가 있으면 API로, 없으면 기존 CLI로 가게 하면
+        <b>연구용 사용을 전혀 건드리지 않고</b> 서버 구성이 가능해진다.
+      </p>
+    </div>
+  </section>
+
+  <footer>
+    터널판 &nbsp;webapp/app.py · socratic/engine.py · webapp/static/policy.html<br>
+    API판 &nbsp;&nbsp;&nbsp;web/index.html · web/api/claude.py · web/api/evaluate.py<br>
+    공통 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;socratic/prompts/ · kdinov/
+  </footer>
+
+</div>
