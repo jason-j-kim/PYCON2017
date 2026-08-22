@@ -201,6 +201,34 @@
         <b style="color:var(--accent)">④ 해외사례</b><span>다른 나라 정부가 <b>실제 시행</b>했나 (OECD OPSI 1,015건)</span>
       </div>
 
+      <!-- Claude 연결 상태 — 서버가 어떻게 붙어 있는지 정직하게 밝힌다.
+           방문자의 구독을 '증명'받을 방법은 없다(호출하는 주체가 서버이므로).
+           그래서 증명 칸을 두지 않고, 서버 상태를 보여주고 필요할 때만
+           본인 키로 덮어쓸 수 있게 한다. -->
+      <div id="llm-box" style="margin-top:16px;padding:12px 14px;border:1px solid var(--line);border-radius:8px;background:var(--bg)">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+          <b style="font-size:.9rem">Claude 연결</b>
+          <span id="llm-state" class="tagline" style="margin:0">확인 중…</span>
+        </div>
+        <div id="llm-note" class="note-sub" style="margin-top:6px"></div>
+        <div id="llm-key-row" style="margin-top:10px">
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <input id="llm-key" type="password" autocomplete="off" spellcheck="false"
+                   placeholder="sk-ant-... (선택 — 본인 Claude API 키로 돌리려면)"
+                   style="flex:1 1 260px;border:1px solid var(--line);border-radius:8px;padding:10px 12px;font:inherit">
+            <button class="secondary" id="btn-llm-show" type="button" style="padding:8px 12px">보기</button>
+          </div>
+          <label style="display:flex;align-items:center;gap:6px;margin-top:8px;font-size:.85rem;color:var(--sub)">
+            <input id="llm-key-save" type="checkbox" style="width:auto;margin:0">
+            이 브라우저에 기억
+          </label>
+          <div class="note-sub" style="margin-top:6px">
+            넣으면 <b>이 평가에만</b> 그 키로 호출하고 서버에 저장하지 않습니다.
+            비우면 위에 표시된 서버 설정으로 돌아갑니다. 쓴 만큼 본인 계정에 과금됩니다.
+          </div>
+        </div>
+      </div>
+
       <!-- ③만 외부 API다. 키는 여기서 받는다. 비우면 그 통로만 빼고 진행. -->
       <div id="bill-key-box" style="margin-top:14px;padding:12px 14px;border:1px solid var(--line);border-radius:8px">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
@@ -353,6 +381,27 @@ let busy = false;
 // 서버가 초대 코드를 요구하면 입력란 표시
 fetch("/api/config").then(r => r.json()).then(cfg => {
   if (cfg.access_required) $("access-row").classList.remove("hidden");
+  // ── Claude 연결 상태 ──
+  // 서버가 어떻게 붙어 있는지 그대로 보여준다. 방문자의 구독을 확인할 방법은
+  // 없으므로(호출 주체가 서버) '증명'을 요구하지 않는다.
+  const MODE = {
+    cli: ["구독 로그인으로 작동 중",
+          "이 서버는 운영자의 Claude 구독으로 호출합니다. <b>키를 넣지 않으셔도 됩니다.</b>"],
+    api: ["서버 API 키로 작동 중",
+          "이 서버는 운영자가 설정한 Claude API 키로 호출합니다. <b>키를 넣지 않으셔도 됩니다.</b>"],
+    none: ["미설정 — 키가 필요합니다",
+           "이 서버에는 Claude 구독 로그인도 API 키도 설정돼 있지 않습니다. " +
+           "<b>아래에 본인 API 키를 넣어야</b> 문답을 시작할 수 있습니다."],
+  };
+  const mode = MODE[cfg.auth_mode] ? cfg.auth_mode : "none";
+  $("llm-state").textContent = MODE[mode][0];
+  $("llm-note").innerHTML = MODE[mode][1];
+  llmRequired = (mode === "none");
+  if (llmRequired) {
+    $("llm-box").style.borderColor = "#b3261e";
+    $("llm-key").placeholder = "sk-ant-... (필수)";
+  }
+
   const src = cfg.sources || {};
   if (src.bill_key_preset) {
     // 서버에 기본 키가 있으면 굳이 넣을 필요가 없다.
@@ -362,6 +411,30 @@ fetch("/api/config").then(r => r.json()).then(cfg => {
     $("bill-key-state").textContent = "미설정 — 비우면 ③ 통로만 꺼집니다";
   }
 }).catch(() => {});
+
+// ── Claude 키(선택): 값은 이 브라우저에만 남는다 ─────────────────────
+let llmRequired = false;
+const LLM_STORE = "anthropic_key";
+try {
+  const saved = localStorage.getItem(LLM_STORE);
+  if (saved) { $("llm-key").value = saved; $("llm-key-save").checked = true; }
+} catch (e) { /* 사생활 보호 모드 — 무시 */ }
+
+function llmKey() { return ($("llm-key").value || "").trim(); }
+
+function rememberLlmKey() {
+  try {
+    if ($("llm-key-save").checked && llmKey()) localStorage.setItem(LLM_STORE, llmKey());
+    else localStorage.removeItem(LLM_STORE);
+  } catch (e) { /* 저장 못 해도 이번 세션에는 쓸 수 있다 */ }
+}
+$("llm-key").addEventListener("change", rememberLlmKey);
+$("llm-key-save").addEventListener("change", rememberLlmKey);
+$("btn-llm-show").onclick = () => {
+  const f = $("llm-key");
+  f.type = f.type === "password" ? "text" : "password";
+  $("btn-llm-show").textContent = f.type === "password" ? "보기" : "숨기기";
+};
 
 // ── ③ 의안 키: 값은 이 브라우저에만 남는다(서버 저장 없음) ──────────
 const KEY_STORE = "assembly_key";
@@ -481,6 +554,14 @@ $("btn-start").onclick = async () => {
   const err = $("start-error");
   err.classList.add("hidden");
   if (!idea) { err.textContent = "정책(아이디어)을 입력하세요."; err.classList.remove("hidden"); return; }
+  // 서버에 Claude 설정이 없고 화면에도 키가 없으면, 시작했다가 도중에 죽는다.
+  // 12문답을 다 하고 실패하는 것보다 지금 막는 편이 낫다.
+  if (llmRequired && !llmKey()) {
+    err.textContent = "이 서버에는 Claude 설정이 없습니다. 위 「Claude 연결」에 본인 API 키를 넣어 주세요.";
+    err.classList.remove("hidden");
+    $("llm-key").focus();
+    return;
+  }
   const weights = {
     originality: parseFloat($("w-orig").value),
     practicality: parseFloat($("w-prac").value),
@@ -491,7 +572,7 @@ $("btn-start").onclick = async () => {
   try {
     const data = await api("/api/sessions",
       {idea, weights, profile: "정책", access_code: $("access-code").value.trim(),
-       assembly_key: billKey()});
+       assembly_key: billKey(), anthropic_key: llmKey()});
     sessionId = data.session_id;
     show("view-chat");
     addMsg("a", idea);
@@ -858,7 +939,7 @@ $("btn-adhoc").onclick = async () => {
   try {
     const start = await api("/api/originality/adhoc",
       {transcript: text, access_code: ($("access-code").value || "").trim(),
-       assembly_key: billKey()});
+       assembly_key: billKey(), anthropic_key: llmKey()});
     const sid = start.session_id;
     let settled = false;
     for (let i = 0; i < 60 && !settled; i++) {

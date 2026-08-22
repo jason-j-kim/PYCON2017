@@ -11,6 +11,7 @@ Claude 인증은 둘 중 하나다(engine 이 환경변수 하나로 가른다).
 """
 
 import base64
+import contextlib
 import html
 import io
 import json
@@ -88,6 +89,36 @@ def _drop_session_key(sid):
         _SESSION_KEYS.pop(sid, None)
 
 
+# 방문자가 첫 화면에 넣은 Claude 키. 의안 키와 같은 원칙 —
+# 메모리에만 두고, DB·로그에 남기지 않는다. 다만 문답 12턴 내내 필요하므로
+# 세션이 끝날 때까지 들고 있다(의안 키는 선례 조사 뒤 바로 버린다).
+_SESSION_LLM_KEYS = {}
+
+
+def _put_llm_key(sid, key):
+    key = (key or "").strip().strip('"').strip("'").strip()
+    if key:
+        with _SESSION_KEYS_LOCK:
+            _SESSION_LLM_KEYS[sid] = key
+
+
+def _drop_llm_key(sid):
+    with _SESSION_KEYS_LOCK:
+        _SESSION_LLM_KEYS.pop(sid, None)
+
+
+@contextlib.contextmanager
+def _llm_key_for(sid):
+    """이 블록 안의 Claude 호출에 세션 키를 건다. 없으면 서버 설정을 쓴다."""
+    with _SESSION_KEYS_LOCK:
+        key = _SESSION_LLM_KEYS.get(sid, "")
+    token = engine.set_request_api_key(key)
+    try:
+        yield
+    finally:
+        engine.reset_request_api_key(token)
+
+
 @app.exception_handler(RuntimeError)
 def runtime_error_handler(request: Request, exc: RuntimeError):
     """엔진 오류(claude CLI 미설치/미로그인 등)를 사용자가 읽을 수 있는 메시지로 반환."""
@@ -101,6 +132,8 @@ class CreateRequest(BaseModel):
     profile: str | None = None   # 원본 | 정책 (수정판). 없으면 원본.
     # ③ 국회 의안 키 — 첫 화면에서 넣는다. 비우면 그 통로만 꺼진 채 진행한다.
     assembly_key: str | None = None
+    # Claude 키 — 첫 화면에서 넣는다(선택). 비우면 서버 설정을 쓴다.
+    anthropic_key: str | None = None
 
 
 class AnswerRequest(BaseModel):
@@ -140,17 +173,20 @@ def _ask_and_store(sid, stage_index):
     session = db.get_session(sid)
     if session and session["profile"] == "정책" and name == "originality":
         directive = directive + " " + engine.PRECEDENT_ANCHOR_LINE
-    question = engine.ask_questioner(_transcript_log(sid), directive)
+    with _llm_key_for(sid):            # 방문자가 자기 키를 넣었으면 그 키로
+        question = engine.ask_questioner(_transcript_log(sid), directive)
     db.add_turn(sid, _next_seq(sid), "questioner", label, question)
     return question
 
 
 def _grade_session(sid, weights, profile="원본"):
     """대화 로그를 채점하고 결과를 저장한다."""
-    result = engine.grade("\n\n".join(_transcript_log(sid)), profile)
+    with _llm_key_for(sid):            # 방문자가 자기 키를 넣었으면 그 키로
+        result = engine.grade("\n\n".join(_transcript_log(sid)), profile)
     total = round(engine.weighted_total(result, weights), 2)
     db.save_evaluation(sid, result, total)
     db.set_status(sid, "graded")
+    _drop_llm_key(sid)                 # 채점까지 끝났으면 더 필요 없다
     return _evaluation_payload(result, total, weights, profile)
 
 
@@ -211,8 +247,9 @@ def get_config():
     """첫 화면이 필요로 하는 것만. 키 값 자체는 절대 내보내지 않는다."""
     return {
         "access_required": bool(ACCESS_CODE),
-        # Claude를 API로 부르는지 구독 로그인으로 부르는지(값은 내보내지 않는다)
-        "auth_mode": engine.auth_mode(),
+        # 서버가 Claude에 어떻게 연결돼 있는지. 'api' | 'cli' | 'none'.
+        # 'none' 이면 방문자가 자기 키를 넣어야 한다. 키 값은 내보내지 않는다.
+        "auth_mode": engine.server_auth_mode(),
         "sources": {
             "fiscal": _fiscal_available(),
             "kdi": _kdi_available(),
@@ -243,6 +280,7 @@ def create_session(req: CreateRequest):
 
     sid = db.create_session(idea, weights, profile)
     _put_session_key(sid, req.assembly_key)
+    _put_llm_key(sid, req.anthropic_key)
     db.add_turn(sid, 1, "proposer", None, idea)
     question = _ask_and_store(sid, 0)
     db.update_progress(sid, 0, 1)
@@ -955,6 +993,7 @@ def _run_originality_axis(sid):
     """백그라운드 스레드: 축 B를 돌려 결과를 DB에 저장한다.
     call_claude가 블로킹이므로 asyncio 대신 스레드로 격리한다."""
     try:
+      with _llm_key_for(sid):            # 새 스레드라 여기서 다시 건다
         transcript = "\n\n".join(_transcript_log(sid))
         spec = engine.extract_spec(transcript)          # 명세 1회 추출(재추출 방지)
         fiscal_fn = _fiscal_local_search if _fiscal_available() else None
@@ -978,6 +1017,7 @@ def _run_originality_axis(sid):
         print("originality axis 실패:", e, file=sys.stderr)
     finally:
         _drop_session_key(sid)      # 남의 키를 오래 들고 있지 않는다
+        _drop_llm_key(sid)
 
 
 @app.post("/api/sessions/{sid}/originality")
@@ -1085,6 +1125,7 @@ class AdhocRequest(BaseModel):
     transcript: str
     access_code: Optional[str] = None
     assembly_key: Optional[str] = None
+    anthropic_key: Optional[str] = None
 
 
 @app.post("/api/originality/adhoc")
@@ -1100,6 +1141,7 @@ def start_originality_adhoc(req: AdhocRequest):
         raise HTTPException(429, "오늘 사용 가능한 횟수를 모두 사용했습니다. 내일 다시 시도해 주세요.")
     sid = db.create_session(transcript[:80], dict(engine.DEFAULT_WEIGHTS), "정책")
     _put_session_key(sid, req.assembly_key)
+    _put_llm_key(sid, req.anthropic_key)
     db.add_turn(sid, 1, "proposer", None, transcript)
     db.set_originality_status(sid, "pending")
     threading.Thread(target=_run_originality_axis, args=(sid,), daemon=True).start()

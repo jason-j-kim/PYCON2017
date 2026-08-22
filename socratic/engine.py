@@ -17,6 +17,7 @@ CLI의 내부 우선순위에 기대지 않고 여기서 명시적으로 가른�
 질문자는 점수를 모르고, 채점자는 대화에 참여하지 않고 로그만 본다.
 """
 
+import contextvars
 import json
 import os
 import re
@@ -205,9 +206,39 @@ CLAUDE_TIMEOUT = int(os.environ.get("CLAUDE_TIMEOUT", "300"))
 API_RETRIES = int(os.environ.get("CLAUDE_API_RETRIES", "3"))
 
 
+# 요청·세션 단위로 덮어쓰는 키. 화면에서 자기 키를 넣은 경우에만 채워진다.
+# contextvars 라서 요청/스레드마다 독립이고, 끝나면 자동으로 원래대로 돌아간다.
+_REQ_API_KEY = contextvars.ContextVar("anthropic_api_key", default="")
+
+
+def set_request_api_key(key):
+    """이 요청(또는 스레드)에서만 쓸 키를 건다. 되돌릴 토큰을 준다."""
+    return _REQ_API_KEY.set((key or "").strip())
+
+
+def reset_request_api_key(token):
+    _REQ_API_KEY.reset(token)
+
+
+def effective_api_key():
+    """실제로 쓸 키. 화면 입력이 서버 기본값보다 우선한다."""
+    return _REQ_API_KEY.get() or ANTHROPIC_API_KEY
+
+
+def server_auth_mode():
+    """서버 자체의 기본 방식 — 'api' | 'cli' | 'none'.
+
+    'none' 은 API 키도 없고 claude CLI 도 없는 상태다. 이 경우 방문자가
+    화면에 자기 키를 넣지 않으면 호출이 실패하므로, 첫 화면이 미리 알려야 한다.
+    """
+    if ANTHROPIC_API_KEY:
+        return "api"
+    return "cli" if shutil.which("claude") else "none"
+
+
 def auth_mode():
     """'api' 또는 'cli'. 화면·로그에 어느 쪽으로 도는지 밝히는 데 쓴다."""
-    return "api" if ANTHROPIC_API_KEY else "cli"
+    return "api" if effective_api_key() else "cli"
 
 
 def auth_description():
@@ -219,7 +250,7 @@ def auth_description():
     return "구독 로그인 방식 · claude CLI"
 
 
-def _call_api(prompt, system_text):
+def _call_api(prompt, system_text, api_key):
     """Anthropic Messages API 직접 호출. 표준 라이브러리만 쓴다.
 
     CLI 경로와 같게 '텍스트'를 돌려준다. 도구호출로 JSON을 강제하면 편하지만
@@ -233,7 +264,7 @@ def _call_api(prompt, system_text):
     req = urllib.request.Request(
         f"{ANTHROPIC_BASE_URL}/v1/messages", data=body, method="POST",
         headers={"content-type": "application/json",
-                 "x-api-key": ANTHROPIC_API_KEY,
+                 "x-api-key": api_key,
                  "anthropic-version": "2023-06-01"})
 
     last = ""
@@ -255,8 +286,10 @@ def _call_api(prompt, system_text):
                 continue
             hint = ""
             if e.code == 401:
-                hint = (" (ANTHROPIC_API_KEY 가 올바르지 않습니다. 콘솔에서 키를 "
-                        "다시 확인하거나, 구독 방식으로 쓰려면 이 변수를 지우세요.)")
+                hint = (" (Claude API 키가 올바르지 않습니다. Anthropic 콘솔에서 "
+                        "키를 다시 확인하세요. 화면에 직접 넣으신 키라면 그 칸을 "
+                        "비우고, 서버 설정이라면 ANTHROPIC_API_KEY 를 고치거나 "
+                        "지우면 구독 로그인 방식으로 돌아갑니다.)")
             elif e.code == 429:
                 hint = " (요청 한도를 넘었습니다. 잠시 후 다시 시도하세요.)"
             elif e.code == 400 and "credit" in detail.lower():
@@ -290,8 +323,9 @@ def call_claude(prompt, system_prompt_file):
     (여러 줄 텍스트를 명령줄 인자로 주면 Windows에서 깨진다). API에는 파일을
     읽어 본문으로 넘긴다.
     """
-    if ANTHROPIC_API_KEY:
-        return _call_api(prompt, Path(system_prompt_file).read_text(encoding="utf-8"))
+    key = effective_api_key()
+    if key:
+        return _call_api(prompt, Path(system_prompt_file).read_text(encoding="utf-8"), key)
     return _call_cli(prompt, system_prompt_file)
 
 
