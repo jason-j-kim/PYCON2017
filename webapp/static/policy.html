@@ -390,7 +390,7 @@ fetch("/api/config").then(r => r.json()).then(cfg => {
   // ── Claude 연결 상태 ──
   // 서버가 어떻게 붙어 있는지 그대로 보여준다. 방문자의 구독을 확인할 방법은
   // 없으므로(호출 주체가 서버) '증명'을 요구하지 않는다.
-  const mode = SERVER_MODE_TEXT[cfg.auth_mode] ? cfg.auth_mode : "none";
+  const mode = AUTH_MODES.includes(cfg.auth_mode) ? cfg.auth_mode : "none";
   serverMode = mode;
   if (cfg.build) {                       // 어느 판이 떠 있는지 (캐시 확인용)
     const tag = document.createElement("span");
@@ -445,15 +445,18 @@ fetch("/api/config").then(r => r.json()).then(cfg => {
 let llmRequired = false;
 let experiment = false;
 let serverMode = "none";
-const SERVER_MODE_TEXT = {
-  cli: ["구독 로그인으로 작동 중",
-        "이 서버는 운영자의 Claude 구독으로 호출합니다. <b>키를 넣지 않으셔도 됩니다.</b>"],
-  api: ["서버 API 키로 작동 중",
-        "이 서버는 운영자가 설정한 Claude API 키로 호출합니다. <b>키를 넣지 않으셔도 됩니다.</b>"],
-  none: ["미설정 — 키가 필요합니다",
-         "이 서버에는 Claude 구독 로그인도 API 키도 설정돼 있지 않습니다. " +
-         "<b>아래에 본인 API 키를 넣어야</b> 문답을 시작할 수 있습니다."],
-};
+const AUTH_MODES = ["api", "cli", "none"];
+
+// 규칙은 하나뿐이고 바뀌지 않는다 — API 키가 먼저, 키가 하나도 없을 때만
+// 구독 로그인. 화면은 이 규칙을 말해야 하고, 지금 무엇이 도는지는 그 규칙의
+// 어느 칸에 불이 들어와 있는지로만 보여야 한다. 상태를 규칙인 양 적으면
+// ("구독으로 작동 중 · 키를 넣지 않으셔도 됩니다") 이 서버의 이번 상태를
+// 영구적인 약속으로 읽게 되고, 키를 넣은 다음 화면부터 거짓말이 된다.
+const LADDER = [
+  "이 화면에 넣은 API 키",
+  "서버에 설정된 API 키",
+  "Claude 구독 로그인",
+];
 const LLM_STORE = "anthropic_key";
 try {
   const saved = localStorage.getItem(LLM_STORE);
@@ -480,20 +483,54 @@ function llmKey() {
 function refreshLlmState() {
   if (experiment) return;                       // 실험판은 칸이 없다
   const k = llmKey();
+
+  // 어느 칸이 실제로 쓰이는가 — 위에서부터 있는 것을 쓴다.
+  const active = k ? 0 : (serverMode === "api" ? 1 : (serverMode === "cli" ? 2 : -1));
+
+  const state = [
+    k ? "지금 사용" : "비어 있음",
+    serverMode === "api" ? (active === 1 ? "지금 사용" : "설정됨 · 대기") : "없음",
+    serverMode === "cli" ? (active === 2 ? "지금 사용" : "설정됨 · 대기")
+                         : (serverMode === "api" ? "확인 안 함" : "없음"),
+  ];
   if (k) {
     const shown = k.length > 18 ? k.slice(0, 11) + "…" + k.slice(-4) : "(짧은 값)";
-    $("llm-state").textContent = "이 화면의 키로 호출합니다";
-    $("llm-note").innerHTML =
-      `아래 칸에 넣은 키 <b>${esc(shown)}</b> 로 호출합니다 — ` +
-      "<b>서버 설정보다 우선합니다.</b> 쓴 만큼 그 키의 계정에 과금됩니다. " +
-      "서버 설정으로 돌리려면 칸을 비우세요.";
-    $("llm-box").style.borderColor = "var(--accent)";
-  } else {
-    const m = SERVER_MODE_TEXT[serverMode] || SERVER_MODE_TEXT.none;
-    $("llm-state").textContent = m[0];
-    $("llm-note").innerHTML = m[1];
-    $("llm-box").style.borderColor = (serverMode === "none") ? "#b3261e" : "var(--line)";
+    state[0] = "지금 사용 · " + shown;
   }
+
+  const rows = LADDER.map((label, i) => {
+    const on = (i === active);
+    const dim = (state[i] === "없음" || state[i] === "확인 안 함") ? ";opacity:.55" : "";
+    return '<div style="display:flex;gap:8px;align-items:baseline;padding:2px 0' + dim + '">' +
+           `<span style="width:3.4em;flex:none;font-size:.85em;${on ? "color:var(--accent);font-weight:700" : "opacity:.7"}">` +
+           ["1순위","2순위","3순위"][i] + "</span>" +
+           `<span style="flex:1 1 auto${on ? ";font-weight:700" : ""}">${esc(label)}</span>` +
+           `<span style="flex:none;${on ? "color:var(--accent);font-weight:700" : "opacity:.75"}">` +
+           `${esc(state[i])}</span></div>`;
+  }).join("");
+
+  // 규칙 → 지금 상태 순서로 적는다. 규칙이 먼저다.
+  let tail;
+  if (active === 0) {
+    tail = "쓴 만큼 <b>이 키의 계정</b>에 과금됩니다. 칸을 비우면 아래 칸으로 내려갑니다.";
+  } else if (active === -1) {
+    tail = "<b>쓸 수 있는 것이 하나도 없습니다.</b> 아래에 본인 API 키를 넣어야 문답을 시작할 수 있습니다.";
+  } else {
+    tail = "본인 API 키를 넣으면 <b>그 키가 1순위</b>가 되어 그 키로 호출합니다.";
+  }
+
+  $("llm-state").textContent =
+    active === 0 ? "이 화면의 API 키로 호출 (1순위)" :
+    active === 1 ? "서버 API 키로 호출 (2순위)" :
+    active === 2 ? "API 키 없음 → 구독 로그인으로 호출 (3순위)" :
+                   "미설정 — API 키가 필요합니다";
+  $("llm-note").innerHTML =
+    "<b>API 키가 먼저입니다.</b> 위에서부터 있는 것을 씁니다 — " +
+    "API 키가 하나도 없을 때만 구독 로그인으로 내려갑니다." +
+    `<div style="margin-top:8px">${rows}</div>` +
+    `<div style="margin-top:6px">${tail}</div>`;
+  $("llm-box").style.borderColor =
+    active === 0 ? "var(--accent)" : (active === -1 ? "#b3261e" : "var(--line)");
 }
 
 function rememberLlmKey() {
