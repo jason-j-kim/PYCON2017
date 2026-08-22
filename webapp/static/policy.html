@@ -390,17 +390,8 @@ fetch("/api/config").then(r => r.json()).then(cfg => {
   // ── Claude 연결 상태 ──
   // 서버가 어떻게 붙어 있는지 그대로 보여준다. 방문자의 구독을 확인할 방법은
   // 없으므로(호출 주체가 서버) '증명'을 요구하지 않는다.
-  const MODE = {
-    cli: ["구독 로그인으로 작동 중",
-          "이 서버는 운영자의 Claude 구독으로 호출합니다. <b>키를 넣지 않으셔도 됩니다.</b>"],
-    api: ["서버 API 키로 작동 중",
-          "이 서버는 운영자가 설정한 Claude API 키로 호출합니다. <b>키를 넣지 않으셔도 됩니다.</b>"],
-    none: ["미설정 — 키가 필요합니다",
-           "이 서버에는 Claude 구독 로그인도 API 키도 설정돼 있지 않습니다. " +
-           "<b>아래에 본인 API 키를 넣어야</b> 문답을 시작할 수 있습니다."],
-  };
-  const mode = MODE[cfg.auth_mode] ? cfg.auth_mode : "none";
-  $("llm-state").textContent = MODE[mode][0];
+  const mode = SERVER_MODE_TEXT[cfg.auth_mode] ? cfg.auth_mode : "none";
+  serverMode = mode;
   if (cfg.build) {                       // 어느 판이 떠 있는지 (캐시 확인용)
     const tag = document.createElement("span");
     tag.className = "note-sub";
@@ -408,7 +399,6 @@ fetch("/api/config").then(r => r.json()).then(cfg => {
     tag.textContent = "화면 " + cfg.build;
     $("llm-box").appendChild(tag);
   }
-  $("llm-note").innerHTML = MODE[mode][1];
   llmRequired = (mode === "none");
 
   if (cfg.mode === "experiment") {
@@ -416,6 +406,8 @@ fetch("/api/config").then(r => r.json()).then(cfg => {
     // 하므로 키 입력 자체를 보여주지 않는다.
     experiment = true;
     llmRequired = false;
+    $("llm-key").value = "";               // 개인용 판에서 남은 키를 지운다
+    try { localStorage.removeItem(LLM_STORE); } catch (e) {}
     $("llm-toggle").classList.add("hidden");
     $("llm-key-row").classList.add("hidden");
     $("bill-key-box").classList.add("hidden");
@@ -429,11 +421,14 @@ fetch("/api/config").then(r => r.json()).then(cfg => {
         "설정되지 않았습니다. 운영자에게 알려 주세요.";
       llmRequired = true;
     }
-  } else if (llmRequired) {
-    $("llm-box").style.borderColor = "#b3261e";
-    $("llm-key").placeholder = "sk-ant-... (필수)";
-    $("llm-key-row").classList.remove("hidden");
-    $("llm-toggle").textContent = "접기 (서버 설정 그대로 쓰기)";
+  } else {
+    if (llmRequired) {
+      $("llm-box").style.borderColor = "#b3261e";
+      $("llm-key").placeholder = "sk-ant-... (필수)";
+      $("llm-key-row").classList.remove("hidden");
+      $("llm-toggle").textContent = "접기 (서버 설정 그대로 쓰기)";
+    }
+    refreshLlmState();
   }
 
   const src = cfg.sources || {};
@@ -449,6 +444,16 @@ fetch("/api/config").then(r => r.json()).then(cfg => {
 // ── Claude 키(선택): 값은 이 브라우저에만 남는다 ─────────────────────
 let llmRequired = false;
 let experiment = false;
+let serverMode = "none";
+const SERVER_MODE_TEXT = {
+  cli: ["구독 로그인으로 작동 중",
+        "이 서버는 운영자의 Claude 구독으로 호출합니다. <b>키를 넣지 않으셔도 됩니다.</b>"],
+  api: ["서버 API 키로 작동 중",
+        "이 서버는 운영자가 설정한 Claude API 키로 호출합니다. <b>키를 넣지 않으셔도 됩니다.</b>"],
+  none: ["미설정 — 키가 필요합니다",
+         "이 서버에는 Claude 구독 로그인도 API 키도 설정돼 있지 않습니다. " +
+         "<b>아래에 본인 API 키를 넣어야</b> 문답을 시작할 수 있습니다."],
+};
 const LLM_STORE = "anthropic_key";
 try {
   const saved = localStorage.getItem(LLM_STORE);
@@ -462,7 +467,34 @@ try {
   }
 } catch (e) { /* 사생활 보호 모드 — 무시 */ }
 
-function llmKey() { return ($("llm-key").value || "").trim(); }
+// 실험용 판은 기관 키 하나로만 돈다. 개인용 판을 쓰다 남은 키가 이 브라우저에
+// 남아 있어도 보내지 않는다 — 안 그러면 화면은 "기관 계정" 이라 말하면서
+// 실제로는 참여자 개인 키에 과금되는, 방금 고친 것과 같은 종류의 거짓말이 된다.
+function llmKey() {
+  if (experiment) return "";
+  return ($("llm-key").value || "").trim();
+}
+
+// 화면 설명은 '실제로 쓰일 것'을 말해야 한다. 칸에 키가 있으면 그 키가
+// 서버 설정보다 우선하므로, 서버 상태만 보여주면 거짓말이 된다.
+function refreshLlmState() {
+  if (experiment) return;                       // 실험판은 칸이 없다
+  const k = llmKey();
+  if (k) {
+    const shown = k.length > 18 ? k.slice(0, 11) + "…" + k.slice(-4) : "(짧은 값)";
+    $("llm-state").textContent = "이 화면의 키로 호출합니다";
+    $("llm-note").innerHTML =
+      `아래 칸에 넣은 키 <b>${esc(shown)}</b> 로 호출합니다 — ` +
+      "<b>서버 설정보다 우선합니다.</b> 쓴 만큼 그 키의 계정에 과금됩니다. " +
+      "서버 설정으로 돌리려면 칸을 비우세요.";
+    $("llm-box").style.borderColor = "var(--accent)";
+  } else {
+    const m = SERVER_MODE_TEXT[serverMode] || SERVER_MODE_TEXT.none;
+    $("llm-state").textContent = m[0];
+    $("llm-note").innerHTML = m[1];
+    $("llm-box").style.borderColor = (serverMode === "none") ? "#b3261e" : "var(--line)";
+  }
+}
 
 function rememberLlmKey() {
   try {
@@ -470,12 +502,14 @@ function rememberLlmKey() {
     else localStorage.removeItem(LLM_STORE);
   } catch (e) { /* 저장 못 해도 이번 세션에는 쓸 수 있다 */ }
 }
+$("llm-key").addEventListener("input", refreshLlmState);
 $("llm-key").addEventListener("change", rememberLlmKey);
 $("llm-key-save").addEventListener("change", rememberLlmKey);
 function clearLlmKey() {
   $("llm-key").value = "";
   $("llm-key-save").checked = false;
   try { localStorage.removeItem(LLM_STORE); } catch (e) {}
+  refreshLlmState();
 }
 
 $("llm-toggle").onclick = (e) => {
