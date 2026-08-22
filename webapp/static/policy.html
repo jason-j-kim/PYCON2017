@@ -395,6 +395,13 @@ fetch("/api/config").then(r => r.json()).then(cfg => {
   };
   const mode = MODE[cfg.auth_mode] ? cfg.auth_mode : "none";
   $("llm-state").textContent = MODE[mode][0];
+  if (cfg.build) {                       // 어느 판이 떠 있는지 (캐시 확인용)
+    const tag = document.createElement("span");
+    tag.className = "note-sub";
+    tag.style.cssText = "float:right;opacity:.6";
+    tag.textContent = "화면 " + cfg.build;
+    $("llm-box").appendChild(tag);
+  }
   $("llm-note").innerHTML = MODE[mode][1];
   llmRequired = (mode === "none");
   if (llmRequired) {

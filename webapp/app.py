@@ -43,6 +43,19 @@ except ImportError:  # `python webapp/app.py`로 직접 실행한 경우
 
 STATIC_DIR = Path(__file__).parent / "static"
 
+# 화면을 고쳐도 브라우저가 예전 것을 계속 보여주는 일이 실제로 있었다.
+# 파일 수정 시각을 빌드 표시로 삼고, HTML 은 캐시하지 않게 한다.
+BUILD = max((p.stat().st_mtime for p in STATIC_DIR.glob("*.html")), default=0)
+BUILD_TAG = __import__("datetime").datetime.fromtimestamp(BUILD).strftime("%m-%d %H:%M")
+
+
+def _no_cache(path):
+    """HTML 은 항상 새로 받게 한다. 코퍼스·정적 자원과 달리 자주 바뀐다."""
+    return FileResponse(path, headers={
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+    })
+
 app = FastAPI(title="소크라테스 아이디어 평가")
 db.init()
 
@@ -233,13 +246,13 @@ def index():
     # 터널 배포(SOCRATIC_POLICY_ONLY=1) 시 원본 대신 수정판으로 보낸다.
     if POLICY_ONLY:
         return RedirectResponse(url="/policy")
-    return FileResponse(STATIC_DIR / "index.html")
+    return _no_cache(STATIC_DIR / "index.html")
 
 
 @app.get("/policy")
 def policy():
     """수정판(정책 평가) — 5문장 프레임·점수 범위·강화 A9 채점."""
-    return FileResponse(STATIC_DIR / "policy.html")
+    return _no_cache(STATIC_DIR / "policy.html")
 
 
 @app.get("/api/config")
@@ -247,6 +260,7 @@ def get_config():
     """첫 화면이 필요로 하는 것만. 키 값 자체는 절대 내보내지 않는다."""
     return {
         "access_required": bool(ACCESS_CODE),
+        "build": BUILD_TAG,          # 어느 판이 떠 있는지 화면에서 바로 보인다
         # 서버가 Claude에 어떻게 연결돼 있는지. 'api' | 'cli' | 'none'.
         # 'none' 이면 방문자가 자기 키를 넣어야 한다. 키 값은 내보내지 않는다.
         "auth_mode": engine.server_auth_mode(),
