@@ -225,6 +225,22 @@ def effective_api_key():
     return _REQ_API_KEY.get() or ANTHROPIC_API_KEY
 
 
+def key_source():
+    """이 호출에 쓰인 키가 어디서 왔나 — 오류를 볼 때 이게 없으면 못 고친다."""
+    if _REQ_API_KEY.get():
+        return "화면"
+    return "서버" if ANTHROPIC_API_KEY else ""
+
+
+def _describe_key(key):
+    """어느 키인지 사람이 알아볼 만큼만. 값은 절대 다 보이지 않는다."""
+    masked = f"{key[:11]}…{key[-4:]}" if len(key) > 18 else "(짧은 값)"
+    where = key_source()
+    place = {"화면": "웹 화면에 입력한 키",
+             "서버": "서버 설정(keys.local.bat 또는 환경변수)의 키"}.get(where, "키")
+    return f"{place} {masked}"
+
+
 def server_auth_mode():
     """서버 자체의 기본 방식 — 'api' | 'cli' | 'none'.
 
@@ -261,6 +277,7 @@ def _call_api(prompt, system_text, api_key):
         "system": system_text,
         "messages": [{"role": "user", "content": prompt}],
     }).encode("utf-8")
+    who = _describe_key(api_key)
     req = urllib.request.Request(
         f"{ANTHROPIC_BASE_URL}/v1/messages", data=body, method="POST",
         headers={"content-type": "application/json",
@@ -286,10 +303,12 @@ def _call_api(prompt, system_text, api_key):
                 continue
             hint = ""
             if e.code == 401:
-                hint = (" (Claude API 키가 올바르지 않습니다. Anthropic 콘솔에서 "
-                        "키를 다시 확인하세요. 화면에 직접 넣으신 키라면 그 칸을 "
-                        "비우고, 서버 설정이라면 ANTHROPIC_API_KEY 를 고치거나 "
-                        "지우면 구독 로그인 방식으로 돌아갑니다.)")
+                extra = ("웹 첫 화면 「Claude 연결」 칸을 비우면 서버 설정으로 "
+                         "돌아갑니다." if key_source() == "화면" else
+                         "keys.local.bat 을 지우고 2_실행 을 다시 켜면 키를 다시 "
+                         "물어봅니다.")
+                hint = (f" (거부된 것은 «{who}» 입니다. Anthropic 콘솔에서 이 키가 "
+                        f"살아 있는지, 잔액과 사용 한도가 남았는지 확인하세요. {extra})")
             elif e.code == 429:
                 hint = " (요청 한도를 넘었습니다. 잠시 후 다시 시도하세요.)"
             elif e.code == 400 and "credit" in detail.lower():
