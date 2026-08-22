@@ -211,7 +211,11 @@
           <span id="llm-state" class="tagline" style="margin:0">확인 중…</span>
         </div>
         <div id="llm-note" class="note-sub" style="margin-top:6px"></div>
-        <div id="llm-key-row" style="margin-top:10px">
+        <!-- 서버가 이미 잘 돌고 있으면 입력칸을 접어 둔다. 빈칸을 눈앞에 두면
+             넣어 보게 되고, 잘못된 키 하나가 멀쩡한 구독 동작을 깨뜨린다. -->
+        <a id="llm-toggle" href="#" class="note-sub"
+           style="display:inline-block;margin-top:8px;color:var(--accent)">본인 API 키로 돌리기</a>
+        <div id="llm-key-row" class="hidden" style="margin-top:10px">
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <input id="llm-key" type="password" autocomplete="off" spellcheck="false"
                    placeholder="sk-ant-... (선택 — 본인 Claude API 키로 돌리려면)"
@@ -224,8 +228,10 @@
           </label>
           <div class="note-sub" style="margin-top:6px">
             넣으면 <b>이 평가에만</b> 그 키로 호출하고 서버에 저장하지 않습니다.
-            비우면 위에 표시된 서버 설정으로 돌아갑니다. 쓴 만큼 본인 계정에 과금됩니다.
+            <b>비우면 위에 표시된 서버 설정으로 돌아갑니다.</b> 쓴 만큼 본인 계정에 과금됩니다.
           </div>
+          <button class="secondary" id="btn-llm-clear" type="button"
+                  style="padding:6px 12px;margin-top:8px">비우고 서버 설정으로</button>
         </div>
       </div>
 
@@ -424,7 +430,14 @@ let llmRequired = false;
 const LLM_STORE = "anthropic_key";
 try {
   const saved = localStorage.getItem(LLM_STORE);
-  if (saved) { $("llm-key").value = saved; $("llm-key-save").checked = true; }
+  if (saved) {
+    // 저장해 둔 키가 있으면 칸을 펴서 보여 준다 — 숨은 채로 쓰이면
+    // "구독으로 도는 줄 알았는데 왜 401이지" 가 된다.
+    $("llm-key").value = saved;
+    $("llm-key-save").checked = true;
+    $("llm-key-row").classList.remove("hidden");
+    $("llm-toggle").textContent = "접기 (서버 설정 그대로 쓰기)";
+  }
 } catch (e) { /* 사생활 보호 모드 — 무시 */ }
 
 function llmKey() { return ($("llm-key").value || "").trim(); }
@@ -437,6 +450,28 @@ function rememberLlmKey() {
 }
 $("llm-key").addEventListener("change", rememberLlmKey);
 $("llm-key-save").addEventListener("change", rememberLlmKey);
+function clearLlmKey() {
+  $("llm-key").value = "";
+  $("llm-key-save").checked = false;
+  try { localStorage.removeItem(LLM_STORE); } catch (e) {}
+}
+
+$("llm-toggle").onclick = (e) => {
+  e.preventDefault();
+  const row = $("llm-key-row");
+  const open = row.classList.toggle("hidden") === false;
+  $("llm-toggle").textContent = open ? "접기 (서버 설정 그대로 쓰기)"
+                                     : "본인 API 키로 돌리기";
+  if (!open) clearLlmKey();          // 접으면 확실히 비운다
+  else $("llm-key").focus();
+};
+
+$("btn-llm-clear").onclick = () => {
+  clearLlmKey();
+  $("llm-key-row").classList.add("hidden");
+  $("llm-toggle").textContent = "본인 API 키로 돌리기";
+};
+
 $("btn-llm-show").onclick = () => {
   const f = $("llm-key");
   f.type = f.type === "password" ? "text" : "password";
