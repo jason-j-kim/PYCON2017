@@ -691,12 +691,45 @@ function setProgress(p) {
     `질문 ${p.question_no}/${p.questions_in_stage} · 단계 ${p.stage_index + 1}/${p.total_stages}`;
 }
 
+// fetch 가 통째로 실패하면 브라우저는 "Failed to fetch" 만 던진다. 서버가
+// 꺼진 것인지, 요청만 끊긴 것인지, 망이 막힌 것인지 구별해 주지 않는다.
+// 그대로 화면에 내밀면 읽는 사람이 할 수 있는 일이 없다. 그래서 서버에
+// 한 번 더 물어보고 갈라서 말한다.
+async function diagnoseFetch() {
+  let alive = false;
+  try {
+    const r = await fetch("/api/config", {cache: "no-store"});
+    alive = r.ok;
+  } catch (e) { /* 이것마저 실패하면 서버가 없는 것이다 */ }
+
+  const tunnel = location.hostname.endsWith("trycloudflare.com");
+  if (alive) {
+    return "요청이 도중에 끊겼습니다 — 서버는 살아 있습니다. " +
+           "첫 질문을 만드는 데 30초에서 2분쯤 걸리는데 그 사이 연결이 " +
+           "끊긴 것입니다. 다시 눌러 보세요. " +
+           (tunnel ? "터널이 끊겼을 수 있습니다 — 3_터널.bat 창도 확인하세요. "
+                   : "") +
+           "같은 일이 반복되면 2_실행.bat 창에 찍힌 오류를 봐 주세요.";
+  }
+  return "서버에 닿지 못했습니다 — Claude 나 키 문제가 아닙니다. " +
+         (tunnel
+           ? "3_터널.bat 이나 2_실행.bat 창이 닫힌 것 같습니다. 둘 다 켜져 있어야 합니다."
+           : "2_실행.bat 창이 닫혔거나 서버가 멈춘 것 같습니다.") +
+         " 그 창을 다시 켠 뒤 이 화면을 새로고침(F5)하세요. " +
+         "창이 켜져 있는데도 이 메시지가 나오면 그 창에 찍힌 마지막 줄을 봐 주세요.";
+}
+
 async function api(path, body) {
-  const res = await fetch(path, {
-    method: body === undefined ? "GET" : "POST",
-    headers: {"Content-Type": "application/json"},
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
+  let res;
+  try {
+    res = await fetch(path, {
+      method: body === undefined ? "GET" : "POST",
+      headers: {"Content-Type": "application/json"},
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch (e) {
+    throw new Error(await diagnoseFetch());
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.detail || `요청 실패 (${res.status})`);
   return data;
