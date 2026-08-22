@@ -730,7 +730,35 @@ class LookupRequest(BaseModel):
 
 @app.post("/api/bill")
 def api_bill(req: LookupRequest):
-    return {"hits": _bill_lookup(req.query.strip(), req.assembly_key)}
+    """첫 화면 [확인] 버튼과 일반 조회가 함께 쓴다.
+
+    키가 거부되면 열린국회정보는 HTTP 200에 오류 본문을 담아 준다. 그대로
+    두면 '조회했는데 0건'과 구분되지 않아 [확인] 이 쓸모없어진다.
+    그래서 원 API를 한 번 직접 두드려 연결·인증을 먼저 가른다."""
+    key = (req.assembly_key or "").strip() or ASSEMBLY_KEY
+    if not key:
+        return {"status": "no_key", "hits": [],
+                "message": "인증키가 없습니다. 비워 두면 ③ 통로는 미실행이 됩니다."}
+
+    params = {"KEY": key, "Type": "json", "pIndex": 1, "pSize": 3,
+              "ERACO": ERACO_TERMS[0], "BILL_NM": req.query.strip() or "국민건강보험법"}
+    try:
+        data = _http_get_data(ALLBILL_BASE + "?" + urllib.parse.urlencode(params))
+    except Exception as e:
+        raise HTTPException(502, f"열린국회정보에 닿지 못했습니다: {e} "
+                                 "(방화벽·인터넷 연결을 확인하세요. 키와는 무관합니다.)")
+    raw = _as_rows(_find_key(data, "row"))
+    if not raw:
+        msg = str(data)
+        for bad in ("INVALID", "인증", "등록되지", "서비스키", "DEADLINE", "LIMITED"):
+            if bad in msg:
+                raise HTTPException(
+                    502, f"키가 거부되었습니다: {msg[:200]} "
+                         "(열린국회정보 open.assembly.go.kr 에서 발급한 키가 맞는지 "
+                         "확인하세요. 공공데이터포털 data.go.kr 키와는 다릅니다.)")
+
+    hits = _bill_lookup(req.query.strip(), key)
+    return {"status": "ok", "raw_rows": len(raw), "hits": hits}
 
 
 # ── 검토(연구) 축: KDI 정책연구 로컬 코퍼스(kdi/kdi_corpus.db) ──

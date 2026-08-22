@@ -470,15 +470,13 @@ $("btn-key-test").onclick = async () => {
   $("btn-key-test").disabled = true;
   msg.textContent = "열린국회정보에 조회 중…";
   try {
-    const r = await postJSON("/api/bill", { query: "국민건강보험법", assembly_key: billKey() });
+    const r = await api("/api/bill", { query: "국민건강보험법", assembly_key: billKey() });
+    // 서버가 연결·인증을 먼저 갈라 준다. 여기까지 왔으면 키는 정상이다.
     const n = (r.hits || []).length;
-    if (n > 0) {
-      msg.innerHTML = `<b style="color:var(--accent)">키 정상</b> — 시험 조회 ${n}건. ③ 통로가 켜집니다.`;
-      rememberKey();
-    } else {
-      msg.innerHTML = '응답은 왔으나 <b>0건</b>입니다. 키가 거부됐거나 망이 막혔을 수 있습니다. ' +
-        '이대로도 진행은 되지만 ③ 통로에서 선례를 못 찾습니다.';
-    }
+    msg.innerHTML = `<b style="color:var(--accent)">키 정상</b> — 열린국회정보 응답 확인` +
+      (n ? ` (시험 조회 ${n}건)` : ` (이 검색어로는 관련 의안 0건)`) +
+      `. ③ 통로가 켜집니다.`;
+    rememberKey();
   } catch (e) {
     msg.innerHTML = "확인 실패: " + esc(e.message || String(e));
   } finally {
