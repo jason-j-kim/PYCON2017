@@ -458,8 +458,20 @@ const LADDER = [
   "Claude 구독 로그인",
 ];
 const LLM_STORE = "anthropic_key";
+
+// ?reset=1 — 저장된 키를 지우고 들어오는 문. 브라우저에 남은 키는 1순위라
+// 서버 쪽을 아무리 정리해도 그것이 먼저 쓰인다. 그런데 화면 밖에서는(배치·
+// 스크립트) 손댈 수 없는 유일한 곳이라, 주소만으로 비울 길을 열어 둔다.
+let resetDone = false;
 try {
-  const saved = localStorage.getItem(LLM_STORE);
+  if (new URLSearchParams(location.search).has("reset")) {
+    localStorage.removeItem(LLM_STORE);
+    resetDone = true;
+  }
+} catch (e) { /* 사생활 보호 모드 — 지울 것도 없다 */ }
+
+try {
+  const saved = resetDone ? null : localStorage.getItem(LLM_STORE);
   if (saved) {
     // 저장해 둔 키가 있으면 칸을 펴서 보여 준다 — 숨은 채로 쓰이면
     // "구독으로 도는 줄 알았는데 왜 401이지" 가 된다.
@@ -524,7 +536,11 @@ function refreshLlmState() {
     active === 1 ? "서버 API 키로 호출 (2순위)" :
     active === 2 ? "API 키 없음 → 구독 로그인으로 호출 (3순위)" :
                    "미설정 — API 키가 필요합니다";
-  $("llm-note").innerHTML =
+  const banner = (resetDone && !k)
+    ? '<div style="margin-bottom:8px;color:var(--good);font-weight:700">' +
+      "이 브라우저에 저장돼 있던 키를 지웠습니다.</div>"
+    : "";
+  $("llm-note").innerHTML = banner +
     "<b>API 키가 먼저입니다.</b> 위에서부터 있는 것을 씁니다 — " +
     "API 키가 하나도 없을 때만 구독 로그인으로 내려갑니다." +
     `<div style="margin-top:8px">${rows}</div>` +

@@ -49,8 +49,8 @@ CODE = [
 CODE += [f"socratic/prompts/{p.name}" for p in sorted((ROOT / "socratic/prompts").glob("*.md"))]
 CODE += [f"kdinov/{p.name}" for p in sorted((ROOT / "kdinov").glob("*.py"))]
 
-LAUNCHERS = ["1_설치.bat", "2_실행.bat", "3_터널.bat",
-             "setup.py", "start.py", "tunnel.py"]
+LAUNCHERS = ["0_제거.bat", "1_설치.bat", "2_실행.bat", "3_터널.bat",
+             "uninstall.py", "setup.py", "start.py", "tunnel.py"]
 
 
 def find(cands):
