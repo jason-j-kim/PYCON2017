@@ -29,6 +29,21 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 DB = HERE / "sessions.db"
 
+# DB 에는 채점기가 낸 날것이 그대로 들어 있고, 화면이 받는 모양은 app 이 그때그때
+# 만들어 준다(기준을 목록으로 펴고, 항목 이름을 붙이고, 5문장·점수범위·근거신뢰도를
+# 계산한다). 보고서가 그 변환을 따로 구현하면 반드시 어긋난다 — 실제로 어긋나서
+# 터졌다. 그래서 화면이 쓰는 함수를 그대로 빌려 쓴다.
+sys.path.insert(0, str(ROOT))       # socratic · kdinov
+_app = None
+
+
+def app_mod():
+    global _app
+    if _app is None:
+        import app                  # webapp/ 은 스크립트 위치라 자동으로 경로에 있다
+        _app = app
+    return _app
+
 CRIT_KO = {"originality": "독창성 — 방어력", "practicality": "실용성",
            "acceptance": "수용태도"}
 FIVE_ORDER = ["who", "problem", "how", "different", "evidence"]
@@ -42,6 +57,15 @@ CH_KO = {"fiscal": "① 재정(집행)", "prism": "② KDI 연구(검토)",
 
 def say(*a):
     print(*a, flush=True)
+
+
+def pct(v):
+    """가중치는 0.35 로 저장되고 화면에는 35 로 보인다. 문서도 화면을 따른다."""
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return str(v)
+    return f"{round(v * 100)}%" if v <= 1 else f"{round(v)}%"
 
 
 def hold():
@@ -80,14 +104,41 @@ def load(sid=None):
     if not row:
         return None
     s = dict(row)
-    ev = c.execute("SELECT result, weighted_total FROM evaluations "
-                   "WHERE session_id = ?", (s["id"],)).fetchone()
-    s["evaluation"] = json.loads(ev["result"]) if ev else None
-    s["weighted_total"] = ev["weighted_total"] if ev else None
-    s["axis_b"] = json.loads(s["originality"]) if s.get("originality") else None
     s["turns"] = [dict(r) for r in c.execute(
         "SELECT seq, role, stage, content FROM turns WHERE session_id = ? "
         "ORDER BY seq", (s["id"],))]
+
+    profile = s.get("profile") or "원본"
+    try:
+        weights = json.loads(s["weights"]) if isinstance(s["weights"], str) else s["weights"]
+    except Exception:
+        weights = None
+
+    ev = c.execute("SELECT result, weighted_total FROM evaluations "
+                   "WHERE session_id = ?", (s["id"],)).fetchone()
+    s["weighted_total"] = ev["weighted_total"] if ev else None
+    s["evaluation"] = None
+    if ev:
+        raw = json.loads(ev["result"])
+        try:
+            s["evaluation"] = app_mod()._evaluation_payload(
+                raw, ev["weighted_total"], weights, profile)
+        except Exception as e:
+            # 변환이 안 되면 채점 자체를 버리지 말고 있는 대로라도 낸다.
+            say(f"  [!] 채점 자료를 화면과 같은 모양으로 바꾸지 못했습니다 — {e!r}")
+            say("      점수와 문답은 그대로 싣고, 기준별 상세는 건너뜁니다.")
+            s["evaluation"] = {"weighted_total": ev["weighted_total"], "criteria": [],
+                               "strengths": raw.get("strengths", []),
+                               "suggestions": raw.get("suggestions", []),
+                               "encouragement": raw.get("encouragement", "")}
+
+    s["axis_b"] = None
+    if s.get("originality"):
+        raw_b = json.loads(s["originality"])
+        try:
+            s["axis_b"] = app_mod()._originality_payload(raw_b)
+        except Exception as e:
+            say(f"  [!] 선례 조사 자료를 바꾸지 못했습니다 — {e!r}")
     return s
 
 
@@ -224,7 +275,7 @@ def build_docx(s, out):
         try:
             w = json.loads(s["weights"]) if isinstance(s["weights"], str) else s["weights"]
             para("가중치 — " + " · ".join(
-                f"{CRIT_KO.get(k, k)} {v}" for k, v in (w or {}).items()), size=9)
+                f"{CRIT_KO.get(k, k)} {pct(v)}" for k, v in (w or {}).items()), size=9)
         except Exception:
             pass
     else:
@@ -245,11 +296,11 @@ def build_docx(s, out):
         para("실질 독창성(선례 조사)은 수행되지 않았습니다.", italic=True, size=9)
 
     # ── 5문장 ──
-    if ev and ev.get("five_lines"):
+    five = (ev or {}).get("five_lines") or {}
+    five_rows = [(FIVE_LABEL[k], five[k]) for k in FIVE_ORDER if five.get(k)]
+    if five_rows:                       # 빈 표를 절로 세우지 않는다
         h("2. 다섯 문장 요약", 1)
-        rows = [(FIVE_LABEL[k], ev["five_lines"][k])
-                for k in FIVE_ORDER if ev["five_lines"].get(k)]
-        table(["항목", "내용"], rows)
+        table(["항목", "내용"], five_rows)
 
     # ── 축 A ──
     if ev and ev.get("criteria"):
@@ -260,7 +311,7 @@ def build_docx(s, out):
         for c in ev["criteria"]:
             gap = abs(c["checklist_total"] - c["holistic_score"])
             h(f"{CRIT_KO.get(c['key'], c['label'])}  —  {c['final']}/10 "
-              f"(가중치 {c['weight']})", 2)
+              f"(가중치 {pct(c['weight'])})", 2)
             para(f"체크리스트 {c['checklist_total']}/10 · 종합판단 {c['holistic_score']}/10 → "
                  + (f"괴리 {gap}점 → 낮은 쪽 채택 {c['final']}" if gap >= 3
                     else f"평균 {c['final']}"), size=9)
