@@ -105,9 +105,13 @@ def step_login():
     if not have("claude"):
         say("      [!] claude 를 찾을 수 없습니다. 명령창을 새로 열고 다시 실행하세요.")
         return False
-    say("      이제 claude 가 실행됩니다.")
-    say("      창이 열리면  /login  을 입력해 본인 Claude 계정(Pro 또는 Max)으로")
-    say("      로그인한 뒤,  /exit  로 나오세요. 한 번만 하면 됩니다.")
+    say("      Enter 를 누르면 이 창에서 claude 가 실행됩니다.")
+    say("      (브라우저나 앱에 열려 있는 Claude 와는 별개입니다 —")
+    say("       방금 설치한 명령줄 도구의 로그인입니다.)")
+    say("")
+    say("      · 로그인 화면이 뜨면 → /login 입력 후 계정 승인, 그다음 /exit")
+    say("      · 평범한 입력창이 뜨면 → 이미 로그인된 것이니 /exit 만 입력")
+    say("        (확인하려면 /status 를 쳐 보세요. 계정이 보이면 된 것입니다.)")
     input("\n      준비되면 Enter... ")
     run(["claude"], shell=(os.name == "nt"))
     return True
