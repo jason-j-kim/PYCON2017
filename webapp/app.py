@@ -47,17 +47,42 @@ ACCESS_CODE = os.environ.get("SOCRATIC_ACCESS_CODE", "").strip()
 MAX_SESSIONS_PER_DAY = int(os.environ.get("SOCRATIC_MAX_SESSIONS_PER_DAY", "30"))
 # 1이면 루트(/)를 /policy로 리다이렉트 → 연구자에게 수정판만 노출.
 POLICY_ONLY = os.environ.get("SOCRATIC_POLICY_ONLY", "").strip() in ("1", "true", "True")
-# 선례 조사 축(축 B) — 공공데이터포털 키 하나로 PRISM·국회 의안을 함께 쓴다.
-# 재정(세출예산)은 API가 아니라 로컬 정적 파일(data/fiscal.json)이라 키가 필요 없다.
+# 선례 조사 축(축 B) — 외부 API는 국회 의안 하나뿐이다.
+# 재정·KDI 연구·해외사례는 폴더 안의 파일을 읽으므로 키가 필요 없다.
 def _clean_key(name):
     """환경변수 키에서 흔한 실수(따옴표·공백·개행)를 제거한다.
     cmd에서 set KEY=\"abc\" 처럼 넣으면 따옴표가 값에 포함되어 400을 유발한다."""
     return os.environ.get(name, "").strip().strip('"').strip("'").strip()
 
 
-DATA_GO_KR_KEY = _clean_key("DATA_GO_KR_KEY")      # PRISM
-# 국회 의안은 열린국회정보(open.assembly.go.kr) 별도 인증키를 쓴다.
+# 국회 의안은 열린국회정보(open.assembly.go.kr) 인증키를 쓴다.
+# 환경변수는 '기본값'일 뿐이다 — 첫 화면에서 넣은 키가 우선한다(세션별).
 ASSEMBLY_KEY = _clean_key("ASSEMBLY_KEY")
+
+# 방문자가 첫 화면에 넣은 키. 세션 하나에만 쓰고 메모리에만 둔다.
+#   · sessions.db 에 저장하지 않는다 — 남의 키를 디스크에 남기지 않기 위해.
+#   · 로그에도 찍지 않는다.
+#   · 선례 조사가 끝나면 지운다.
+_SESSION_KEYS = {}
+_SESSION_KEYS_LOCK = threading.Lock()
+
+
+def _put_session_key(sid, key):
+    key = (key or "").strip().strip('"').strip("'").strip()
+    if key:
+        with _SESSION_KEYS_LOCK:
+            _SESSION_KEYS[sid] = key
+
+
+def _session_key(sid):
+    """이 세션에 쓸 의안 키. 화면 입력이 우선, 없으면 환경변수."""
+    with _SESSION_KEYS_LOCK:
+        return _SESSION_KEYS.get(sid) or ASSEMBLY_KEY
+
+
+def _drop_session_key(sid):
+    with _SESSION_KEYS_LOCK:
+        _SESSION_KEYS.pop(sid, None)
 
 
 @app.exception_handler(RuntimeError)
@@ -71,6 +96,8 @@ class CreateRequest(BaseModel):
     weights: dict | None = None  # {"originality": w1, "practicality": w2, "acceptance": w3}
     access_code: str | None = None
     profile: str | None = None   # 원본 | 정책 (수정판). 없으면 원본.
+    # ③ 국회 의안 키 — 첫 화면에서 넣는다. 비우면 그 통로만 꺼진 채 진행한다.
+    assembly_key: str | None = None
 
 
 class AnswerRequest(BaseModel):
@@ -178,7 +205,17 @@ def policy():
 
 @app.get("/api/config")
 def get_config():
-    return {"access_required": bool(ACCESS_CODE)}
+    """첫 화면이 필요로 하는 것만. 키 값 자체는 절대 내보내지 않는다."""
+    return {
+        "access_required": bool(ACCESS_CODE),
+        "sources": {
+            "fiscal": _fiscal_available(),
+            "kdi": _kdi_available(),
+            "opsi": _opsi_available(),
+            # 서버에 기본 키가 있으면 화면에서 입력을 생략할 수 있다.
+            "bill_key_preset": bool(ASSEMBLY_KEY),
+        },
+    }
 
 
 @app.post("/api/sessions")
@@ -200,6 +237,7 @@ def create_session(req: CreateRequest):
         raise HTTPException(400, "알 수 없는 평가 프로필입니다.")
 
     sid = db.create_session(idea, weights, profile)
+    _put_session_key(sid, req.assembly_key)
     db.add_turn(sid, 1, "proposer", None, idea)
     question = _ask_and_store(sid, 0)
     db.update_progress(sid, 0, 1)
@@ -273,13 +311,11 @@ def get_session(sid: str):
 
 
 # ── 선례 조사 축(축 B) ────────────────────────────────────────────────────
-# 세 소스는 서로 다른 질문에 답한다: 재정(집행)·PRISM(검토)·국회 의안(입법).
-# 재정은 로컬 정적 파일(연 1회 갱신)이라 키가 없다. PRISM은 DATA_GO_KR_KEY로
-# apis.data.go.kr를, 국회 의안은 ASSEMBLY_KEY로 열린국회정보(open.assembly.go.kr,
-# ALLBILLV2)를 호출한다. 실패/키 없음이면 해당 소스를 건너뛰고, 미조회는
-# 미발견으로 처리하지 않는다(profile 비트에서 None → 화면 '-').
-PRISM_BASE = os.environ.get(
-    "PRISM_BASE", "https://apis.data.go.kr/1741000/prism_v2/getResearchList_v2")
+# 네 통로는 서로 다른 질문에 답한다:
+#   재정(집행)·KDI 연구(검토)·국회 의안(입법)·해외 OPSI(시행).
+# 이 중 셋은 로컬 파일이라 키가 없다. 국회 의안만 인증키로 열린국회정보
+# (open.assembly.go.kr, ALLBILLV2)를 호출한다. 키가 없으면 그 통로만 건너뛰고,
+# 미조회는 미발견으로 처리하지 않는다(profile 비트에서 None → 화면 '미실행').
 # 국회 의안: 열린국회정보 '의안정보 통합 API'(ALLBILLV2). ASSEMBLY_KEY를 쓴다.
 # 필수 파라미터: KEY·Type·pIndex·pSize + ERACO(대수). 검색은 BILL_NM(의안명).
 ALLBILL_BASE = os.environ.get(
@@ -488,74 +524,6 @@ def _fiscal_local_search(query):
     return out[:5]
 
 
-# ── PRISM: 정책연구 과제 (API) ──
-# getResearchList_v2의 요청 파라미터는 serviceKey·organ_id·start_date·end_date·
-# numOfRows·pageNo 뿐이다(요청변수 표 확인). 즉 '주제 키워드 검색'을 지원하지 않고
-# 기관코드·날짜로만 거른다. 그래서 날짜 범위로 여러 페이지를 받아 과제명·사업명에
-# 주제어가 있는 것만 로컬에서 골라낸다(최선의 근사; 최근 창 밖 연구는 못 잡을 수 있음).
-PRISM_START = os.environ.get("PRISM_START", "20180101")
-PRISM_END = os.environ.get("PRISM_END", "20261231")
-PRISM_TIMEOUT = int(os.environ.get("PRISM_TIMEOUT", "25"))  # PRISM API가 느려 별도 대기
-PRISM_ROWS = int(os.environ.get("PRISM_ROWS", "100"))       # 페이지당 결과 수
-PRISM_PAGES = int(os.environ.get("PRISM_PAGES", "3"))       # 훑을 페이지 수(로컬 필터)
-
-
-def _decode_key(key):
-    """data.go.kr 키를 raw로 정규화한다. Encoding 키(%2B·%2F·%3D 포함)든 Decoding
-    키든 넣을 수 있게 unquote로 통일 → urlencode가 다시 정확히 인코딩한다."""
-    return urllib.parse.unquote(key or "")
-
-
-def _prism_search_terms(query):
-    """로컬 필터에 쓰는 '구체적 주제어'(일반어 제외). PRISM은 키워드 검색이 없어
-    이 말들이 과제명·사업명에 있는지로만 관련성을 판정한다(진단 스크립트도 이걸 씀)."""
-    toks = _bill_distinct_tokens(query)
-    if not toks:
-        toks = [t for t in (query or "").split() if len(t) >= 2 and t not in _STOPWORDS]
-    return sorted(dict.fromkeys(toks), key=len, reverse=True)[:2]
-
-
-def _prism_lookup(query):
-    if not DATA_GO_KR_KEY:
-        return []
-    q = (query or "").strip()
-    distinct = _bill_distinct_tokens(q) or [
-        t for t in q.split() if len(t) >= 2 and t not in _STOPWORDS]
-    if not distinct:
-        return []
-    out, seen = [], set()
-    for page in range(1, PRISM_PAGES + 1):
-        try:
-            params = {"serviceKey": _decode_key(DATA_GO_KR_KEY), "type": "json",
-                      "start_date": PRISM_START, "end_date": PRISM_END,
-                      "numOfRows": PRISM_ROWS, "pageNo": page}
-            data = _http_get_json(PRISM_BASE + "?" + urllib.parse.urlencode(params),
-                                  timeout=PRISM_TIMEOUT)
-            rows = _as_rows(_find_key(data, "research"))
-            if not rows:
-                if page == 1:
-                    _debug_once("prism", data)
-                break
-            for r in rows:
-                # 확정 필드: research_name(과제명)·organ_name(기관)·research_date(기간).
-                title = _pick(r, "research_name", "biz_name")
-                if not title or title in seen:
-                    continue
-                hay = f"{_pick(r, 'research_name') or ''} {_pick(r, 'biz_name') or ''}"
-                if not any(t in hay for t in distinct):
-                    continue             # 주제어가 과제명에 없으면 무관 → 제외
-                seen.add(title)
-                out.append({"title": title,
-                            "org": _pick(r, "organ_name"),
-                            "period": _pick(r, "research_date")})
-            if len(out) >= 5 or len(rows) < PRISM_ROWS:
-                break                    # 5건 채웠거나 마지막 페이지면 중단
-        except Exception as e:
-            print(f"prism lookup 실패(p{page}):", e, file=sys.stderr)
-            break
-    return out[:5]
-
-
 # ── 국회 의안: 열린국회정보 '의안정보 통합 API'(ALLBILLV2), ASSEMBLY_KEY ──
 # 필수: KEY·Type·pIndex·pSize + ERACO(대수). 검색은 BILL_NM(의안명, 서버측 부분일치).
 # 응답은 열린국회 표준({"ALLBILLV2":[{head},{row}]})이라 row 컨테이너를 꺼낸다.
@@ -642,11 +610,14 @@ def _bill_search_terms(query):
     return sorted(dict.fromkeys(toks), key=len, reverse=True)[:2]
 
 
-def _bill_lookup(query):
+def _bill_lookup(query, key=None):
     """짧은 핵심어로 ALLBILLV2를 대수별 조회해 후보를 모으고, 각 후보에 likms
     제안이유 본문을 붙인 뒤, 원 질의어와 '이름+본문'으로 정밀 필터링한다.
-    (의안명은 법률명이라 제목만으로는 주제를 못 담으므로 본문까지 보고 판정한다.)"""
-    if not ASSEMBLY_KEY:
+    (의안명은 법률명이라 제목만으로는 주제를 못 담으므로 본문까지 보고 판정한다.)
+
+    key: 이 조회에 쓸 인증키. 없으면 환경변수 기본값을 쓴다."""
+    key = (key or ASSEMBLY_KEY or "").strip()
+    if not key:
         return []
     q = (query or "").strip()
     terms = _bill_search_terms(q)
@@ -662,7 +633,7 @@ def _bill_lookup(query):
         for eraco in ERACO_TERMS:
             tries += 1
             try:
-                params = {"KEY": ASSEMBLY_KEY, "Type": "json", "pIndex": 1,
+                params = {"KEY": key, "Type": "json", "pIndex": 1,
                           "pSize": BILL_PSIZE, "ERACO": eraco, "BILL_NM": term}
                 data = _http_get_data(ALLBILL_BASE + "?" + urllib.parse.urlencode(params))
                 rows = _as_rows(_find_key(data, "row"))
@@ -711,22 +682,15 @@ def _bill_lookup(query):
 
 class LookupRequest(BaseModel):
     query: str
-
-
-@app.post("/api/prism")
-def api_prism(req: LookupRequest):
-    return {"hits": _prism_lookup(req.query.strip())}
+    assembly_key: Optional[str] = None
 
 
 @app.post("/api/bill")
 def api_bill(req: LookupRequest):
-    return {"hits": _bill_lookup(req.query.strip())}
+    return {"hits": _bill_lookup(req.query.strip(), req.assembly_key)}
 
 
 # ── 검토(연구) 축: KDI 정책연구 로컬 코퍼스(kdi/kdi_corpus.db) ──
-# PRISM(API)이 불안정해 기본 정지. reports 테이블이 채워지면 KDI가 자동 활성화된다.
-# PRISM을 되살리려면 환경변수 PRISM_ENABLED=1.
-PRISM_ENABLED = os.environ.get("PRISM_ENABLED", "0").strip().lower() in ("1", "true", "yes")
 KDI_DB = ROOT / "kdi" / "kdi_corpus.db"
 
 _KDI_STOP = {"및", "등", "관한", "관련", "대한", "위한", "통한", "그리고", "또는",
@@ -823,7 +787,7 @@ def _kdi_lookup(query):
 
 def _kdi_naive_lookup(query):
     """폴백: KDI reports 코퍼스에서 제목·본문·키워드를 LIKE 검색해 상위 5건.
-    반환 형식은 PRISM과 동일({title, org, period}) + summary."""
+    반환 형식: {title, org, period} + summary."""
     raw = [w.lower() for w in re.findall(r"[0-9A-Za-z가-힣][\w가-힣\-]{1,}", query or "")]
     toks = [t for t in raw if t not in _KDI_STOP and len(t) >= 2] or raw
     if not toks or not KDI_DB.exists():
@@ -989,16 +953,16 @@ def _run_originality_axis(sid):
         transcript = "\n\n".join(_transcript_log(sid))
         spec = engine.extract_spec(transcript)          # 명세 1회 추출(재추출 방지)
         fiscal_fn = _fiscal_local_search if _fiscal_available() else None
-        bill_fn = _bill_lookup if ASSEMBLY_KEY else None
+        # 의안 키는 첫 화면 입력이 우선, 없으면 환경변수. 둘 다 없으면 미실행.
+        akey = _session_key(sid)
+        bill_fn = (lambda q: _bill_lookup(q, akey)) if akey else None
         overseas_fn = _opsi_lookup if _opsi_available() else None
-        # '검토(연구)' 슬롯: KDI 코퍼스가 있으면 kdinov, 없으면 PRISM(플래그 켜졌을 때만).
+        # '검토(연구)' 슬롯 = KDI 코퍼스. 없으면 이 통로는 미실행이다.
         if _kdi_available():
             # kdinov 분해는 전체 아이디어 문장으로 한다(키워드보다 정확). 엔진이 KDI를
             # 정확히 1회 호출하도록 '연구' 질의어를 그 문장 하나로 치환한다.
             spec.setdefault("queries", {})["prism"] = [_kdi_idea_text(spec) or "정책"]
             prism_fn = _kdi_lookup
-        elif PRISM_ENABLED and DATA_GO_KR_KEY:
-            prism_fn = _prism_lookup
         else:
             prism_fn = None
         result = engine.originality_axis(transcript, fiscal_fn, prism_fn, bill_fn,
@@ -1007,6 +971,8 @@ def _run_originality_axis(sid):
     except Exception as e:
         db.set_originality_status(sid, "error")
         print("originality axis 실패:", e, file=sys.stderr)
+    finally:
+        _drop_session_key(sid)      # 남의 키를 오래 들고 있지 않는다
 
 
 @app.post("/api/sessions/{sid}/originality")
@@ -1113,6 +1079,7 @@ def api_extract(req: ExtractRequest):
 class AdhocRequest(BaseModel):
     transcript: str
     access_code: Optional[str] = None
+    assembly_key: Optional[str] = None
 
 
 @app.post("/api/originality/adhoc")
@@ -1127,6 +1094,7 @@ def start_originality_adhoc(req: AdhocRequest):
     if db.count_sessions_today() >= MAX_SESSIONS_PER_DAY:
         raise HTTPException(429, "오늘 사용 가능한 횟수를 모두 사용했습니다. 내일 다시 시도해 주세요.")
     sid = db.create_session(transcript[:80], dict(engine.DEFAULT_WEIGHTS), "정책")
+    _put_session_key(sid, req.assembly_key)
     db.add_turn(sid, 1, "proposer", None, transcript)
     db.set_originality_status(sid, "pending")
     threading.Thread(target=_run_originality_axis, args=(sid,), daemon=True).start()

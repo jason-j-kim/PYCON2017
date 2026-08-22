@@ -6,14 +6,12 @@
 따라 깨진다. 그래서 배치는 `python setup.py` 한 줄만 하고, 나머지는 여기서 한다.
 """
 import os
-import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-KEYS = ROOT / "keys.local.bat"
 
 
 def say(*a):
@@ -47,7 +45,7 @@ def version_of(exe, *args):
 
 # ── 1. 파이썬 패키지 ──────────────────────────────────────────────────
 def step_packages():
-    say("\n[1/4] 파이썬 패키지 설치")
+    say("\n[1/3] 파이썬 패키지 설치")
     say(f"      파이썬 {sys.version.split()[0]}")
     if sys.version_info < (3, 10):
         say("      [!] 3.10 이상이 필요합니다. python.org 에서 새로 설치하세요.")
@@ -68,7 +66,7 @@ def step_packages():
 
 # ── 2. Claude Code ───────────────────────────────────────────────────
 def step_claude_cli():
-    say("\n[2/4] Claude Code 설치")
+    say("\n[2/3] Claude Code 설치")
     if have("claude"):
         say(f"      이미 설치됨 — {version_of('claude', '--version') or 'claude'}")
         return True
@@ -89,7 +87,7 @@ def step_claude_cli():
 
 # ── 3. Claude 로그인 ─────────────────────────────────────────────────
 def step_login():
-    say("\n[3/4] Claude 로그인")
+    say("\n[3/3] Claude 로그인")
     if not have("claude"):
         say("      [!] claude 를 찾을 수 없습니다. 명령창을 새로 열고 다시 실행하세요.")
         return False
@@ -101,63 +99,11 @@ def step_login():
     return True
 
 
-# ── 4. 국회 의안 키 ──────────────────────────────────────────────────
-def read_key():
-    """keys.local.bat 에서 ASSEMBLY_KEY 를 읽는다(배치 문법을 그대로 지원)."""
-    if not KEYS.exists():
-        return None
-    for enc in ("utf-8", "cp949", "latin-1"):
-        try:
-            txt = KEYS.read_text(encoding=enc)
-            break
-        except UnicodeDecodeError:
-            continue
-    else:
-        return None
-    m = re.search(r"^\s*set\s+ASSEMBLY_KEY\s*=\s*(.+?)\s*$", txt,
-                  re.M | re.I)
-    return m.group(1).strip().strip('"').strip("'") if m else None
-
-
-def check_bill(key):
-    """방금 넣은 키로 실제 조회가 되는지 확인한다."""
-    env = dict(os.environ, ASSEMBLY_KEY=key)
-    subprocess.call([sys.executable, str(ROOT / "webapp" / "check_bill.py")],
-                    cwd=str(ROOT), env=env)
-
-
-def step_key():
-    say("\n[4/4] 국회 의안 키 (선택)")
-    existing = read_key()
-    if existing:
-        say(f"      keys.local.bat 에 키가 있습니다 ({existing[:4]}…{existing[-4:]}).")
-        say("      실제로 되는지 확인합니다.")
-        check_bill(existing)
-        say("\n      키를 바꾸려면 keys.local.bat 을 지우고 다시 실행하세요.")
-        return True
-
-    say("      네 통로 중 ③ 국회 의안만 키가 필요합니다.")
-    say("      발급처: https://open.assembly.go.kr  (열린국회정보)")
-    say("      ※ 공공데이터포털(data.go.kr) 키와는 다릅니다.")
-    say("")
-    say("      없거나 나중에 하려면 그냥 Enter 를 누르세요. 나머지 세 통로")
-    say("      (재정·KDI 연구·해외사례)는 키 없이 그대로 작동합니다.")
-    try:
-        key = input("\n      인증키를 붙여넣으세요: ").strip()
-    except EOFError:
-        key = ""
-    if not key:
-        say("\n      건너뜁니다. 나중에 넣으려면 1_설치.bat 을 다시 실행하세요.")
-        return True
-
-    KEYS.write_text(
-        "@echo off\r\n"
-        "REM 이 파일은 1_설치.bat 이 만들었습니다. 남에게 주지 마세요.\r\n"
-        f"set ASSEMBLY_KEY={key}\r\n",
-        encoding="utf-8")
-    say(f"\n      keys.local.bat 을 만들었습니다. 실제로 되는지 확인합니다.")
-    check_bill(key)
-    return True
+# ── 국회 의안 키는 여기서 받지 않는다 ─────────────────────────────────
+# 웹 첫 화면에서 넣는다. 파일을 만들 필요도, 다시 설치할 필요도 없다.
+# (운영자가 서버 기본값을 두고 싶으면 keys.local.bat 에 set ASSEMBLY_KEY=...
+#  를 넣으면 start.py 가 읽는다. 그 경우 첫 화면은 "서버에 이미 설정됨"으로
+#  표시되고 입력을 비워 둬도 된다.)
 
 
 # ── 데이터 확인 ──────────────────────────────────────────────────────
@@ -190,10 +136,12 @@ def main():
         return 1
     if step_claude_cli():
         step_login()
-    step_key()
 
     rule()
     say("  설치가 끝났습니다. 이제 2_실행.bat 을 실행하세요.")
+    say("")
+    say("  ③ 국회 의안 인증키는 웹 첫 화면에서 넣습니다(선택).")
+    say("  비워 두면 그 통로만 빼고 나머지 세 통로로 평가합니다.")
     rule()
     return 0
 

@@ -200,6 +200,32 @@
         <b style="color:var(--accent)">③ 국회 의안</b><span><b>입법</b>이 시도되었나 (발의·의결 현황)</span>
         <b style="color:var(--accent)">④ 해외사례</b><span>다른 나라 정부가 <b>실제 시행</b>했나 (OECD OPSI 1,015건)</span>
       </div>
+
+      <!-- ③만 외부 API다. 키는 여기서 받는다. 비우면 그 통로만 빼고 진행. -->
+      <div id="bill-key-box" style="margin-top:14px;padding:12px 14px;border:1px solid var(--line);border-radius:8px">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+          <label for="bill-key" style="margin:0;font-weight:600">③ 국회 의안 인증키 <span style="font-weight:400;color:var(--sub)">(선택)</span></label>
+          <span id="bill-key-state" class="tagline" style="margin:0"></span>
+        </div>
+        <div class="note-sub" style="margin-top:6px">
+          ①·②·④는 이 폴더 안의 자료를 읽으므로 키가 필요 없습니다.
+          <b>③만 외부 API</b>라 인증키가 필요합니다 —
+          <a href="https://open.assembly.go.kr" target="_blank" rel="noopener">열린국회정보</a>에서 발급합니다.
+          (공공데이터포털 data.go.kr 키와는 다릅니다.)
+        </div>
+        <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+          <input id="bill-key" type="password" autocomplete="off" spellcheck="false"
+                 placeholder="비워 두면 ③ 통로만 빼고 나머지 셋으로 평가합니다"
+                 style="flex:1 1 260px;border:1px solid var(--line);border-radius:8px;padding:10px 12px;font:inherit">
+          <button class="secondary" id="btn-key-show" type="button" style="padding:8px 12px">보기</button>
+          <button class="secondary" id="btn-key-test" type="button" style="padding:8px 12px">확인</button>
+        </div>
+        <label style="display:flex;align-items:center;gap:6px;margin-top:8px;font-size:.85rem;color:var(--sub)">
+          <input id="bill-key-save" type="checkbox" checked style="width:auto;margin:0">
+          이 브라우저에 기억 (서버에 저장되지 않습니다)
+        </label>
+        <div id="bill-key-msg" class="note-sub" style="margin-top:8px"></div>
+      </div>
     </div>
 
     <!-- 평가 기준 (읽기 전용) -->
@@ -327,7 +353,65 @@ let busy = false;
 // 서버가 초대 코드를 요구하면 입력란 표시
 fetch("/api/config").then(r => r.json()).then(cfg => {
   if (cfg.access_required) $("access-row").classList.remove("hidden");
+  const src = cfg.sources || {};
+  if (src.bill_key_preset) {
+    // 서버에 기본 키가 있으면 굳이 넣을 필요가 없다.
+    $("bill-key-state").textContent = "서버에 이미 설정됨 — 비워 두셔도 됩니다";
+    $("bill-key").placeholder = "비워 두면 서버에 설정된 키를 씁니다";
+  } else {
+    $("bill-key-state").textContent = "미설정 — 비우면 ③ 통로만 꺼집니다";
+  }
 }).catch(() => {});
+
+// ── ③ 의안 키: 값은 이 브라우저에만 남는다(서버 저장 없음) ──────────
+const KEY_STORE = "assembly_key";
+try {
+  const saved = localStorage.getItem(KEY_STORE);
+  if (saved) $("bill-key").value = saved;
+} catch (e) { /* 사생활 보호 모드 등 — 무시하고 빈 칸으로 */ }
+
+function billKey() { return ($("bill-key").value || "").trim(); }
+
+function rememberKey() {
+  try {
+    if ($("bill-key-save").checked && billKey()) localStorage.setItem(KEY_STORE, billKey());
+    else localStorage.removeItem(KEY_STORE);
+  } catch (e) { /* 저장 못 해도 이번 세션에는 쓸 수 있다 */ }
+}
+$("bill-key").addEventListener("change", rememberKey);
+$("bill-key-save").addEventListener("change", rememberKey);
+
+$("btn-key-show").onclick = () => {
+  const f = $("bill-key");
+  f.type = f.type === "password" ? "text" : "password";
+  $("btn-key-show").textContent = f.type === "password" ? "보기" : "숨기기";
+};
+
+$("btn-key-test").onclick = async () => {
+  const msg = $("bill-key-msg");
+  if (!billKey()) {
+    msg.innerHTML = '키가 비어 있습니다. 이대로 진행하면 <b>③ 통로는 미실행</b>이 되고, ' +
+      '판정기는 그것을 “선례 없음”의 근거로 쓰지 않습니다.';
+    return;
+  }
+  $("btn-key-test").disabled = true;
+  msg.textContent = "열린국회정보에 조회 중…";
+  try {
+    const r = await postJSON("/api/bill", { query: "국민건강보험법", assembly_key: billKey() });
+    const n = (r.hits || []).length;
+    if (n > 0) {
+      msg.innerHTML = `<b style="color:var(--accent)">키 정상</b> — 시험 조회 ${n}건. ③ 통로가 켜집니다.`;
+      rememberKey();
+    } else {
+      msg.innerHTML = '응답은 왔으나 <b>0건</b>입니다. 키가 거부됐거나 망이 막혔을 수 있습니다. ' +
+        '이대로도 진행은 되지만 ③ 통로에서 선례를 못 찾습니다.';
+    }
+  } catch (e) {
+    msg.innerHTML = "확인 실패: " + esc(e.message || String(e));
+  } finally {
+    $("btn-key-test").disabled = false;
+  }
+};
 
 function show(view) {
   for (const v of ["view-start", "view-chat", "view-result"])
@@ -406,7 +490,8 @@ $("btn-start").onclick = async () => {
   $("btn-start").textContent = "첫 질문 생성 중…";
   try {
     const data = await api("/api/sessions",
-      {idea, weights, profile: "정책", access_code: $("access-code").value.trim()});
+      {idea, weights, profile: "정책", access_code: $("access-code").value.trim(),
+       assembly_key: billKey()});
     sessionId = data.session_id;
     show("view-chat");
     addMsg("a", idea);
@@ -772,7 +857,8 @@ $("btn-adhoc").onclick = async () => {
   window.__lastTotal = 0;
   try {
     const start = await api("/api/originality/adhoc",
-      {transcript: text, access_code: ($("access-code").value || "").trim()});
+      {transcript: text, access_code: ($("access-code").value || "").trim(),
+       assembly_key: billKey()});
     const sid = start.session_id;
     let settled = false;
     for (let i = 0; i < 60 && !settled; i++) {
