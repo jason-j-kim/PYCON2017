@@ -43,6 +43,18 @@ except ImportError:  # `python webapp/app.py`로 직접 실행한 경우
 
 STATIC_DIR = Path(__file__).parent / "static"
 
+
+def _read_mode():
+    """experiment: 기관 키로 운영(참여자는 키를 넣지 않는다) · personal: 각자."""
+    try:
+        m = (ROOT / "mode.txt").read_text(encoding="utf-8").strip().lower()
+        return m if m in ("experiment", "personal") else "personal"
+    except Exception:
+        return "personal"
+
+
+DEPLOY_MODE = _read_mode()
+
 # 화면을 고쳐도 브라우저가 예전 것을 계속 보여주는 일이 실제로 있었다.
 # 파일 수정 시각을 빌드 표시로 삼고, HTML 은 캐시하지 않게 한다.
 BUILD = max((p.stat().st_mtime for p in STATIC_DIR.glob("*.html")), default=0)
@@ -260,6 +272,7 @@ def get_config():
     """첫 화면이 필요로 하는 것만. 키 값 자체는 절대 내보내지 않는다."""
     return {
         "access_required": bool(ACCESS_CODE),
+        "mode": DEPLOY_MODE,         # experiment면 화면에서 키를 받지 않는다
         "build": BUILD_TAG,          # 어느 판이 떠 있는지 화면에서 바로 보인다
         # 서버가 Claude에 어떻게 연결돼 있는지. 'api' | 'cli' | 'none'.
         # 'none' 이면 방문자가 자기 키를 넣어야 한다. 키 값은 내보내지 않는다.

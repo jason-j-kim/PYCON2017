@@ -24,6 +24,18 @@ KEYS = ROOT / "keys.local.bat"
 CONSOLE = "https://console.anthropic.com/settings/keys"
 NODE_DL = "https://nodejs.org/ko/download"
 
+# ── 배포 모드 ─────────────────────────────────────────────────────────
+# experiment : 기관이 키 하나로 운영. 참여자는 초대 코드만 넣는다.
+# personal   : 각자 자기 API 키 또는 Claude 구독으로 쓴다.
+def read_mode():
+    f = ROOT / "mode.txt"
+    try:
+        m = f.read_text(encoding="utf-8").strip().lower()
+        return m if m in ("experiment", "personal") else "personal"
+    except Exception:
+        return "personal"
+
+
 
 def say(*a):
     print(*a, flush=True)
@@ -200,6 +212,73 @@ def step_claude_code():
     return True
 
 
+# ── 실험용: 운영자가 여기서 전부 정한다 ──────────────────────────────
+def step_experiment_setup():
+    """기관 키 + 초대 코드 + (선택) 의안 키. 참여자는 아무것도 넣지 않는다."""
+    say("\n[운영 설정] 이 판은 기관이 키 하나로 운영합니다.")
+    say("      여기서 정한 것으로 참여자 전원이 평가합니다.")
+    say("      참여자는 초대 코드만 넣으면 됩니다.")
+
+    cur = read_keys()
+
+    # 1) Anthropic API 키 — 필수
+    key = cur.get("ANTHROPIC_API_KEY", "")
+    if key:
+        say(f"\n  기존 키 확인 중… ({mask(key)})")
+        ok, msg = verify_api_key(key)
+        say(f"  {'✔' if ok else '✗'} {msg}")
+        if not ok:
+            key = ""
+    if not key:
+        say("")
+        say("  ① Anthropic API 키 (필수)")
+        say(f"     발급: {CONSOLE}   (sk-ant- 로 시작)")
+        say("     참여자 전원의 호출이 이 키로 과금됩니다.")
+        say("     콘솔에서 이 키에 사용 한도를 걸어 두시길 권합니다.")
+        try:
+            import webbrowser
+            webbrowser.open(CONSOLE)
+        except Exception:
+            pass
+        for _ in range(3):
+            k = ask("\n     키를 붙여넣으세요: ")
+            if not k:
+                say("     [!] 이 판은 키가 없으면 참여자가 평가를 시작할 수 없습니다.")
+                break
+            if not k.startswith("sk-ant-"):
+                say("     [!] sk-ant- 로 시작해야 합니다.")
+                continue
+            say("     확인 중…")
+            ok, msg = verify_api_key(k)
+            say(f"     {'✔' if ok else '✗'} {msg}")
+            if ok:
+                key = k
+                break
+
+    # 2) 초대 코드 — 참여자에게 알려 줄 값
+    code = cur.get("SOCRATIC_ACCESS_CODE", "")
+    say("")
+    say("  ② 초대 코드 (참여자에게 알려 줄 값)")
+    new_code = ask(f"     코드 [{code or 'kdi2026'}]: ") or code or "kdi2026"
+
+    # 3) 국회 의안 키 — 선택
+    say("")
+    say("  ③ 국회 의안 인증키 (선택 — 없으면 그 통로만 꺼집니다)")
+    say("     발급: https://open.assembly.go.kr")
+    asm = ask(f"     키 [{'설정됨' if cur.get('ASSEMBLY_KEY') else '없음'}]: ") \
+        or cur.get("ASSEMBLY_KEY", "")
+
+    write_keys({"ANTHROPIC_API_KEY": key,
+                "SOCRATIC_ACCESS_CODE": new_code,
+                "ASSEMBLY_KEY": asm})
+    say("")
+    say(f"  저장했습니다 — keys.local.bat")
+    say(f"     Claude    : {'API 키 ' + mask(key) if key else '[!] 미설정'}")
+    say(f"     초대 코드 : {new_code}")
+    say(f"     국회 의안 : {'설정됨' if asm else '없음 (그 통로만 꺼짐)'}")
+    return bool(key)
+
+
 # ── 마무리 점검 ──────────────────────────────────────────────────────
 def step_check():
     say("\n[점검] 평가에 쓰는 자료")
@@ -223,21 +302,33 @@ def main():
         say("  파이썬 패키지 설치에서 멈췄습니다. 위 안내를 먼저 처리하세요.")
         rule()
         return 1
-    step_claude_code()
+
+    mode = read_mode()
+    ok = True
+    if mode == "experiment":
+        ok = step_experiment_setup()
+    else:
+        step_claude_code()
     step_check()
 
     rule()
-    say("  설치가 끝났습니다. 이제 2_실행.bat 을 실행하세요.")
-    say("")
-    say("  Claude 연결은 여기서 정하지 않습니다 — 실행할 때 정합니다.")
-    say("  2_실행.bat 이 처음 한 번 물어봅니다.")
-    say("")
-    say("     · Anthropic API 키를 붙여넣거나")
-    say("     · 그냥 Enter 를 눌러 Claude 구독 로그인을 쓰거나")
-    say("")
-    say("  실험하는 분이 직접 자기 키를 넣으시면 됩니다.")
+    if mode == "experiment":
+        if ok:
+            say("  설치가 끝났습니다. 이제 2_실행.bat 을 실행하세요.")
+            say("  참여자에게는 주소와 초대 코드만 알려 주면 됩니다.")
+        else:
+            say("  [!] Anthropic API 키가 없어 아직 쓸 수 없습니다.")
+            say("      1_설치.bat 을 다시 실행해 키를 넣으세요.")
+    else:
+        say("  설치가 끝났습니다. 이제 2_실행.bat 을 실행하세요.")
+        say("")
+        say("  Claude 연결은 여기서 정하지 않습니다 — 실행할 때 정합니다.")
+        say("  2_실행.bat 이 처음 한 번 물어봅니다.")
+        say("")
+        say("     · Anthropic API 키를 붙여넣거나")
+        say("     · 그냥 Enter 를 눌러 Claude 구독 로그인을 쓰거나")
     rule()
-    return 0
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":

@@ -40,6 +40,15 @@ def say(*a):
 CONSOLE = "https://console.anthropic.com/settings/keys"
 
 
+def read_mode():
+    """experiment: 기관 키로 운영 · personal: 각자 키/구독."""
+    try:
+        m = (ROOT / "mode.txt").read_text(encoding="utf-8").strip().lower()
+        return m if m in ("experiment", "personal") else "personal"
+    except Exception:
+        return "personal"
+
+
 def ask(prompt):
     try:
         return input(prompt).strip()
@@ -254,12 +263,23 @@ def main():
     say("  정책 아이디어 평가 시스템 — 서버")
     say("=" * 62)
 
-    # 연결이 하나도 없으면 여기서 묻는다(실행하는 사람 = 실험하는 사람).
-    if not os.environ.get("ANTHROPIC_API_KEY") and not login_ok():
+    mode = read_mode()
+    if mode == "experiment":
+        # 기관이 설치 때 정해 둔다. 여기서 묻지 않는다.
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            say("")
+            say("  [!] 기관 API 키가 설정돼 있지 않습니다.")
+            say("      1_설치.bat 을 실행해 운영 설정을 마치세요.")
+            say("      (참여자는 초대 코드만 넣으면 되는 판입니다.)")
+            say("")
+    elif not os.environ.get("ANTHROPIC_API_KEY") and not login_ok():
+        # 실행하는 사람 = 실험하는 사람. 여기서 정한다.
         choose_connection()
 
     free_port()
 
+    say(f"  판       : " + ("실험용 (기관 키 · 참여자는 초대 코드만)"
+                            if mode == "experiment" else "개인용 (각자 키 또는 구독)"))
     say(f"  초대 코드 : {os.environ['SOCRATIC_ACCESS_CODE']}")
     say(f"  주소      : {URL}")
     say(f"  Claude    : {auth_line()}")
