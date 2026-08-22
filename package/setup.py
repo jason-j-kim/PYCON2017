@@ -72,8 +72,22 @@ def step_claude_cli():
         return True
     node = version_of("node", "--version")
     if not node:
-        say("      [!] Node.js 가 없습니다. nodejs.org 에서 18 이상을 설치한 뒤")
-        say("          1_설치.bat 을 다시 실행하세요.")
+        say("      [!] Node.js 가 없습니다. Claude Code 설치에 필요합니다.")
+        say("")
+        say("      1) 아래 주소에서 Windows Installer (.msi) LTS 를 받으세요.")
+        say("         https://nodejs.org/ko/download")
+        say("      2) 설치는 [다음]만 계속 누르면 됩니다. 옵션을 바꾸지 마세요.")
+        say("      3) 설치가 끝나면 이 창을 닫고 1_설치.bat 을 다시 누르세요.")
+        say("         (창을 새로 열어야 설치된 경로를 인식합니다.)")
+        say("")
+        say("      Node.js 는 Claude Code 를 내려받는 데만 쓰입니다.")
+        say("      평가 시스템 자체는 파이썬으로 돕니다.")
+        try:
+            import webbrowser
+            webbrowser.open("https://nodejs.org/ko/download")
+            say("      다운로드 페이지를 브라우저에 열었습니다.")
+        except Exception:
+            pass
         return False
     say(f"      Node.js {node}")
     npm = "npm.cmd" if os.name == "nt" else "npm"
@@ -134,11 +148,16 @@ def main():
     check_data()
     if not step_packages():
         return 1
-    if step_claude_cli():
+    ready = step_claude_cli()
+    if ready:
         step_login()
 
     rule()
-    say("  설치가 끝났습니다. 이제 2_실행.bat 을 실행하세요.")
+    if ready:
+        say("  설치가 끝났습니다. 이제 2_실행.bat 을 실행하세요.")
+    else:
+        say("  아직 끝나지 않았습니다 — 위의 [!] 안내를 먼저 처리하세요.")
+        say("  그런 다음 1_설치.bat 을 다시 실행하면 이어서 진행됩니다.")
     say("")
     say("  ③ 국회 의안 인증키는 웹 첫 화면에서 넣습니다(선택).")
     say("  비워 두면 그 통로만 빼고 나머지 세 통로로 평가합니다.")
