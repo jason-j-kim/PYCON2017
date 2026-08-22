@@ -38,9 +38,15 @@ _app = None
 
 
 def app_mod():
+    """app 은 두 가지로 떠 있을 수 있다 — 서버로 뜨면 webapp.app, 이 파일을
+    직접 실행하면 app. 이미 떠 있는 쪽을 잡아야 한다(따로 부르면 같은 모듈이
+    두 벌 생겨 설정이 어긋난다)."""
     global _app
     if _app is None:
-        import app                  # webapp/ 은 스크립트 위치라 자동으로 경로에 있다
+        try:
+            from webapp import app          # 서버 안에서 불릴 때
+        except ImportError:
+            import app                      # 5_보고서.bat 으로 직접 돌 때
         _app = app
     return _app
 

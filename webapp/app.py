@@ -1229,6 +1229,184 @@ def start_originality_adhoc(req: AdhocRequest):
     return {"session_id": sid}
 
 
+# ── 기록: 지금까지의 문답을 목록으로 보고 내려받는다 ──────────────────────
+# 이 자리는 운영자 것이다. sessions.db 에는 여러 사람의 문답이 함께 쌓이므로,
+# 터널로 들어온 사람이 남의 대화를 받아 갈 수 있으면 안 된다. 그래서 이 화면과
+# 내려받기는 서버가 돌고 있는 그 PC(localhost)에서만 열린다. 초대 코드로
+# 막는 것으로는 부족하다 — 코드는 참여자 전원이 아는 값이기 때문이다.
+_LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost", "::ffff:127.0.0.1"}
+
+
+def _make_report():
+    """보고서 모듈. app 을 되부르므로 쓰는 자리에서 늦게 부른다."""
+    try:
+        from webapp import make_report
+    except ImportError:
+        import make_report
+    return make_report
+
+
+# 터널을 거친 요청은 프록시가 붙이는 이 머리표를 달고 온다. 없애고 오는 것은
+# 방문자가 할 수 있는 일이 아니다(cloudflared 가 붙인다).
+_PROXY_HEADERS = ("x-forwarded-for", "cf-connecting-ip", "x-real-ip",
+                  "cf-ray", "forwarded")
+
+
+def _require_local(request: Request):
+    """서버가 돌고 있는 그 PC 에서 연 것만 통과시킨다.
+
+    주소만 봐서는 안 된다. cloudflared 는 같은 PC 에서 localhost 로 붙으므로
+    터널로 들어온 남도 127.0.0.1 로 보인다(실제로 확인했다). 프록시가 붙인
+    머리표가 하나라도 있으면 그것은 밖에서 온 것이다.
+    """
+    host = (request.client.host if request.client else "") or ""
+    via_proxy = any(h in request.headers for h in _PROXY_HEADERS)
+    if host not in _LOCAL_HOSTS or via_proxy:
+        raise HTTPException(
+            403, "기록은 서버를 켜 둔 PC 에서만 볼 수 있습니다. "
+                 "여러 사람의 문답이 함께 쌓이므로 터널 주소로는 열지 않습니다.")
+
+
+def _records():
+    rows = []
+    with sqlite3.connect(db.DB_PATH) as c:
+        c.row_factory = sqlite3.Row
+        for r in c.execute(
+                "SELECT s.id, s.idea, s.status, s.profile, s.created_at, "
+                "s.originality_status, e.weighted_total AS score, "
+                "(SELECT COUNT(*) FROM turns t WHERE t.session_id = s.id) AS turns "
+                "FROM sessions s LEFT JOIN evaluations e ON e.session_id = s.id "
+                "ORDER BY s.created_at DESC"):
+            d = dict(r)
+            d["graded"] = d["score"] is not None
+            d["axis_b"] = (d.pop("originality_status", "") == "done")
+            rows.append(d)
+    return rows
+
+
+def _transcript_text(sid):
+    """사람이 읽는 형태. 이 글이 재평가 입력으로도 그대로 쓰인다."""
+    s = db.get_session(sid)
+    if not s:
+        raise HTTPException(404, "그런 기록이 없습니다.")
+    out = [f"# 소크라테스식 아이디어 평가 — 문답 전문",
+           f"# 세션 {sid} · {s.get('created_at', '')[:16]} · 프로필 {s.get('profile') or '원본'}",
+           ""]
+    for t in db.get_turns(sid):
+        who = "제안자" if t["role"] in ("user", "proposer") else "질문자"
+        head = f"[턴 {t['seq']}] {who}"
+        if t.get("stage"):
+            head += f" ({t['stage']})"
+        out += [head, (t["content"] or "").strip(), ""]
+    return "\n".join(out)
+
+
+def _tmp_dir():
+    import tempfile
+    return Path(tempfile.mkdtemp(prefix="record_"))
+
+
+@app.get("/records")
+def records_page(request: Request):
+    _require_local(request)
+    return _no_cache(STATIC_DIR / "records.html")
+
+
+@app.get("/api/records")
+def api_records(request: Request):
+    _require_local(request)
+    return {"records": _records()}
+
+
+@app.get("/api/records/{sid}/transcript.txt")
+def api_record_txt(sid: str, request: Request):
+    _require_local(request)
+    body = _transcript_text(sid)
+    out = _tmp_dir() / f"문답_{sid}.txt"
+    out.write_text(body, encoding="utf-8")
+    return FileResponse(out, filename=out.name, media_type="text/plain; charset=utf-8")
+
+
+@app.get("/api/records/{sid}/session.json")
+def api_record_json(sid: str, request: Request):
+    _require_local(request)
+    s = db.get_session(sid)
+    if not s:
+        raise HTTPException(404, "그런 기록이 없습니다.")
+    ev = db.get_evaluation(sid)
+    o = db.get_originality(sid)
+    payload = {
+        "session_id": sid,
+        "created_at": s.get("created_at"),
+        "profile": s.get("profile") or "원본",
+        "idea": s.get("idea"),
+        "weights": json.loads(s["weights"]) if s.get("weights") else None,
+        "turns": db.get_turns(sid),
+        # 이 화면의 「저장한 문답 불러오기」가 그대로 읽는 자리다.
+        "transcript_text": _transcript_text(sid),
+        "evaluation": ev["result"] if ev else None,
+        "weighted_total": ev["weighted_total"] if ev else None,
+        "axis_b": (o or {}).get("result"),
+    }
+    out = _tmp_dir() / f"문답_{sid}.json"
+    out.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return FileResponse(out, filename=out.name, media_type="application/json")
+
+
+@app.get("/api/records/{sid}/report.docx")
+def api_record_docx(sid: str, request: Request):
+    _require_local(request)
+    MR = _make_report()
+    s = MR.load(sid)
+    if not s:
+        raise HTTPException(404, "그런 기록이 없습니다.")
+    if not s.get("evaluation"):
+        raise HTTPException(409, "아직 채점되지 않은 문답입니다. 문답 전문(.txt)을 받으세요.")
+    out = _tmp_dir() / f"평가보고서_{sid}.docx"
+    try:
+        MR.build_docx(s, out)
+    except ImportError:
+        raise HTTPException(500, "python-docx 가 없습니다. 1_설치.bat 을 다시 실행하세요.")
+    return FileResponse(
+        out, filename=out.name,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+
+
+@app.get("/api/records/all.zip")
+def api_records_zip(request: Request):
+    """전부 한 번에. 채점된 것은 보고서까지, 아닌 것은 문답만 담는다."""
+    _require_local(request)
+    import zipfile
+    MR = _make_report()
+    d = _tmp_dir()
+    out = d / "정책아이디어평가_기록.zip"
+    n_doc = 0
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+        index = ["세션ID\t일시\t프로필\t턴\t점수\t아이디어"]
+        for r in _records():
+            sid = r["id"]
+            day = (r["created_at"] or "")[:10]
+            base = f"{day}_{sid}"
+            z.writestr(f"{base}/문답.txt", _transcript_text(sid))
+            index.append(f"{sid}\t{r['created_at']}\t{r['profile']}\t{r['turns']}\t"
+                         f"{r['score'] if r['score'] is not None else ''}\t{r['idea']}")
+            if r["graded"]:
+                try:
+                    s = MR.load(sid)
+                    f = d / f"{sid}.docx"
+                    MR.build_docx(s, f)
+                    z.write(f, f"{base}/평가보고서.docx")
+                    n_doc += 1
+                except Exception:
+                    # 하나가 실패해도 나머지는 담는다. 무엇이 빠졌는지는 목록에 남는다.
+                    z.writestr(f"{base}/보고서를_만들지_못했습니다.txt",
+                               "이 세션은 보고서 변환에 실패했습니다. 문답.txt 를 보세요.\n")
+        index.append("")
+        index.append(f"# 보고서 {n_doc}개 · 문답 {len(_records())}개")
+        z.writestr("목록.txt", "\n".join(index))
+    return FileResponse(out, filename=out.name, media_type="application/zip")
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="127.0.0.1", port=8000)

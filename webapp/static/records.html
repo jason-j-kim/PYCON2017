@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>평가 기록 — 소크라테스식 아이디어 평가</title>
+<style>
+  :root {
+    --bg: #f6f5f1; --card: #ffffff; --ink: #26241f; --sub: #6d6a61;
+    --line: #e3e0d8; --accent: #23639c; --good: #2e7d4f;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); line-height: 1.6;
+         font-family: "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 24px 16px 60px; }
+  h1 { font-size: 1.3rem; margin: 6px 0 2px; }
+  .tagline { color: var(--sub); font-size: .9rem; }
+  .hero { background: linear-gradient(180deg, #fbfaf7, #efeae0);
+          border: 1px solid var(--line); border-radius: 14px;
+          padding: 18px 20px; margin-bottom: 16px; }
+  .bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 14px 0; }
+  button, .btn { border: 0; border-radius: 8px; padding: 9px 16px; font: inherit;
+                 cursor: pointer; background: var(--accent); color: #fff;
+                 text-decoration: none; display: inline-block; }
+  .btn.sec { background: transparent; color: var(--sub); border: 1px solid var(--line); }
+  .btn.sm { padding: 5px 10px; font-size: .82rem; }
+  .btn.off { opacity: .35; pointer-events: none; }
+  input[type=search] { flex: 1 1 220px; border: 1px solid var(--line); border-radius: 8px;
+                       padding: 9px 12px; font: inherit; background: #fff; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+          padding: 14px 16px; margin-bottom: 10px; }
+  .head { display: flex; justify-content: space-between; align-items: baseline;
+          gap: 10px; flex-wrap: wrap; }
+  .idea { font-weight: 700; flex: 1 1 320px; }
+  .meta { color: var(--sub); font-size: .8rem; }
+  .score { font-size: 1.15rem; font-weight: 800; color: var(--accent); }
+  .tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+  .tag { font-size: .74rem; border-radius: 999px; padding: 2px 9px;
+         border: 1px solid var(--line); color: var(--sub); background: var(--bg); }
+  .tag.ok { color: var(--good); border-color: #bfe0cd; }
+  .tag.no { color: #9a5a00; border-color: #e8d3ad; }
+  .dl { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+  .note { font-size: .82rem; color: var(--sub); }
+  .empty { text-align: center; color: var(--sub); padding: 40px 0; }
+  .err { color: #b3261e; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hero">
+    <h1>평가 기록</h1>
+    <div class="tagline">지금까지 이 PC 에서 진행한 소크라테스식 문답 전부</div>
+    <div class="note" style="margin-top:10px">
+      이 화면은 <b>서버를 켜 둔 이 PC 에서만</b> 열립니다. 여러 사람의 문답이
+      함께 쌓이므로 터널 주소로는 열리지 않습니다.
+    </div>
+  </div>
+
+  <div class="bar">
+    <input type="search" id="q" placeholder="아이디어 내용으로 찾기">
+    <a class="btn" id="dl-all" href="/api/records/all.zip">전부 내려받기 (.zip)</a>
+    <a class="btn sec" href="/policy">평가 화면으로</a>
+  </div>
+  <div class="note" id="summary"></div>
+
+  <div id="list"><div class="empty">불러오는 중…</div></div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let ALL = [];
+
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"]/g, c =>
+    ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+}
+
+function card(r) {
+  const when = (r.created_at || "").replace("T", " ").slice(0, 16);
+  const score = r.graded ? `<span class="score">${r.score.toFixed(1)}</span>
+                            <span class="meta">/10</span>` : "";
+  // 채점 전 문답은 보고서를 만들 수 없다. 단추를 흐리게 두고 왜인지 말한다 —
+  // 눌러 놓고 오류를 보는 것보다 낫다.
+  const doc = r.graded
+    ? `<a class="btn sm" href="/api/records/${r.id}/report.docx">보고서 (.docx)</a>`
+    : `<span class="btn sm off" title="채점 전">보고서 (.docx)</span>`;
+  return `<div class="card">
+    <div class="head">
+      <div class="idea">${esc((r.idea || "(내용 없음)").replace(/\s+/g, " ")).slice(0, 140)}</div>
+      <div>${score}</div>
+    </div>
+    <div class="meta">${esc(when)} · 세션 ${esc(r.id)} · 프로필 ${esc(r.profile || "원본")}</div>
+    <div class="tags">
+      <span class="tag">문답 ${r.turns}턴</span>
+      <span class="tag ${r.graded ? "ok" : "no"}">${r.graded ? "채점 완료" : "채점 전"}</span>
+      <span class="tag ${r.axis_b ? "ok" : "no"}">${r.axis_b ? "선례 조사 완료" : "선례 조사 미실행"}</span>
+    </div>
+    <div class="dl">
+      ${doc}
+      <a class="btn sm sec" href="/api/records/${r.id}/transcript.txt">문답 전문 (.txt)</a>
+      <a class="btn sm sec" href="/api/records/${r.id}/session.json">원자료 (.json)</a>
+    </div>
+  </div>`;
+}
+
+function render() {
+  const q = ($("q").value || "").trim().toLowerCase();
+  const rows = q ? ALL.filter(r => (r.idea || "").toLowerCase().includes(q)) : ALL;
+  $("list").innerHTML = rows.length
+    ? rows.map(card).join("")
+    : '<div class="empty">해당하는 기록이 없습니다.</div>';
+  const graded = ALL.filter(r => r.graded).length;
+  $("summary").textContent =
+    `전체 ${ALL.length}건 · 채점 완료 ${graded}건 · 채점 전 ${ALL.length - graded}건`
+    + (q ? ` · 검색 결과 ${rows.length}건` : "");
+}
+
+$("q").addEventListener("input", render);
+
+fetch("/api/records").then(r => {
+  if (r.status === 403) throw new Error("이 PC 에서만 열 수 있습니다.");
+  if (!r.ok) throw new Error("목록을 불러오지 못했습니다 (" + r.status + ")");
+  return r.json();
+}).then(d => {
+  ALL = d.records || [];
+  if (!ALL.length) {
+    $("list").innerHTML = '<div class="empty">아직 기록이 없습니다.<br>'
+      + '평가를 한 번 끝내면 여기에 쌓입니다.</div>';
+    $("dl-all").classList.add("off");
+    return;
+  }
+  render();
+}).catch(e => {
+  $("list").innerHTML = '<div class="empty err">' + esc(e.message) + "</div>";
+  $("dl-all").classList.add("off");
+});
+</script>
+</body>
+</html>

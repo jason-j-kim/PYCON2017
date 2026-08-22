@@ -44,6 +44,7 @@ CODE = [
     "webapp/make_report.py",
     "webapp/requirements.txt",
     "webapp/static/policy.html",
+    "webapp/static/records.html",
     "webapp/static/index.html",
     "socratic/__init__.py",
     "socratic/engine.py",
