@@ -27,6 +27,16 @@ def say(*a):
     print(*a, flush=True)
 
 
+def auth_line():
+    """Claude를 API로 부르는지 구독 로그인으로 부르는지 한 줄로."""
+    key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
+    if key:
+        masked = f"{key[:7]}…{key[-4:]}" if len(key) > 14 else "설정됨"
+        model = (os.environ.get("CLAUDE_MODEL") or "claude-opus-5").strip()
+        return f"API 키 방식 (키 {masked} · 모델 {model})"
+    return "구독 로그인 방식 (claude CLI)"
+
+
 # ── keys.local.bat 적재 (배치를 실행하지 않고 직접 읽는다) ────────────
 def load_keys():
     f = ROOT / "keys.local.bat"
@@ -110,6 +120,7 @@ def main():
 
     say(f"  초대 코드 : {os.environ['SOCRATIC_ACCESS_CODE']}")
     say(f"  주소      : {URL}")
+    say(f"  Claude    : {auth_line()}")
     if os.environ.get("ASSEMBLY_KEY"):
         say("  국회 의안 : 서버 기본키 있음 — 화면에서 비워 두면 이 키를 씁니다")
     else:

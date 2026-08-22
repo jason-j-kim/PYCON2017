@@ -1,7 +1,17 @@
 """소크라테스 문답 엔진 — CLI(prototype/)와 웹(webapp/)이 공유하는 핵심 로직.
 
-백엔드로 Claude Code CLI(`claude -p`)를 헤드리스로 호출한다.
-Claude Pro/Max 구독 로그인만으로 동작하며 API 키가 필요 없다.
+Claude를 부르는 길이 둘이다. 어느 쪽인지는 환경변수 하나로 정해진다.
+
+    ANTHROPIC_API_KEY 있음 → Anthropic API 직접 호출 (기관 서버·헤드리스용)
+    없음                   → claude CLI 헤드리스 (구독 로그인, 연구자 개인용)
+
+CLI의 내부 우선순위에 기대지 않고 여기서 명시적으로 가른다. 기관 서버는
+브라우저 OAuth가 어렵고 키를 기관이 소유해야 하므로 API 쪽이 맞고, 개인
+연구자는 구독만으로 추가 과금 없이 쓸 수 있어 CLI 쪽이 맞다.
+
+두 길의 응답 처리는 동일하다 — 양쪽 다 '텍스트'를 돌려주고 그 뒤 파싱이
+같다. 도구호출(JSON 강제) 같은 편의를 API 쪽에만 붙이면 두 방식의 결과가
+갈려 세션 간 비교가 깨지므로 일부러 맞춰 두었다.
 
 질문자와 채점자는 별도 호출로 분리한다:
 질문자는 점수를 모르고, 채점자는 대화에 참여하지 않고 로그만 본다.
@@ -12,6 +22,9 @@ import os
 import re
 import shutil
 import subprocess
+import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 # Windows에서 npm으로 설치한 Claude Code는 claude.cmd라서 전체 경로로 찾아야 한다
@@ -176,10 +189,115 @@ HOLISTIC_FORMAT = """\
 
 
 
+# ── 인증 방식 ────────────────────────────────────────────────────────────
+# 키가 있으면 API, 없으면 CLI. 서버가 켜진 뒤 키를 넣는 일은 없으므로
+# 호출 때마다 다시 읽지 않고 모듈 적재 시 한 번 정한다(세션 간 일관성).
+def _clean_env(name):
+    return os.environ.get(name, "").strip().strip('"').strip("'").strip()
+
+
+ANTHROPIC_API_KEY = _clean_env("ANTHROPIC_API_KEY")
+ANTHROPIC_BASE_URL = (_clean_env("ANTHROPIC_BASE_URL")
+                      or "https://api.anthropic.com").rstrip("/")
+CLAUDE_MODEL = _clean_env("CLAUDE_MODEL") or "claude-opus-5"
+CLAUDE_MAX_TOKENS = int(os.environ.get("CLAUDE_MAX_TOKENS", "8000"))
+CLAUDE_TIMEOUT = int(os.environ.get("CLAUDE_TIMEOUT", "300"))
+API_RETRIES = int(os.environ.get("CLAUDE_API_RETRIES", "3"))
+
+
+def auth_mode():
+    """'api' 또는 'cli'. 화면·로그에 어느 쪽으로 도는지 밝히는 데 쓴다."""
+    return "api" if ANTHROPIC_API_KEY else "cli"
+
+
+def auth_description():
+    """사람이 읽을 한 줄 설명(키 값은 절대 넣지 않는다)."""
+    if ANTHROPIC_API_KEY:
+        k = ANTHROPIC_API_KEY
+        masked = f"{k[:7]}…{k[-4:]}" if len(k) > 14 else "설정됨"
+        return f"API 키 방식 · 모델 {CLAUDE_MODEL} · 키 {masked}"
+    return "구독 로그인 방식 · claude CLI"
+
+
+def _call_api(prompt, system_text):
+    """Anthropic Messages API 직접 호출. 표준 라이브러리만 쓴다.
+
+    CLI 경로와 같게 '텍스트'를 돌려준다. 도구호출로 JSON을 강제하면 편하지만
+    그러면 두 방식의 산출이 달라져 세션 간 비교가 깨진다."""
+    body = json.dumps({
+        "model": CLAUDE_MODEL,
+        "max_tokens": CLAUDE_MAX_TOKENS,
+        "system": system_text,
+        "messages": [{"role": "user", "content": prompt}],
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        f"{ANTHROPIC_BASE_URL}/v1/messages", data=body, method="POST",
+        headers={"content-type": "application/json",
+                 "x-api-key": ANTHROPIC_API_KEY,
+                 "anthropic-version": "2023-06-01"})
+
+    last = ""
+    for attempt in range(API_RETRIES):
+        try:
+            with urllib.request.urlopen(req, timeout=CLAUDE_TIMEOUT) as r:
+                data = json.loads(r.read().decode("utf-8", "replace"))
+            break
+        except urllib.error.HTTPError as e:
+            detail = ""
+            try:
+                detail = e.read().decode("utf-8", "replace")[:300]
+            except Exception:
+                pass
+            # 과부하·일시 오류만 재시도한다. 인증·요청 오류는 다시 해도 같다.
+            if e.code in (429, 500, 502, 503, 529) and attempt < API_RETRIES - 1:
+                time.sleep(2 ** attempt)
+                last = f"HTTP {e.code}: {detail}"
+                continue
+            hint = ""
+            if e.code == 401:
+                hint = (" (ANTHROPIC_API_KEY 가 올바르지 않습니다. 콘솔에서 키를 "
+                        "다시 확인하거나, 구독 방식으로 쓰려면 이 변수를 지우세요.)")
+            elif e.code == 429:
+                hint = " (요청 한도를 넘었습니다. 잠시 후 다시 시도하세요.)"
+            elif e.code == 400 and "credit" in detail.lower():
+                hint = " (콘솔 잔액이 부족할 수 있습니다.)"
+            raise RuntimeError(f"Claude API 오류 HTTP {e.code}: {detail}{hint}")
+        except urllib.error.URLError as e:
+            if attempt < API_RETRIES - 1:
+                time.sleep(2 ** attempt)
+                last = str(e.reason)
+                continue
+            raise RuntimeError(
+                f"Claude API 에 닿지 못했습니다: {e.reason}\n"
+                f"(방화벽이 {ANTHROPIC_BASE_URL} 로 나가는 통신을 막고 있는지 "
+                "확인하세요. 이 경우 구독 방식도 같은 곳으로 나가므로 함께 막힙니다.)")
+    else:
+        raise RuntimeError(f"Claude API 재시도 실패: {last}")
+
+    out = "".join(b.get("text", "") for b in data.get("content", [])
+                  if b.get("type") == "text").strip()
+    if not out:
+        raise RuntimeError(
+            f"Claude API 가 빈 응답을 돌려줬습니다 (stop_reason={data.get('stop_reason')}). "
+            "max_tokens 가 너무 작을 수 있습니다 — CLAUDE_MAX_TOKENS 를 올려 보세요.")
+    return out
+
+
 def call_claude(prompt, system_prompt_file):
+    """Claude를 부른다. 키가 있으면 API, 없으면 CLI(구독 로그인).
+
+    system_prompt_file: 시스템 프롬프트가 담긴 파일 경로. CLI에는 경로로 넘긴다
+    (여러 줄 텍스트를 명령줄 인자로 주면 Windows에서 깨진다). API에는 파일을
+    읽어 본문으로 넘긴다.
+    """
+    if ANTHROPIC_API_KEY:
+        return _call_api(prompt, Path(system_prompt_file).read_text(encoding="utf-8"))
+    return _call_cli(prompt, system_prompt_file)
+
+
+def _call_cli(prompt, system_prompt_file):
     """Claude Code CLI를 헤드리스로 호출한다. 도구를 모두 끄고 순수 대화만 시킨다.
 
-    system_prompt_file: 시스템 프롬프트가 담긴 파일 경로 (인자 깨짐 방지).
     사용자 프롬프트는 stdin으로 전달하므로 줄바꿈·한국어에 안전하다.
     """
     cmd = [
@@ -193,24 +311,26 @@ def call_claude(prompt, system_prompt_file):
         # encoding을 명시하지 않으면 한국어 Windows에서 cp949로 읽다가 깨진다
         result = subprocess.run(
             cmd, input=prompt, capture_output=True, text=True,
-            encoding="utf-8", errors="replace", timeout=300,
+            encoding="utf-8", errors="replace", timeout=CLAUDE_TIMEOUT,
         )
     except FileNotFoundError:
         raise RuntimeError(
-            "claude CLI를 찾을 수 없습니다. Claude Code를 설치하고 "
-            "(npm install -g @anthropic-ai/claude-code) 새 터미널에서 서버를 다시 시작하세요."
+            "claude CLI를 찾을 수 없습니다. 둘 중 하나를 하세요. "
+            "① Claude Code 설치(npm install -g @anthropic-ai/claude-code) 후 "
+            "새 터미널에서 서버 재시작. "
+            "② CLI 없이 쓰려면 ANTHROPIC_API_KEY 를 설정하고 서버를 재시작하세요 "
+            "(그러면 API로 직접 호출합니다)."
         )
     except subprocess.TimeoutExpired:
-        raise RuntimeError("claude 응답이 300초를 초과했습니다. 다시 시도하세요.")
+        raise RuntimeError(f"claude 응답이 {CLAUDE_TIMEOUT}초를 초과했습니다. 다시 시도하세요.")
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "원인 미상").strip()[:500]
         hint = "(로그인이 안 된 경우 터미널에서 `claude`를 실행해 /login 하세요)"
         if "401" in detail or "authentication" in detail.lower():
             hint = (
-                "(인증 실패입니다. ① 터미널에서 `echo %ANTHROPIC_API_KEY%` 를 실행해 "
-                "값이 나오면 오래된 API 키가 로그인 계정을 가리는 것이니 "
-                "`set ANTHROPIC_API_KEY=` 로 지우고 서버를 재시작하세요. "
-                "② 값이 없으면 `claude` 실행 후 /login 으로 다시 로그인하세요)"
+                "(구독 로그인 인증 실패입니다. `claude` 를 실행해 /login 하세요. "
+                "브라우저를 쓸 수 없는 서버라면 ANTHROPIC_API_KEY 를 설정해 "
+                "API 방식으로 돌리는 편이 낫습니다.)"
             )
         raise RuntimeError(f"claude CLI 오류: {detail}\n{hint}")
     return result.stdout.strip()

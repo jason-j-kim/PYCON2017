@@ -2,9 +2,12 @@
 
 실행 (저장소 루트에서):
     pip install -r webapp/requirements.txt   # fastapi·uvicorn·python-docx·pypdf
-    claude /login                      # 최초 1회, Pro 구독 로그인 (API 키 불필요)
     python webapp/app.py               # http://localhost:8000
     # 또는: uvicorn webapp.app:app --port 8000
+
+Claude 인증은 둘 중 하나다(engine 이 환경변수 하나로 가른다).
+    ANTHROPIC_API_KEY 설정  → API 직접 호출. CLI·Node.js 불필요(기관 서버용)
+    미설정                  → claude CLI. 최초 1회 `claude` 실행 후 /login
 """
 
 import base64
@@ -208,6 +211,8 @@ def get_config():
     """첫 화면이 필요로 하는 것만. 키 값 자체는 절대 내보내지 않는다."""
     return {
         "access_required": bool(ACCESS_CODE),
+        # Claude를 API로 부르는지 구독 로그인으로 부르는지(값은 내보내지 않는다)
+        "auth_mode": engine.auth_mode(),
         "sources": {
             "fiscal": _fiscal_available(),
             "kdi": _kdi_available(),

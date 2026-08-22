@@ -65,8 +65,18 @@ def step_packages():
 
 
 # ── 2. Claude Code ───────────────────────────────────────────────────
+def api_key():
+    return (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
+
+
 def step_claude_cli():
     say("\n[2/3] Claude Code 설치")
+    if api_key():
+        # API 키가 있으면 Claude를 API로 직접 부른다 — CLI도 Node.js도 필요 없다.
+        say("      ANTHROPIC_API_KEY 가 설정돼 있습니다.")
+        say("      Claude 를 API 로 직접 부르므로 Claude Code·Node.js 가 필요 없습니다.")
+        say("      건너뜁니다.")
+        return True
     if have("claude"):
         say(f"      이미 설치됨 — {version_of('claude', '--version') or 'claude'}")
         return True
@@ -102,6 +112,9 @@ def step_claude_cli():
 # ── 3. Claude 로그인 ─────────────────────────────────────────────────
 def step_login():
     say("\n[3/3] Claude 로그인")
+    if api_key():
+        say("      API 키 방식이라 로그인이 필요 없습니다. 건너뜁니다.")
+        return True
     if not have("claude"):
         say("      [!] claude 를 찾을 수 없습니다. 명령창을 새로 열고 다시 실행하세요.")
         return False
@@ -162,6 +175,10 @@ def main():
     else:
         say("  아직 끝나지 않았습니다 — 위의 [!] 안내를 먼저 처리하세요.")
         say("  그런 다음 1_설치.bat 을 다시 실행하면 이어서 진행됩니다.")
+    say("")
+    say("  Claude 호출 방식: " +
+        ("API 키 (ANTHROPIC_API_KEY)" if api_key() else "구독 로그인 (claude CLI)"))
+    say("  바꾸려면 ANTHROPIC_API_KEY 환경변수를 설정/해제하고 다시 실행하세요.")
     say("")
     say("  ③ 국회 의안 인증키는 웹 첫 화면에서 넣습니다(선택).")
     say("  비워 두면 그 통로만 빼고 나머지 세 통로로 평가합니다.")
