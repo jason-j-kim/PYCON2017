@@ -120,6 +120,11 @@ def _drop_session_key(sid):
 _SESSION_LLM_KEYS = {}
 
 
+# 이 세션은 키가 있어도 구독 로그인으로 돌리라는 선택. 우선순위(키가 먼저)는
+# 기본값이지 강제가 아니다 — 고르는 자리가 화면에 없으면 선택이 없는 것과 같다.
+_SESSION_USE_SUB = set()
+
+
 def _put_llm_key(sid, key):
     key = (key or "").strip().strip('"').strip("'").strip()
     if key:
@@ -127,9 +132,18 @@ def _put_llm_key(sid, key):
             _SESSION_LLM_KEYS[sid] = key
 
 
+def _put_use_sub(sid, on):
+    with _SESSION_KEYS_LOCK:
+        if on:
+            _SESSION_USE_SUB.add(sid)
+        else:
+            _SESSION_USE_SUB.discard(sid)
+
+
 def _drop_llm_key(sid):
     with _SESSION_KEYS_LOCK:
         _SESSION_LLM_KEYS.pop(sid, None)
+        _SESSION_USE_SUB.discard(sid)
 
 
 @contextlib.contextmanager
@@ -137,10 +151,13 @@ def _llm_key_for(sid):
     """이 블록 안의 Claude 호출에 세션 키를 건다. 없으면 서버 설정을 쓴다."""
     with _SESSION_KEYS_LOCK:
         key = _SESSION_LLM_KEYS.get(sid, "")
+        sub = sid in _SESSION_USE_SUB
     token = engine.set_request_api_key(key)
+    stok = engine.set_request_force_cli(sub)
     try:
         yield
     finally:
+        engine.reset_request_force_cli(stok)
         engine.reset_request_api_key(token)
 
 
@@ -159,6 +176,8 @@ class CreateRequest(BaseModel):
     assembly_key: str | None = None
     # Claude 키 — 첫 화면에서 넣는다(선택). 비우면 서버 설정을 쓴다.
     anthropic_key: str | None = None
+    # 키가 있어도 구독 로그인으로 돌리라는 명시적 선택(개인용 판 화면에서 고른다).
+    use_subscription: bool | None = None
 
 
 class AnswerRequest(BaseModel):
@@ -277,6 +296,10 @@ def get_config():
         # 서버가 Claude에 어떻게 연결돼 있는지. 'api' | 'cli' | 'none'.
         # 'none' 이면 방문자가 자기 키를 넣어야 한다. 키 값은 내보내지 않는다.
         "auth_mode": engine.server_auth_mode(),
+        # 위 auth_mode 는 '기본으로 무엇이 쓰이나'만 말한다. 화면에 선택지를
+        # 그리려면 두 방식이 각각 되는지를 따로 알아야 한다.
+        "has_server_key": bool(engine.ANTHROPIC_API_KEY),
+        "has_cli": engine.cli_available(),
         "sources": {
             "fiscal": _fiscal_available(),
             "kdi": _kdi_available(),
@@ -308,6 +331,7 @@ def create_session(req: CreateRequest):
     sid = db.create_session(idea, weights, profile)
     _put_session_key(sid, req.assembly_key)
     _put_llm_key(sid, req.anthropic_key)
+    _put_use_sub(sid, req.use_subscription)
     db.add_turn(sid, 1, "proposer", None, idea)
     question = _ask_and_store(sid, 0)
     db.update_progress(sid, 0, 1)
@@ -1181,6 +1205,7 @@ class AdhocRequest(BaseModel):
     access_code: Optional[str] = None
     assembly_key: Optional[str] = None
     anthropic_key: Optional[str] = None
+    use_subscription: Optional[bool] = None
 
 
 @app.post("/api/originality/adhoc")
@@ -1197,6 +1222,7 @@ def start_originality_adhoc(req: AdhocRequest):
     sid = db.create_session(transcript[:80], dict(engine.DEFAULT_WEIGHTS), "정책")
     _put_session_key(sid, req.assembly_key)
     _put_llm_key(sid, req.anthropic_key)
+    _put_use_sub(sid, req.use_subscription)
     db.add_turn(sid, 1, "proposer", None, transcript)
     db.set_originality_status(sid, "pending")
     threading.Thread(target=_run_originality_axis, args=(sid,), daemon=True).start()

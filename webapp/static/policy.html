@@ -211,6 +211,25 @@
           <span id="llm-state" class="tagline" style="margin:0">확인 중…</span>
         </div>
         <div id="llm-note" class="note-sub" style="margin-top:6px"></div>
+
+        <!-- 두 방식이 다 되는 PC 라면 고를 수 있어야 한다. 서버를 껐다 켜야만
+             바꿀 수 있으면 선택이 있다고 할 수 없다. claude CLI 가 있을 때만
+             나타난다 — 없는데 보여주면 고를 수 없는 것을 내미는 셈이다. -->
+        <div id="llm-choice" class="hidden" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">
+          <div class="note-sub" style="margin:0 0 6px">이번 평가를 무엇으로 돌릴까요</div>
+          <label style="display:flex;align-items:flex-start;gap:7px;font-size:.85rem;padding:3px 0;cursor:pointer">
+            <input type="radio" name="llm-how" id="llm-how-key" value="key" checked
+                   style="width:auto;margin:3px 0 0">
+            <span><b>API 키로</b> — 쓴 만큼 그 키의 계정에 과금됩니다</span>
+          </label>
+          <label style="display:flex;align-items:flex-start;gap:7px;font-size:.85rem;padding:3px 0;cursor:pointer">
+            <input type="radio" name="llm-how" id="llm-how-sub" value="sub"
+                   style="width:auto;margin:3px 0 0">
+            <span><b>구독 로그인으로</b> — 추가 과금이 없습니다.
+              <span id="llm-sub-note" style="color:var(--sub)"></span></span>
+          </label>
+        </div>
+
         <!-- 서버가 이미 잘 돌고 있으면 입력칸을 접어 둔다. 빈칸을 눈앞에 두면
              넣어 보게 되고, 잘못된 키 하나가 멀쩡한 구독 동작을 깨뜨린다. -->
         <a id="llm-toggle" href="#" class="note-sub"
@@ -392,6 +411,11 @@ fetch("/api/config").then(r => r.json()).then(cfg => {
   // 없으므로(호출 주체가 서버) '증명'을 요구하지 않는다.
   const mode = AUTH_MODES.includes(cfg.auth_mode) ? cfg.auth_mode : "none";
   serverMode = mode;
+  // auth_mode 는 '기본으로 무엇이 쓰이나'만 말한다. 선택지를 그리려면
+  // 두 방식이 각각 되는지를 따로 알아야 한다(옛 서버면 auth_mode 로 추정).
+  hasServerKey = (cfg.has_server_key !== undefined) ? !!cfg.has_server_key
+                                                    : (mode === "api");
+  hasCli = (cfg.has_cli !== undefined) ? !!cfg.has_cli : (mode === "cli");
   if (cfg.build) {                       // 어느 판이 떠 있는지 (캐시 확인용)
     const tag = document.createElement("span");
     tag.className = "note-sub";
@@ -428,6 +452,13 @@ fetch("/api/config").then(r => r.json()).then(cfg => {
       $("llm-key-row").classList.remove("hidden");
       $("llm-toggle").textContent = "접기 (서버 설정 그대로 쓰기)";
     }
+    // 구독 로그인이 되는 PC 라면 고를 수 있게 한다. 없으면 고를 것이 없으니
+    // 내밀지 않는다.
+    if (hasCli) {
+      $("llm-choice").classList.remove("hidden");
+      $("llm-sub-note").textContent = "이 서버를 켜 둔 PC 에 로그인된 계정이 쓰입니다.";
+      if (!hasServerKey && !llmKey()) $("llm-how-sub").checked = true;
+    }
     refreshLlmState();
   }
 
@@ -445,6 +476,8 @@ fetch("/api/config").then(r => r.json()).then(cfg => {
 let llmRequired = false;
 let experiment = false;
 let serverMode = "none";
+let hasServerKey = false;   // 서버에 API 키가 있나
+let hasCli = false;         // 이 PC 에 claude CLI(구독 로그인)가 있나
 const AUTH_MODES = ["api", "cli", "none"];
 
 // 규칙은 하나뿐이고 바뀌지 않는다 — API 키가 먼저, 키가 하나도 없을 때만
@@ -496,20 +529,27 @@ function llmKey() {
 
 // 화면 설명은 '실제로 쓰일 것'을 말해야 한다. 칸에 키가 있으면 그 키가
 // 서버 설정보다 우선하므로, 서버 상태만 보여주면 거짓말이 된다.
+function useSub() {
+  const r = $("llm-how-sub");
+  return !!(r && r.checked && !$("llm-choice").classList.contains("hidden"));
+}
+
 function refreshLlmState() {
   if (experiment) return;                       // 실험판은 칸이 없다
   const k = llmKey();
 
-  // 어느 칸이 실제로 쓰이는가 — 위에서부터 있는 것을 쓴다.
-  const active = k ? 0 : (serverMode === "api" ? 1 : (serverMode === "cli" ? 2 : -1));
+  // 어느 칸이 실제로 쓰이는가 — 위에서부터 있는 것을 쓴다. 다만 '구독으로'를
+  // 고르면 키를 건너뛴다. 우선순위는 기본값이고, 고른 것이 그보다 세다.
+  const sub = useSub() && hasCli;
+  const active = sub ? 2
+                     : (k ? 0 : (hasServerKey ? 1 : (hasCli ? 2 : -1)));
 
   const state = [
-    k ? "지금 사용" : "비어 있음",
-    serverMode === "api" ? (active === 1 ? "지금 사용" : "설정됨 · 대기") : "없음",
-    serverMode === "cli" ? (active === 2 ? "지금 사용" : "설정됨 · 대기")
-                         : (serverMode === "api" ? "확인 안 함" : "없음"),
+    k ? (active === 0 ? "지금 사용" : "넣었으나 건너뜀") : "비어 있음",
+    hasServerKey ? (active === 1 ? "지금 사용" : "설정됨 · 대기") : "없음",
+    hasCli ? (active === 2 ? "지금 사용" : "설정됨 · 대기") : "없음",
   ];
-  if (k) {
+  if (k && active === 0) {
     const shown = k.length > 18 ? k.slice(0, 11) + "…" + k.slice(-4) : "(짧은 값)";
     state[0] = "지금 사용 · " + shown;
   }
@@ -557,6 +597,10 @@ function refreshLlmState() {
     }
   } else if (active === -1) {
     tail = "<b>쓸 수 있는 것이 하나도 없습니다.</b> 아래에 본인 API 키를 넣어야 문답을 시작할 수 있습니다.";
+  } else if (active === 2 && sub) {
+    tail = "<b>구독 로그인으로 돌립니다</b> — 고르신 대로입니다. 추가 과금이 없습니다. " +
+           "쓰이는 계정은 <b>이 서버를 켜 둔 PC 에 로그인된 계정</b>입니다." +
+           (k ? " 아래 칸의 키는 이번에는 쓰지 않습니다." : "");
   } else {
     tail = "본인 API 키를 넣으면 <b>그 키가 1순위</b>가 되어 그 키로 호출합니다.";
     if (active === 2) {
@@ -571,7 +615,8 @@ function refreshLlmState() {
   $("llm-state").textContent =
     active === 0 ? "이 화면의 API 키로 호출 (1순위)" :
     active === 1 ? "서버 API 키로 호출 (2순위)" :
-    active === 2 ? "API 키 없음 → 운영자 구독으로 호출 (3순위)" :
+    active === 2 ? (sub ? "구독 로그인으로 호출 (선택하심)"
+                        : "API 키 없음 → 운영자 구독으로 호출 (3순위)") :
                    "미설정 — API 키가 필요합니다";
   const banner = (resetDone && !k)
     ? '<div style="margin-bottom:8px;color:var(--good);font-weight:700">' +
@@ -593,6 +638,8 @@ function rememberLlmKey() {
   } catch (e) { /* 저장 못 해도 이번 세션에는 쓸 수 있다 */ }
 }
 $("llm-key").addEventListener("input", refreshLlmState);
+$("llm-how-key").addEventListener("change", refreshLlmState);
+$("llm-how-sub").addEventListener("change", refreshLlmState);
 $("llm-key").addEventListener("change", rememberLlmKey);
 $("llm-key-save").addEventListener("change", rememberLlmKey);
 function clearLlmKey() {
@@ -793,7 +840,8 @@ $("btn-start").onclick = async () => {
   try {
     const data = await api("/api/sessions",
       {idea, weights, profile: "정책", access_code: $("access-code").value.trim(),
-       assembly_key: billKey(), anthropic_key: llmKey()});
+       assembly_key: billKey(), anthropic_key: llmKey(),
+       use_subscription: useSub()});
     sessionId = data.session_id;
     show("view-chat");
     addMsg("a", idea);
@@ -1160,7 +1208,8 @@ $("btn-adhoc").onclick = async () => {
   try {
     const start = await api("/api/originality/adhoc",
       {transcript: text, access_code: ($("access-code").value || "").trim(),
-       assembly_key: billKey(), anthropic_key: llmKey()});
+       assembly_key: billKey(), anthropic_key: llmKey(),
+       use_subscription: useSub()});
     const sid = start.session_id;
     let settled = false;
     for (let i = 0; i < 60 && !settled; i++) {

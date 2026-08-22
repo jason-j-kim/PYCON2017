@@ -210,6 +210,12 @@ API_RETRIES = int(os.environ.get("CLAUDE_API_RETRIES", "3"))
 # contextvars 라서 요청/스레드마다 독립이고, 끝나면 자동으로 원래대로 돌아간다.
 _REQ_API_KEY = contextvars.ContextVar("anthropic_api_key", default="")
 
+# 키가 있어도 구독 로그인으로 돌리라는 명시적 선택. 우선순위(키가 먼저)는
+# 기본값일 뿐 강제가 아니어야 한다 — 키를 설정해 둔 사람이 이번에는 과금 없이
+# 구독으로 돌리고 싶을 수 있고, 그 선택을 서버를 껐다 켜야만 할 수 있게
+# 만들면 사실상 선택이 없는 것과 같다.
+_REQ_FORCE_CLI = contextvars.ContextVar("force_cli", default=False)
+
 
 def set_request_api_key(key):
     """이 요청(또는 스레드)에서만 쓸 키를 건다. 되돌릴 토큰을 준다."""
@@ -220,8 +226,28 @@ def reset_request_api_key(token):
     _REQ_API_KEY.reset(token)
 
 
+def set_request_force_cli(on):
+    """이 요청에서만 구독 로그인을 쓰게 한다. 되돌릴 토큰을 준다."""
+    return _REQ_FORCE_CLI.set(bool(on))
+
+
+def reset_request_force_cli(token):
+    _REQ_FORCE_CLI.reset(token)
+
+
+def cli_available():
+    """claude CLI 가 이 PC 에 있나. 키가 있어도 따로 알아야 한다 —
+    화면에서 '구독으로 돌리기'를 보여줄지 정하는 데 쓴다."""
+    return bool(shutil.which(CLAUDE_BIN))
+
+
 def effective_api_key():
-    """실제로 쓸 키. 화면 입력이 서버 기본값보다 우선한다."""
+    """실제로 쓸 키. 화면 입력이 서버 기본값보다 우선한다.
+
+    구독을 명시적으로 고른 요청에서는 키가 있어도 쓰지 않는다.
+    """
+    if _REQ_FORCE_CLI.get():
+        return ""
     return _REQ_API_KEY.get() or ANTHROPIC_API_KEY
 
 
