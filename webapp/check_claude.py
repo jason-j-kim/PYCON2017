@@ -16,7 +16,12 @@ Anthropic 이 뭐라고 답하는지 그대로 보여준다.
 
 키는 화면에 가려서만 나오고 어디에도 저장하지 않는다.
 
-사용:  python webapp\\check_claude.py
+결과는 화면에 찍는 동시에 키확인_결과.txt 에도 남긴다. 창이 닫혀 버려도
+읽을 수 있어야 하고, 원인을 남에게 보여줘야 할 때가 있기 때문이다.
+그 파일에도 키 전체는 들어가지 않는다.
+
+사용:  4_키확인.bat  를 더블클릭
+       python webapp\\check_claude.py
        python webapp\\check_claude.py sk-ant-api03-....
 """
 import json
@@ -35,8 +40,33 @@ ALLOWED = re.compile(r"[A-Za-z0-9_\-]")
 CONSOLE = "https://console.anthropic.com/settings/keys"
 
 
+LOG = ROOT / "키확인_결과.txt"
+_log_lines = []
+
+
 def say(*a):
-    print(*a, flush=True)
+    line = " ".join(str(x) for x in a)
+    print(line, flush=True)
+    _log_lines.append(line)
+
+
+def write_log():
+    try:
+        LOG.write_text("\n".join(_log_lines) + "\n", encoding="utf-8")
+        print(f"\n  이 내용을 파일로도 남겼습니다:\n    {LOG}\n", flush=True)
+    except Exception:
+        pass
+
+
+def hold():
+    """창이 곧바로 닫히지 않게 붙잡는다. 더블클릭으로 열면 결과가 순식간에
+    사라져 아무 소용이 없다."""
+    if os.name != "nt" or not sys.stdin.isatty():
+        return
+    try:
+        input("  Enter 를 누르면 닫힙니다. ")
+    except Exception:
+        pass
 
 
 def mask(k):
@@ -283,8 +313,17 @@ def main():
 
 
 if __name__ == "__main__":
+    rc = 1
     try:
-        sys.exit(main())
+        rc = main()
     except KeyboardInterrupt:
         say("\n  중단했습니다.")
-        sys.exit(1)
+    except Exception as e:
+        # 뜻밖의 고장도 화면에 남겨야 한다. 조용히 닫히면 아무것도 알 수 없다.
+        import traceback
+        say("\n  진단 도구 자체가 멈췄습니다 — " + repr(e))
+        say(traceback.format_exc())
+    finally:
+        write_log()
+        hold()
+    sys.exit(rc)

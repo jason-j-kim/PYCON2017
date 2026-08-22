@@ -50,7 +50,7 @@ CODE = [
 CODE += [f"socratic/prompts/{p.name}" for p in sorted((ROOT / "socratic/prompts").glob("*.md"))]
 CODE += [f"kdinov/{p.name}" for p in sorted((ROOT / "kdinov").glob("*.py"))]
 
-LAUNCHERS = ["0_제거.bat", "1_설치.bat", "2_실행.bat", "3_터널.bat",
+LAUNCHERS = ["0_제거.bat", "1_설치.bat", "2_실행.bat", "3_터널.bat", "4_키확인.bat",
              "uninstall.py", "setup.py", "start.py", "tunnel.py"]
 
 

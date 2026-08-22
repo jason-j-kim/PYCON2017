@@ -84,5 +84,28 @@ def main():
     return 2
 
 
+def hold():
+    """창이 곧바로 닫히지 않게 붙잡는다. 더블클릭으로 열면 결과가 순식간에
+    사라져 아무 소용이 없다."""
+    import os
+    if os.name != "nt" or not sys.stdin.isatty():
+        return
+    try:
+        input("\n  Enter 를 누르면 닫힙니다. ")
+    except Exception:
+        pass
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    rc = 1
+    try:
+        rc = main()
+    except KeyboardInterrupt:
+        print("\n  중단했습니다.")
+    except Exception as e:
+        import traceback
+        print("\n  진단 도구 자체가 멈췄습니다 — " + repr(e))
+        print(traceback.format_exc())
+    finally:
+        hold()
+    sys.exit(rc)

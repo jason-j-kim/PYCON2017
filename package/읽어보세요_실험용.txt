@@ -107,6 +107,8 @@
   setup.py     1_설치.bat 이 실제로 하는 일
   start.py     2_실행.bat 이 실제로 하는 일
   tunnel.py    3_터널.bat 이 실제로 하는 일
+  uninstall.py 0_제거.bat 이 실제로 하는 일
+  webapp\check_claude.py  4_키확인.bat 이 실제로 하는 일
 
 
 ■ 실험 자료는 어디에 쌓이나
@@ -138,7 +140,7 @@
   의안 통로가 의심스러우면      python webapp\check_bill.py
                                 키 없음 / 망 차단 / 키 거부 / 정상 구분
 
-  Claude 키가 의심스러우면      python webapp\check_claude.py
+  Claude 키가 의심스러우면      4_키확인.bat 더블클릭
                                 부르기 전에 글자부터 봅니다. 붙여넣다
                                 섞여든 공백·보이지 않는 문자·잘린 값을
                                 몇 번째 자리인지까지 찍어 줍니다.
