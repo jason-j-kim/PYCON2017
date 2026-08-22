@@ -524,7 +524,33 @@ function refreshLlmState() {
   // 규칙 → 지금 상태 순서로 적는다. 규칙이 먼저다.
   let tail;
   if (active === 0) {
-    tail = "쓴 만큼 <b>이 키의 계정</b>에 과금됩니다. 칸을 비우면 아래 칸으로 내려갑니다.";
+    // 붙여넣다 망가진 키는 눈으로 구별되지 않는다. 문서에서 복사하면 가운데에
+    // 공백·줄바꿈·제로폭 공백이 섞이고, 콘솔 목록에서 복사하면 잘린 값이 온다.
+    // 둘 다 Anthropic 은 그냥 "API key is invalid" 라고만 답한다. 호출을 쓰기
+    // 전에 여기서 잡아 준다.
+    const bad = k.match(/[^A-Za-z0-9_-]/);
+    let flaw = "";
+    if (bad) {
+      const c = bad[0];
+      const nm = c === " " ? "공백" : (c === "\t" ? "탭" :
+                 (/\s/.test(c) ? "줄바꿈" : "보이지 않는 문자"));
+      const cp = "U+" + c.codePointAt(0).toString(16).toUpperCase().padStart(4, "0");
+      flaw = `키 <b>${k.indexOf(c) + 1}번째 자리</b>에 쓸 수 없는 글자가 있습니다 — ` +
+             `<b>${nm}</b> (${cp}). 문서나 메일에서 복사하면 이런 것이 딸려옵니다. ` +
+             "메모장에 먼저 붙여넣어 한 줄인지 확인한 뒤 다시 복사하세요.";
+    } else if (!k.startsWith("sk-ant-api")) {
+      flaw = "Anthropic API 키는 <b>sk-ant-api03-</b> 으로 시작합니다. " +
+             "다른 종류의 키일 수 있습니다.";
+    } else if (k.length < 60) {
+      flaw = `길이가 <b>${k.length}자</b>로 짧습니다 — 잘린 값입니다. ` +
+             "콘솔의 키 목록 화면은 만들 때 한 번만 전체를 보여줍니다. " +
+             "나중에 들어가 복사하면 잘린 값을 가져오게 됩니다.";
+    }
+    if (flaw) {
+      tail = '<span style="color:#b3261e"><b>이대로는 거부됩니다 — </b>' + flaw + "</span>";
+    } else {
+      tail = "쓴 만큼 <b>이 키의 계정</b>에 과금됩니다. 칸을 비우면 아래 칸으로 내려갑니다.";
+    }
   } else if (active === -1) {
     tail = "<b>쓸 수 있는 것이 하나도 없습니다.</b> 아래에 본인 API 키를 넣어야 문답을 시작할 수 있습니다.";
   } else {

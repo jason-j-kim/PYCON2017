@@ -40,6 +40,7 @@ CODE = [
     "webapp/db.py",
     "webapp/show_session.py",
     "webapp/check_bill.py",
+    "webapp/check_claude.py",
     "webapp/requirements.txt",
     "webapp/static/policy.html",
     "webapp/static/index.html",
