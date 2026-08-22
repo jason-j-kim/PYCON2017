@@ -110,6 +110,24 @@ def step_claude_cli():
 
 
 # ── 3. Claude 로그인 ─────────────────────────────────────────────────
+def login_ok():
+    """대화창을 띄우지 않고 로그인 여부만 본다.
+
+    `claude` 를 그냥 실행하면 테마·렌더러·브라우저확장 같은 첫 실행 질문이
+    줄줄이 나온다. 로그인만 확인하면 되는 자리에서 그건 방해다.
+    -p(헤드리스)로 한 마디 시켜 보고 성공하면 로그인된 것이다."""
+    try:
+        r = subprocess.run(["claude", "-p", "OK만 출력하라.", "--tools", ""],
+                           capture_output=True, text=True, timeout=120,
+                           encoding="utf-8", errors="replace",
+                           shell=(os.name == "nt"))
+        return r.returncode == 0, (r.stderr or r.stdout or "").strip()[:300]
+    except FileNotFoundError:
+        return False, "claude 를 찾을 수 없습니다."
+    except subprocess.TimeoutExpired:
+        return False, "응답이 없어 확인을 중단했습니다."
+
+
 def step_login():
     say("\n[3/3] Claude 로그인")
     if api_key():
@@ -118,16 +136,29 @@ def step_login():
     if not have("claude"):
         say("      [!] claude 를 찾을 수 없습니다. 명령창을 새로 열고 다시 실행하세요.")
         return False
-    say("      Enter 를 누르면 이 창에서 claude 가 실행됩니다.")
-    say("      (브라우저나 앱에 열려 있는 Claude 와는 별개입니다 —")
-    say("       방금 설치한 명령줄 도구의 로그인입니다.)")
+
+    say("      확인 중…")
+    ok, detail = login_ok()
+    if ok:
+        say("      이미 로그인돼 있습니다. 이 단계는 건너뜁니다.")
+        return True
+
+    say("      [!] 아직 로그인되지 않았습니다.")
+    say(f"          ({detail})" if detail else "")
     say("")
-    say("      · 로그인 화면이 뜨면 → /login 입력 후 계정 승인, 그다음 /exit")
-    say("      · 평범한 입력창이 뜨면 → 이미 로그인된 것이니 /exit 만 입력")
-    say("        (확인하려면 /status 를 쳐 보세요. 계정이 보이면 된 것입니다.)")
+    say("      Enter 를 누르면 이 창에서 claude 가 실행됩니다.")
+    say("      (브라우저·앱의 Claude 와는 별개인 명령줄 도구의 로그인입니다.)")
+    say("")
+    say("      1) 처음 실행이면 테마 등을 몇 가지 물어봅니다 — 그냥 Enter 로 넘기세요.")
+    say("      2) /login 을 입력하고 브라우저에서 계정을 승인하세요.")
+    say("      3) 끝나면 /exit 로 나오세요.")
     input("\n      준비되면 Enter... ")
     run(["claude"], shell=(os.name == "nt"))
-    return True
+
+    ok, _ = login_ok()
+    say("      로그인 확인됨." if ok else
+        "      아직 확인되지 않습니다. 1_설치.bat 을 다시 실행해 보세요.")
+    return ok
 
 
 # ── 국회 의안 키는 여기서 받지 않는다 ─────────────────────────────────
