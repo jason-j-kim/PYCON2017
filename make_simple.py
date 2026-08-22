@@ -42,6 +42,9 @@ CODE = [
     "webapp/check_bill.py",
     "webapp/check_claude.py",
     "webapp/make_report.py",
+    "webapp/load_samples.py",
+    "samples/__init__.py",
+    "samples/dialogues.py",
     "webapp/requirements.txt",
     "webapp/static/policy.html",
     "webapp/static/records.html",
@@ -53,7 +56,7 @@ CODE += [f"socratic/prompts/{p.name}" for p in sorted((ROOT / "socratic/prompts"
 CODE += [f"kdinov/{p.name}" for p in sorted((ROOT / "kdinov").glob("*.py"))]
 
 LAUNCHERS = ["0_제거.bat", "1_설치.bat", "2_실행.bat", "3_터널.bat", "4_키확인.bat",
-             "5_보고서.bat",
+             "5_보고서.bat", "6_샘플.bat",
              "uninstall.py", "setup.py", "start.py", "tunnel.py"]
 
 
