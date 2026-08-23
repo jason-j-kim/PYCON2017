@@ -22,9 +22,13 @@ TOP = "정책아이디어평가"          # 압축을 풀면 이 폴더 하나�
 TODAY = f"{date.today():%Y%m%d}"
 
 EDITIONS = [
-    # (mode.txt 값, 이름, 안내문 파일)
-    ("experiment", "실험용", "읽어보세요_실험용.txt"),
-    ("personal",   "개인용", "읽어보세요_개인용.txt"),
+    # (mode.txt 값, 이름, 안내문 파일, 함께 넣을 문서)
+    #
+    # 개인용에만 워드 안내서를 넣는다. 그 판만 받는 사람이 직접 파이썬을
+    # 깔고 Claude 키를 만들어야 해서, 텍스트 한 장으로는 모자란다.
+    # 실험용은 기관이 설치를 끝내 두고 참여자는 주소와 초대 코드만 받는다.
+    ("experiment", "실험용", "읽어보세요_실험용.txt", []),
+    ("personal",   "개인용", "읽어보세요_개인용.txt", ["설치와실행_안내.docx"]),
 ]
 
 # ── 코퍼스 3종: 저장소 어디에 있든 찾아서 zip 안에서는 data/ 로 통일 ──
@@ -84,10 +88,16 @@ def collect():
     return items
 
 
-def build(mode, label, readme_name, items):
+def build(mode, label, readme_name, extras, items):
     readme = ROOT / "package" / readme_name
     if not readme.exists():
         raise SystemExit(f"안내문 없음: package/{readme_name}")
+    extra_paths = []
+    for name in extras:
+        p = ROOT / "package" / name
+        if not p.exists():
+            raise SystemExit(f"안내서 없음: package/{name}")
+        extra_paths.append(p)
 
     out = ROOT / f"정책아이디어평가_{label}_{TODAY}.zip"
     if out.exists():
@@ -111,8 +121,11 @@ def build(mode, label, readme_name, items):
         z.writestr(f"{TOP}/mode.txt", mode + "\n")
         z.write(readme, f"{TOP}/읽어보세요.txt")
         raw += readme.stat().st_size
+        for p in extra_paths:
+            z.write(p, f"{TOP}/{p.name}")
+            raw += p.stat().st_size
 
-    n = len(items) + 2
+    n = len(items) + 2 + len(extra_paths)
     print(f"  {label}  {out.name}")
     print(f"         파일 {n}개 · 원본 {raw/1e6:.1f}MB → 압축 {out.stat().st_size/1e6:.1f}MB")
     return out
@@ -121,7 +134,7 @@ def build(mode, label, readme_name, items):
 def main():
     items = collect()
     print("생성")
-    outs = [build(m, label, rn, items) for m, label, rn in EDITIONS]
+    outs = [build(m, label, rn, ex, items) for m, label, rn, ex in EDITIONS]
 
     # 판이 실제로 갈렸는지 확인 — 실수로 같은 것을 두 번 만들면 의미가 없다.
     print("\n확인")
