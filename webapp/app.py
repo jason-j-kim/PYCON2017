@@ -1409,4 +1409,8 @@ def api_records_zip(request: Request):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    # 기본은 이 PC 안에서만. 서버에 올릴 때는 앞에 nginx 를 두고 127.0.0.1 을
+    # 그대로 두는 편이 안전하다. 굳이 밖으로 열어야 하면 HOST 로 바꾼다.
+    uvicorn.run(app,
+                host=os.environ.get("HOST", "127.0.0.1"),
+                port=int(os.environ.get("PORT", "8000")))

@@ -1,0 +1,53 @@
+; 정책 아이디어 평가 — systemd 유닛
+;
+;   설치:  sudo cp deploy/policy-eval.service /etc/systemd/system/
+;          sudo systemctl daemon-reload
+;          sudo systemctl enable --now policy-eval
+;   상태:  systemctl status policy-eval
+;   기록:  journalctl -u policy-eval -f
+;
+; 키는 이 파일에 넣지 않는다. /etc/policy-eval.env 에 두고 권한을 600 으로
+; 잠근다. 유닛 파일은 /etc 아래에서 누구나 읽을 수 있다.
+
+[Unit]
+Description=정책 아이디어 평가 시스템
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=policyeval
+Group=policyeval
+WorkingDirectory=/opt/policy-eval
+
+EnvironmentFile=/etc/policy-eval.env
+
+; app.py 의 __main__ 대신 uvicorn 을 직접 부른다. 포트를 자유롭게 잡을 수 있고,
+; 재기동·로그를 systemd 가 그대로 관리한다.
+;
+; --proxy-headers 는 붙이지 않는다. 붙이면 uvicorn 이 X-Forwarded-For 를
+; client.host 로 바꿔치기하는데, /records 의 잠금장치가 바로 그 주소를 본다.
+; 밖에서 온 요청이 내부 주소로 위장될 수 있다.
+ExecStart=/opt/policy-eval/.venv/bin/uvicorn webapp.app:app \
+          --host 127.0.0.1 --port 8000 --workers 1
+
+Restart=always
+RestartSec=5
+
+; ── 조이기 ──────────────────────────────────────────────────────────
+; 이 서비스가 건드릴 수 있는 곳을 최소로 줄인다. 침해가 나도 번지지 않게.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTuneables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+; 쓰기가 필요한 곳은 문답 이력 하나뿐이다.
+ReadWritePaths=/opt/policy-eval/webapp
+
+; 동시에 열 수 있는 파일 수 — SQLite 와 외부 호출에 넉넉히
+LimitNOFILE=4096
+
+[Install]
+WantedBy=multi-user.target
