@@ -46,11 +46,13 @@ const PR = (parts, o = {}) => new Paragraph({
 
 const H1 = (text) => new Paragraph({
   heading: HeadingLevel.HEADING_1,
+  keepNext: true,
   spacing: { before: 380, after: 180 },
   children: [new TextRun({ text, font: F, size: 30, bold: true, color: ACC })],
 });
 const H2 = (text) => new Paragraph({
   heading: HeadingLevel.HEADING_2,
+  keepNext: true,
   spacing: { before: 300, after: 130 },
   children: [new TextRun({ text, font: F, size: 24, bold: true, color: INK })],
 });
@@ -74,6 +76,7 @@ const NOTE = (lines) => new Table({
     insideVertical: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
   },
   rows: [new TableRow({
+    cantSplit: true,
     children: [new TableCell({
       width: { size: 9060, type: WidthType.DXA },
       shading: { type: ShadingType.CLEAR, fill: BG },
@@ -119,9 +122,11 @@ function TBL(widths, head, rows, o = {}) {
     rows: [
       new TableRow({
         tableHeader: true,
+        cantSplit: true,
         children: head.map((t, i) => cell(t, widths[i], { head: true, size: o.size, align: o.align })),
       }),
       ...rows.map((r, ri) => new TableRow({
+        cantSplit: true,
         children: r.map((t, i) => cell(t, widths[i], {
           zebra: ri % 2 === 1, size: o.size, bold: o.boldCol === i,
           align: o.numAlign && i > 0 ? AlignmentType.RIGHT : o.align,
@@ -304,7 +309,6 @@ add(
   PR([{ t: "자기평가 — 약점 인정. ", b: true }, "가장 큰 약점 하나와 그 보완 방안을 묻는다. 정직성의 지표다."]),
   SPACE(100),
   NOTE(["질문자는 답을 평가하지 않는다. 캐묻기만 하고, 채점은 대화가 끝난 뒤 별도로 수행한다. 이 분리가 뒤에서 설명할 편향 방지의 첫 번째 장치다."]),
-  new Paragraph({ children: [new PageBreak()] }),
 
   H2("3.3 이원 채점 — 두 번 재고 합친다"),
   P("한 번만 채점하면 그 채점의 성격이 결과를 지배한다. 기계적으로 재면 형식만 갖춘 답변이 높은 점수를 받고, 인상으로 재면 잘 쓴 글이 높은 점수를 받는다. 그래서 두 방식으로 각각 재고 합친다."),
@@ -365,7 +369,6 @@ add(
     ], { boldCol: 0 }),
   SPACE(140),
   NOTE(["괴리가 크면 평균이 경고를 삼킨다. 그래서 3점 이상 벌어지면 낮은 쪽을 채택한다. 이 규칙은 잘 쓴 글이 내용의 부실을 덮는 것을 막는 장치이기도 하다."]),
-  new Paragraph({ children: [new PageBreak()] }),
 
   H2("3.7 산출물 하나 — 다섯 문장 결과"),
   P("채점이 끝나면 새 점수를 만들지 않고, 이미 산출된 결과를 담당자가 읽을 서술로 묶는다. 다섯 문장은 다음 질문에 각각 답한다."),
@@ -504,7 +507,6 @@ add(
     ], { boldCol: 0, size: 17 }),
   SPACE(140),
   P("요약하면 질문자와 채점자와 재판장을 분리해 서로 감시하게 했다. 한 모델이 묻고 답하고 채점하지 않는다."),
-  new Paragraph({ children: [new PageBreak()] }),
 
   H2("5.4 확인된 것과 확인되지 않은 것"),
   P("도입 여부를 판단하려면 이 체계가 어디까지 검증됐는지를 알아야 한다. 확인된 것과 확인되지 않은 것을 나눠 적는다."),
