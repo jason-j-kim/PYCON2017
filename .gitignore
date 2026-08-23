@@ -204,3 +204,7 @@ mode.txt
 # 진단 산출물(키는 가려서 남지만 로컬 파일)
 키확인_결과.txt
 평가보고서_*.docx
+
+# 문서 생성용 npm 모듈(로컬 링크)
+node_modules/
+docs/node_modules
