@@ -33,8 +33,9 @@
 ## 리눅스
 
 ```bash
-git clone <저장소> /opt/policy-eval
-sudo bash /opt/policy-eval/deploy/setup_server.sh
+unzip 정책아이디어평가_서버용_*.zip
+cd 정책아이디어평가
+sudo bash deploy/setup_server.sh
 ```
 
 전용 계정 · 가상환경 · `mode.txt` · `/etc/policy-eval.env`(600) · systemd
@@ -47,9 +48,14 @@ sudo bash /opt/policy-eval/deploy/setup_server.sh
 
 **① nginx**
 
+배포하는 `nginx.conf` 에는 **443 블록이 없다.** 인증서가 아직 없는데
+`listen 443 ssl` 을 써 두면 nginx 가 뜨지 않고, 그러면 certbot 도 돌릴 수
+없다. 80 만 두고 시작해서 certbot 이 제자리에서 443·인증서·평문 이동을
+붙이게 한다.
+
 ```bash
 sudo cp /opt/policy-eval/deploy/nginx.conf /etc/nginx/sites-available/policy-eval
-# 파일 안의 평가.example.ac.kr 을 실제 도메인으로 바꾼다
+# 파일 안의 server_name 을 실제 도메인으로 바꾼다
 sudo ln -s /etc/nginx/sites-available/policy-eval /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
 ```
@@ -57,7 +63,7 @@ sudo nginx -t && sudo systemctl reload nginx
 **② HTTPS — 선택이 아니다**
 
 ```bash
-sudo certbot --nginx -d 평가.example.ac.kr
+sudo certbot --nginx -d policy.example.ac.kr
 ```
 
 방문자가 화면에 자기 API 키를 붙여넣는다. 평문으로 받으면 그 키가 도중에
@@ -91,7 +97,7 @@ nssm start PolicyEval
 
 앞단은 IIS 의 **애플리케이션 요청 라우팅(ARR)** 으로 `127.0.0.1:8000` 에
 역방향 프록시를 걸고, 인증서는 IIS 관리자에서 붙인다. `nginx.conf` 에 적어
-둔 것 — HTTPS 강제 · `/records` 와 `/api/records` 차단 · 5분 타임아웃 —
+둔 것 — `/records` 와 `/api/records` 차단 · 5분 타임아웃 · HTTPS 강제 —
 을 IIS 규칙으로 똑같이 옮기면 된다.
 
 ---
@@ -127,7 +133,7 @@ ssh -L 8000:127.0.0.1:8000 사용자@서버
 systemctl status policy-eval          # 떠 있나
 journalctl -u policy-eval -f          # 무슨 일이 있나
 curl -s localhost:8000/api/config     # 서버가 답하나
-curl -sI https://평가.example.ac.kr/records   # 404 여야 한다
+curl -sI https://policy.example.ac.kr/records   # 404 여야 한다
 ```
 
 `/api/config` 가 돌려주는 것 중 `mode` 가 정한 값인지, `access_required` 가
@@ -152,11 +158,12 @@ curl -sI https://평가.example.ac.kr/records   # 404 여야 한다
 `open.assembly.go.kr`(의안 통로를 쓸 때만). 폐쇄망이면 방화벽에서 이 둘을
 열어야 한다.
 
-**갱신.**
+**갱신.** 새 zip 을 풀고 설치할 때와 같은 스크립트를 다시 돌린다. 이미
+쌓인 문답(`webapp/sessions.db`)과 설정(`/etc/policy-eval.env`)은 건드리지
+않고 코드만 바꿔 놓는다.
 
 ```bash
-cd /opt/policy-eval && sudo -u policyeval git pull
+unzip 새로받은.zip && cd 정책아이디어평가
+sudo bash deploy/setup_server.sh
 sudo systemctl restart policy-eval
 ```
-
-파이썬 꾸러미가 늘었으면 `setup_server.sh` 를 다시 돌리면 된다.

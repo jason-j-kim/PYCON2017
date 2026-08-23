@@ -10,6 +10,7 @@
 사용:  python webapp\\check_bill.py
        python webapp\\check_bill.py 기본소득
 """
+import os
 import sys
 from pathlib import Path
 
@@ -26,9 +27,17 @@ def main():
     if not A.ASSEMBLY_KEY:
         print("  ✗ ASSEMBLY_KEY 가 이 창에 없습니다 — ③ 통로는 미실행 상태입니다.")
         print()
-        print("    keys.local.bat 을 만들어 키를 넣거나, 이 창에서 직접:")
-        print("      set ASSEMBLY_KEY=열린국회정보_인증키")
-        print("    한 뒤 다시 실행하세요. (set 은 그 창에서만 유효합니다)")
+        # 안내를 이 기계에 맞춰 준다. 리눅스 서버에서 keys.local.bat 을
+        # 만들라고 하면 그대로 막힌다.
+        if os.name == "nt":
+            print("    keys.local.bat 을 만들어 키를 넣거나, 이 창에서 직접:")
+            print("      set ASSEMBLY_KEY=열린국회정보_인증키")
+            print("    한 뒤 다시 실행하세요. (set 은 그 창에서만 유효합니다)")
+        else:
+            print("    /etc/policy-eval.env 의 ASSEMBLY_KEY 에 넣고 서비스를")
+            print("    다시 켜거나, 이 창에서 직접:")
+            print("      export ASSEMBLY_KEY=열린국회정보_인증키")
+            print("    한 뒤 다시 실행하세요. (export 는 그 창에서만 유효합니다)")
         return 1
 
     k = A.ASSEMBLY_KEY

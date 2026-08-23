@@ -184,8 +184,10 @@ table([
                   "이것이 연구 자료입니다."],
     ["나가는 통신", "api.anthropic.com (필수)\n"
                     "open.assembly.go.kr (의안 통로를 쓸 때만)"],
-    ["동시 접속", "문답 한 턴이 10~30초 걸립니다. 사람이 쓰는 속도라\n"
-                  "동시 수십 명까지는 uvicorn 하나로 충분합니다."],
+    ["동시 접속", "동시에 진행 중인 Claude 호출 40개까지 받습니다\n"
+                  "(FastAPI 기본 스레드풀). 한 턴이 10~30초 걸리고\n"
+                  "사람은 그사이 생각하므로, 실제 이용자는 그보다\n"
+                  "훨씬 많아도 됩니다."],
 ], [1500, 6700])
 
 h2("판이 둘 있고, 밖에 열면 답은 하나입니다")
@@ -218,7 +220,7 @@ table([
     ["Python", "3.10 이상", "대부분의 배포판에 이미 있습니다"],
     ["nginx", "", "앞단 역방향 프록시"],
     ["certbot", "", "무료 인증서. HTTPS 는 선택이 아닙니다"],
-    ["도메인", "예: 평가.example.ac.kr", "인증서를 받으려면 필요합니다"],
+    ["도메인", "예: policy.example.ac.kr", "인증서를 받으려면 필요합니다"],
     ["방화벽", "443 열기", "밖에서 접속하려면"],
     ["", "api.anthropic.com 나가기", "막히면 아무것도 되지 않습니다"],
     ["", "open.assembly.go.kr 나가기", "의안 통로를 쓸 때만 (선택)"],
@@ -237,12 +239,13 @@ shell(["curl -sI https://api.anthropic.com/v1/messages -X POST"])
 # ══ 3. 설치 ════════════════════════════════════════════════════════════
 h1("설치 — 두 줄")
 
-p("압축을 푼 폴더를 /opt/policy-eval 에 두고 스크립트를 돌립니다.")
+p("압축을 푼 폴더로 들어가 스크립트를 돌립니다. /opt/policy-eval 로 "
+  "옮기는 것까지 스크립트가 합니다.")
 
 shell([
-    "sudo mkdir -p /opt/policy-eval",
-    "sudo cp -r 정책아이디어평가/* /opt/policy-eval/",
-    "sudo bash /opt/policy-eval/deploy/setup_server.sh",
+    "unzip 정책아이디어평가_서버용_*.zip",
+    "cd 정책아이디어평가",
+    "sudo bash deploy/setup_server.sh",
 ])
 
 p("스크립트가 하는 일은 여섯 가지입니다. 이미 되어 있는 것은 건너뛰므로 "
@@ -290,7 +293,7 @@ shell([
     "sudo cp /opt/policy-eval/deploy/nginx.conf \\",
     "        /etc/nginx/sites-available/policy-eval",
     "sudo vi /etc/nginx/sites-available/policy-eval",
-    "#   평가.example.ac.kr → 실제 도메인으로 (두 군데)",
+    "#   server_name 을 실제 도메인으로",
 ])
 
 step("2", "걸고 확인합니다.")
@@ -301,7 +304,21 @@ shell([
 ])
 
 step("3", "인증서를 받습니다.")
-shell(["sudo certbot --nginx -d 평가.example.ac.kr"])
+shell(["sudo certbot --nginx -d policy.example.ac.kr"])
+
+rich([("함께 드린 nginx.conf 에는 443 블록이 없습니다. ", True),
+      ("일부러 그렇게 두었습니다. 인증서를 아직 받지 않았는데 "
+       "listen 443 ssl 을 써 두면 nginx 가 이렇게 답하며 뜨지 "
+       "않습니다.", False)])
+
+shell(['no "ssl_certificate" is defined for the "listen ... ssl" directive'])
+
+p("그러면 certbot 도 돌릴 수 없습니다 — certbot --nginx 는 nginx 를 다시 "
+  "읽어야 하는데 설정이 깨져 있으면 거기서 멈춥니다. 닭과 달걀이 됩니다.")
+
+p("그래서 80 만 두고 시작합니다. 위 3번의 certbot 이 이 블록을 제자리에서 "
+  "고쳐 443·인증서·평문 이동을 알아서 붙입니다. 아래에 적어 둔 location "
+  "들은 그대로 옮겨갑니다. 손으로 고치실 것은 없습니다.")
 
 rule_line()
 
@@ -320,7 +337,7 @@ h2("nginx 설정에 들어 있는 것")
 
 table([
     ["", "왜"],
-    ["80 → 443 강제 이동", "평문으로 들어온 것을 그냥 받지 않습니다."],
+    ["80 → 443 강제 이동", "certbot 이 붙입니다. 평문으로 들어온 것을\n그냥 받지 않습니다."],
     ["/records · /api/records\n→ 404", "기록 화면을 밖에서 막습니다.\n"
      "다음 장에 이유를 적었습니다."],
     ["분당 30회 제한", "문답 한 번은 12번을 주고받으므로 사람이 쓰는\n"
@@ -466,17 +483,15 @@ shell(["cd /opt/policy-eval && .venv/bin/python webapp/show_session.py"])
 
 h2("갱신")
 
-p("새 zip 을 받으시면 webapp/sessions.db 와 /etc/policy-eval.env 만 "
-  "남겨 두고 덮어쓰시면 됩니다.")
+p("설치할 때와 같은 스크립트를 다시 돌리시면 됩니다. 이미 쌓인 문답"
+  "(webapp/sessions.db)과 설정(/etc/policy-eval.env)은 건드리지 "
+  "않고 코드만 바꿔 놓습니다.")
 
 shell([
-    "sudo rsync -a --exclude 'webapp/sessions.db' \\",
-    "      정책아이디어평가/ /opt/policy-eval/",
-    "sudo chown -R policyeval:policyeval /opt/policy-eval",
+    "unzip 새로받은.zip && cd 정책아이디어평가",
+    "sudo bash deploy/setup_server.sh",
     "sudo systemctl restart policy-eval",
 ])
-
-p("파이썬 꾸러미가 늘었으면 setup_server.sh 를 다시 돌리십시오.")
 
 # ══ 8. 문제 해결 ═══════════════════════════════════════════════════════
 h1("잘 안 될 때")
@@ -489,6 +504,10 @@ table([
     ["502 Bad Gateway",
      "서비스가 죽었거나 포트가 다릅니다.\n"
      "systemctl status policy-eval 부터 보십시오."],
+    ["429 Too Many Requests",
+     "nginx 의 요청 제한(분당 30회)에 걸린 것입니다. 고장이 아닙니다.\n"
+     "여러 사람이 같은 공인 IP 로 들어오면 걸릴 수 있습니다 —\n"
+     "그때는 nginx.conf 의 rate 를 올리십시오."],
     ["504 Gateway Timeout",
      "Claude 호출이 nginx 기본 타임아웃(60초)에 걸린 것입니다.\n"
      "함께 드린 설정에는 300초로 되어 있습니다 —\n"

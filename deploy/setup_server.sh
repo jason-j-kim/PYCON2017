@@ -39,10 +39,16 @@ fi
 say "[2/6] 코드 배치와 파이썬 꾸러미"
 if [ "$SRC_DIR" != "$APP_DIR" ]; then
   mkdir -p "$APP_DIR"
-  # sessions.db(연구 자료)와 keys.local.bat 은 덮어쓰지 않는다.
-  rsync -a --exclude '.git' --exclude '__pycache__' \
-        --exclude 'webapp/sessions.db' --exclude 'keys.local.bat' \
-        "$SRC_DIR"/ "$APP_DIR"/
+  # rsync 를 쓰지 않는다. 최소 설치 서버에는 없는 일이 흔하고, 이것 하나
+  # 때문에 설치가 멈추면 곤란하다. tar 는 어디에나 있다.
+  #
+  # sessions.db(연구 자료)와 keys.local.bat 은 덮어쓰지 않는다 — 갱신할 때
+  # 이미 쌓인 문답이 날아가면 되돌릴 수 없다. .venv 도 그대로 둔다.
+  ( cd "$SRC_DIR" && tar cf - \
+        --exclude='./.git' --exclude='__pycache__' --exclude='./.venv' \
+        --exclude='./webapp/sessions.db' --exclude='./keys.local.bat' . ) \
+    | ( cd "$APP_DIR" && tar xf - )
+  say "      $SRC_DIR → $APP_DIR"
 fi
 
 command -v python3 >/dev/null || { say "  [!] python3 가 없습니다."; exit 1; }
@@ -73,7 +79,11 @@ fi
 if [ -f "$ENV_FILE" ]; then
   say "[4/6] $ENV_FILE — 이미 있음 (그대로 둡니다)"
 else
-  CODE=$(head -c 9 /dev/urandom | base64 | tr -dc 'a-z0-9' | head -c 8)
+  # 소문자·숫자 8자. base64 를 걸러 쓰면 버려지는 글자가 많아 길이가
+  # 들쭉날쭉해진다(실제로 6자가 나왔다). 세 글자짜리 접속 코드는 없느니만
+  # 못하므로 필요한 만큼 확실히 채운다.
+  CODE=$(LC_ALL=C tr -dc 'a-z0-9' < /dev/urandom | head -c 8) || true
+  [ ${#CODE} -eq 8 ] || CODE="kdi$(date +%s | tail -c 6)"
   cat > "$ENV_FILE" <<EOF
 # 정책 아이디어 평가 — 서버 설정
 # 이 파일에 키가 들어갑니다. 권한 600 을 유지하십시오.
@@ -118,13 +128,14 @@ say ""
 say "  ① nginx 를 걸고 도메인을 정합니다"
 say "       sudo cp $APP_DIR/deploy/nginx.conf \\"
 say "               /etc/nginx/sites-available/policy-eval"
-say "       (파일 안의 평가.example.ac.kr 을 실제 도메인으로 바꿉니다)"
+say "       (파일 안의 server_name 을 실제 도메인으로 바꿉니다)"
 say "       sudo ln -s /etc/nginx/sites-available/policy-eval \\"
 say "                  /etc/nginx/sites-enabled/"
 say "       sudo nginx -t && sudo systemctl reload nginx"
 say ""
 say "  ② HTTPS 인증서를 받습니다 — 이건 선택이 아닙니다"
-say "       sudo certbot --nginx -d 평가.example.ac.kr"
+say "     (nginx.conf 에는 443 블록이 없습니다. certbot 이 붙여 줍니다.)"
+say "       sudo certbot --nginx -d policy.example.ac.kr"
 say "     방문자가 화면에 자기 API 키를 붙여넣습니다. 평문(http)으로"
 say "     받으면 그 키가 도중에 드러납니다."
 say ""

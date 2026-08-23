@@ -15,11 +15,22 @@
   아래는 이미 익숙하신 분을 위한 요약입니다.
 
 
-■ 세 줄 요약
+■ 요약
 
-  sudo bash deploy/setup_server.sh        전용 계정·가상환경·서비스까지
-  sudo cp deploy/nginx.conf /etc/nginx/sites-available/policy-eval
-  sudo certbot --nginx -d 도메인          HTTPS. 선택이 아닙니다
+  압축을 푼 폴더 안에서:
+
+    sudo bash deploy/setup_server.sh
+        전용 계정·가상환경·mode.txt·환경파일·systemd 까지.
+        /opt/policy-eval 로 옮기는 것도 스크립트가 합니다.
+
+    sudo cp deploy/nginx.conf /etc/nginx/sites-available/policy-eval
+    sudo vi /etc/nginx/sites-available/policy-eval     (server_name 을 바꿉니다)
+    sudo ln -s /etc/nginx/sites-available/policy-eval /etc/nginx/sites-enabled/
+    sudo nginx -t && sudo systemctl reload nginx
+
+    sudo certbot --nginx -d 도메인
+        HTTPS. 선택이 아닙니다. certbot 이 443 블록과 인증서를
+        위 설정에 알아서 붙입니다.
 
 
 ■ 미리 준비할 것
@@ -27,7 +38,7 @@
   Python 3.10 이상        대부분의 배포판에 이미 있습니다
   nginx                   앞단 역방향 프록시
   certbot                 무료 인증서
-  도메인 하나             예: 평가.example.ac.kr
+  도메인 하나             예: policy.example.ac.kr
   방화벽 443 열기         밖에서 접속하려면
 
   바깥으로 나가는 통신 두 곳도 열려 있어야 합니다.
@@ -54,6 +65,11 @@
 
 
 ■ HTTPS 는 선택이 아닙니다
+
+  함께 드린 nginx.conf 에는 443 블록이 없습니다. 인증서를 아직 받지
+  않았기 때문입니다 — 인증서 없이 listen 443 ssl 을 써 두면 nginx 가
+  아예 뜨지 않고, 그러면 certbot 도 돌릴 수 없습니다. 80 만 두고
+  시작해서 certbot 이 나머지를 붙이게 합니다.
 
   personal 판에서는 방문자가 화면에 자기 API 키를 붙여넣습니다.
   평문(http)으로 받으면 그 키가 도중에 드러납니다.
@@ -154,9 +170,12 @@
                    개인정보가 담길 수 있으니 배포용 zip 에는 넣지
                    마십시오.
 
-  갱신             새 zip 을 받으시면 webapp/sessions.db 와
-                   /etc/policy-eval.env 를 남겨 두고 나머지를 덮어쓴 뒤
-                   sudo systemctl restart policy-eval
+  갱신             새 zip 을 풀고 설치할 때와 같은 스크립트를 다시
+                   돌리시면 됩니다. 이미 쌓인 문답(webapp/sessions.db)과
+                   설정(/etc/policy-eval.env)은 건드리지 않고 코드만
+                   바꿔 놓습니다.
+                     sudo bash deploy/setup_server.sh
+                     sudo systemctl restart policy-eval
 
 
 ■ 무언가 안 될 때
@@ -164,6 +183,10 @@
   서비스가 안 뜬다        journalctl -u policy-eval -n 50
   502 Bad Gateway         서비스가 죽었거나 포트가 다릅니다.
                           systemctl status policy-eval 부터 보십시오
+  429 Too Many Requests   nginx 의 요청 제한(분당 30회)에 걸린 것입니다.
+                          고장이 아닙니다. 여러 사람이 같은 공인 IP 로
+                          들어오면 걸릴 수 있으니, 그때는 nginx.conf 의
+                          rate 를 올리십시오
   화면은 뜨는데 문답이
   시작되지 않는다          방문자가 API 키를 안 넣었거나 키가 거부됐습니다.
                           화면 「Claude 연결」 칸에 이유가 찍힙니다

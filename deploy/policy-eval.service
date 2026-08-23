@@ -40,7 +40,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ProtectKernelTuneables=true
+ProtectKernelTunables=true
 ProtectControlGroups=true
 RestrictSUIDSGID=true
 ; 쓰기가 필요한 곳은 문답 이력 하나뿐이다.
