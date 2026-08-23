@@ -1,0 +1,175 @@
+정책 아이디어 평가 시스템 — 서버용 (리눅스)
+==========================================
+
+연구소 리눅스 서버에 올려 고정 주소로 공개하는 판입니다.
+방문자는 브라우저만 있으면 되고, 아무것도 설치하지 않습니다.
+
+이 폴더 안에 코드와 데이터가 다 들어 있습니다. 따로 받을 것이 없습니다.
+
+
+■ 자세한 절차는 워드 문서에 있습니다
+
+  같이 들어 있는 서버설치_안내.docx 를 보십시오.
+  명령 한 줄씩, 화면에 무엇이 찍히는지까지 적어 두었습니다.
+
+  아래는 이미 익숙하신 분을 위한 요약입니다.
+
+
+■ 세 줄 요약
+
+  sudo bash deploy/setup_server.sh        전용 계정·가상환경·서비스까지
+  sudo cp deploy/nginx.conf /etc/nginx/sites-available/policy-eval
+  sudo certbot --nginx -d 도메인          HTTPS. 선택이 아닙니다
+
+
+■ 미리 준비할 것
+
+  Python 3.10 이상        대부분의 배포판에 이미 있습니다
+  nginx                   앞단 역방향 프록시
+  certbot                 무료 인증서
+  도메인 하나             예: 평가.example.ac.kr
+  방화벽 443 열기         밖에서 접속하려면
+
+  바깥으로 나가는 통신 두 곳도 열려 있어야 합니다.
+
+    api.anthropic.com        필수. 막히면 아무것도 되지 않습니다
+    open.assembly.go.kr      의안 통로를 쓸 때만 (선택)
+
+
+■ 판은 personal 입니다 — 밖에 열기 때문입니다
+
+  mode.txt 한 줄이 판을 가릅니다. 이 zip 은 personal 로 되어 있습니다.
+
+    personal     방문자가 각자 자기 Anthropic API 키를 화면에 넣습니다.
+                 연구소는 Claude 요금을 내지 않습니다.
+    experiment   기관 키 하나로 전원이 씁니다.
+
+  밖에 여신다면 personal 이어야 합니다. 초대 코드는 참여자 전원이 아는
+  값이라 반드시 샙니다. experiment 로 열어 두면 코드가 새는 순간 남의
+  실험이 연구소 카드로 결제됩니다. 아이디어 1건에 300~600원입니다.
+
+  experiment 로 바꾸시려면 mode.txt 를 고치고 /etc/policy-eval.env 에
+  ANTHROPIC_API_KEY 를 넣은 뒤 서비스를 다시 켜면 됩니다. 그때는 콘솔에서
+  그 키에 월 사용 한도를 반드시 걸어 두십시오.
+
+
+■ HTTPS 는 선택이 아닙니다
+
+  personal 판에서는 방문자가 화면에 자기 API 키를 붙여넣습니다.
+  평문(http)으로 받으면 그 키가 도중에 드러납니다.
+  인증서 없이 열지 마십시오.
+
+  방문자의 키는 그 브라우저와 서버 메모리에만 있습니다.
+  sessions.db 에도 로그에도 남지 않습니다.
+
+
+■ 기록 화면(/records)은 밖에서 열리지 않습니다
+
+  일부러 그렇게 두었습니다. sessions.db 에는 여러 사람의 문답이 함께
+  쌓이므로, 접속한 사람이 남의 대화를 받아 갈 수 있으면 안 됩니다.
+  초대 코드로 막는 것으로는 부족합니다(참여자 전원이 아는 값입니다).
+
+  두 겹으로 막혀 있습니다.
+    앱     프록시 머리표가 붙은 요청은 403
+    nginx  /records 와 /api/records 는 404
+
+  운영자는 SSH 터널로 봅니다.
+
+    ssh -L 8000:127.0.0.1:8000 사용자@서버
+    브라우저에서  http://localhost:8000/records
+
+  ※ uvicorn 에 --proxy-headers 를 붙이지 마십시오. 그 옵션은
+    X-Forwarded-For 를 client.host 로 바꿔치기하는데, 잠금장치가 보는
+    것이 바로 그 값입니다. 붙이면 밖에서 온 요청이 내부 주소로
+    위장해 통과합니다.
+
+
+■ 검증 통로는 네 개
+
+  ① 재정      data/fiscal.json         키 불필요 · 바로 작동
+  ② KDI 연구  data/kdi.sqlite          키 불필요 · 바로 작동
+  ③ 국회 의안 open.assembly.go.kr      키 필요 (선택)
+  ④ 해외사례  data/opsi_policies.db    키 불필요 · 바로 작동
+
+  ③의 키는 /etc/policy-eval.env 의 ASSEMBLY_KEY 에 넣거나, 방문자가
+  웹 첫 화면에서 각자 넣습니다. 발급처는 열린국회정보
+  (open.assembly.go.kr) — 공공데이터포털(data.go.kr) 키와 다릅니다.
+
+  통로 상태는 결과 화면 "커버리지"에 셋으로 구분되어 나옵니다.
+
+    미실행     키·데이터가 없어 아예 돌리지 않음
+    조회 실패  돌렸으나 오류로 결과를 못 받음
+    N건        실제로 조회한 결과
+
+  앞의 둘은 판정 근거로 쓰이지 않습니다. "0건"과 다르게 처리되며,
+  이런 통로가 있으면 판정기가 확신도를 '상'으로 올리지 않습니다.
+
+
+■ 폴더 안에 무엇이 있나
+
+  mode.txt     personal  ← 이 한 줄이 판을 정합니다
+  deploy/      서버에 올리는 것 전부
+                 setup_server.sh      설치 (이것만 실행하면 됩니다)
+                 policy-eval.service  systemd 유닛
+                 nginx.conf           앞단 설정
+                 README.md            더 자세한 설명
+  data/        평가에 쓰는 데이터 3개
+                 fiscal.json         세출예산 14,122개 사업     2.8MB
+                 kdi.sqlite          KDI 발간물 7,362건        26.8MB
+                 opsi_policies.db    OECD OPSI 1,015건·98개국  14.8MB
+  webapp/      웹 서버와 화면
+  socratic/    문답·채점 엔진과 프롬프트
+  kdinov/      KDI 코퍼스 정밀 판정기
+
+  윈도우용 배치 파일(.bat)은 이 판에 들어 있지 않습니다.
+
+  ※ 압축을 풀면 45MB 를 차지합니다. 푸는 데 30초에서 1분쯤 걸립니다.
+
+
+■ 켠 뒤에 확인할 것
+
+  systemctl status policy-eval                 떠 있나
+  journalctl -u policy-eval -f                 무슨 일이 있나
+  curl -s localhost:8000/api/config            서버가 답하나
+  curl -sI https://도메인/records              404 여야 합니다
+
+  /api/config 가 돌려주는 것 중 mode 가 personal 인지,
+  access_required 가 true 인지 보시면 됩니다.
+
+
+■ 운영에서 챙길 것
+
+  하루 세션 상한   기본 30건. 설치 스크립트가 100 으로 올려 둡니다.
+                   /etc/policy-eval.env 의
+                   SOCRATIC_MAX_SESSIONS_PER_DAY 로 조절합니다.
+                   밖에 열어 두는 동안의 안전판이므로 필요 이상으로
+                   올리지 않는 편이 낫습니다.
+
+  인증             초대 코드 하나뿐입니다. 참여자 전원이 아는 값이라,
+                   소속 연구원만 쓰게 하시려면 nginx 쪽에 기본 인증이나
+                   기관 SSO 를 한 겹 더 얹으셔야 합니다.
+
+  연구 자료        webapp/sessions.db 에 문답·채점·선례 판정이 전부
+                   쌓입니다. 이것이 연구 자료입니다. 백업 대상에 넣되
+                   개인정보가 담길 수 있으니 배포용 zip 에는 넣지
+                   마십시오.
+
+  갱신             새 zip 을 받으시면 webapp/sessions.db 와
+                   /etc/policy-eval.env 를 남겨 두고 나머지를 덮어쓴 뒤
+                   sudo systemctl restart policy-eval
+
+
+■ 무언가 안 될 때
+
+  서비스가 안 뜬다        journalctl -u policy-eval -n 50
+  502 Bad Gateway         서비스가 죽었거나 포트가 다릅니다.
+                          systemctl status policy-eval 부터 보십시오
+  화면은 뜨는데 문답이
+  시작되지 않는다          방문자가 API 키를 안 넣었거나 키가 거부됐습니다.
+                          화면 「Claude 연결」 칸에 이유가 찍힙니다
+  "닿지 못했습니다"        방화벽이 api.anthropic.com 을 막고 있습니다
+  의안 통로가 의심스럽다   .venv/bin/python webapp/check_bill.py
+                          키 없음 / 망 차단 / 키 거부 / 정상을 구분합니다
+  Claude 키가 의심스럽다   .venv/bin/python webapp/check_claude.py
+                          붙여넣다 섞여든 공백·보이지 않는 문자를
+                          몇 번째 자리인지까지 찍어 줍니다
