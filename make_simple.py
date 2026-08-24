@@ -39,6 +39,10 @@ EDITIONS = [
     # 순간 남의 실험이 기관 카드로 결제된다.
     dict(mode="personal", label="서버용", launcher="linux",
          readme="읽어보세요_서버용.txt", extras=["서버설치_안내.docx"]),
+    # 윈도우 서버는 systemd 도 nginx 도 없다. 작업 스케줄러와 IIS 를 쓴다.
+    dict(mode="personal", label="서버용_윈도우", launcher="winserver",
+         readme="읽어보세요_서버용_윈도우.txt",
+         extras=["서버설치_안내_윈도우.docx"]),
 ]
 
 # ── 코퍼스 3종: 저장소 어디에 있든 찾아서 zip 안에서는 data/ 로 통일 ──
@@ -79,6 +83,14 @@ WIN_LAUNCHERS = ["0_제거.bat", "1_설치.bat", "2_실행.bat", "3_터널.bat",
 LINUX_FILES = ["deploy/setup_server.sh", "deploy/policy-eval.service",
                "deploy/nginx.conf", "deploy/README.md"]
 
+# 윈도우 서버 판. 데스크톱용 배치(1_설치·2_실행·3_터널)는 넣지 않는다 —
+# 서버에서 쓸 일이 없고, 있으면 무엇을 눌러야 하는지 헷갈리게만 한다.
+WINSRV_FILES = ["deploy_win/setup_win.py", "deploy_win/service_win.py",
+                "deploy_win/run_server.py", "deploy_win/web.config",
+                "deploy_win/README.md"]
+WINSRV_LAUNCHERS = ["서버_1_설치.bat", "서버_2_서비스등록.bat",
+                    "서버_3_직접실행.bat", "서버_4_상태확인.bat"]
+
 
 def find(cands):
     for c in cands:
@@ -100,6 +112,9 @@ def collect(launcher):
         rels = CODE + [f"package/{n}" for n in WIN_LAUNCHERS]
     elif launcher == "linux":
         rels = CODE + LINUX_FILES
+    elif launcher == "winserver":
+        rels = (CODE + WINSRV_FILES
+                + [f"package/{n}" for n in WINSRV_LAUNCHERS])
     else:
         raise SystemExit(f"모르는 launcher: {launcher}")
     for rel in rels:

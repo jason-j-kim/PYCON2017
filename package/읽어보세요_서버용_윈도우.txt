@@ -1,0 +1,248 @@
+정책 아이디어 평가 시스템 — 서버용 (윈도우 서버)
+================================================
+
+윈도우 서버에 올려 고정 주소로 공개하는 판입니다.
+방문자는 브라우저만 있으면 되고, 아무것도 설치하지 않습니다.
+
+이 폴더 안에 코드와 데이터가 다 들어 있습니다. 따로 받을 것이 없습니다.
+
+
+■ 자세한 절차는 워드 문서에 있습니다
+
+  같이 들어 있는 서버설치_안내_윈도우.docx 를 보십시오.
+  화면에 무엇이 찍히는지까지 적어 두었습니다.
+
+  아래는 이미 익숙하신 분을 위한 요약입니다.
+
+
+■ 순서 — 배치 세 개
+
+  서버_1_설치.bat          가상환경 · 파이썬 꾸러미 · 접속 코드
+  서버_2_서비스등록.bat    ← 오른쪽 클릭 → [관리자 권한으로 실행]
+  서버_4_상태확인.bat      떠 있는지 · 실제로 응답하는지
+
+  서버_1_설치.bat 이 접속 코드를 새로 만들어 화면에 찍어 줍니다.
+  적어 두십시오 — 방문자에게 알려 줄 값입니다.
+  놓치셨으면 keys.local.bat 의 SOCRATIC_ACCESS_CODE 를 보시면 됩니다.
+
+  먼저 손으로 켜 보시려면  서버_3_직접실행.bat
+  (창을 닫으면 꺼집니다. 오류가 있으면 이 창에 그대로 나옵니다.)
+
+
+■ 미리 준비할 것
+
+  Python 3.10 이상    python.org — "Add python.exe to PATH" 체크
+  IIS                 역할 추가에서 켭니다
+  IIS 모듈 두 개      URL Rewrite · Application Request Routing
+                      (아래 참조. 없으면 규칙이 무시되고 404 가 납니다)
+  도메인과 인증서
+  방화벽 443 열기
+
+  바깥으로 나가는 통신 두 곳도 열려 있어야 합니다.
+
+    api.anthropic.com        필수. 막히면 아무것도 되지 않습니다
+    open.assembly.go.kr      의안 통로를 쓸 때만 (선택)
+
+
+■ 서비스는 작업 스케줄러로 만듭니다
+
+  윈도우에는 systemd 가 없습니다. 서비스로 만드는 길이 셋인데
+  이 판은 셋째를 씁니다.
+
+    NSSM         가장 흔하지만 외부 실행 파일을 따로 받아야 합니다.
+                 기관 서버에 출처가 분명하지 않은 바이너리를 들이는 것은
+                 승인이 어렵습니다.
+    pywin32      꾸러미를 하나 더 깔고 서비스 클래스를 써야 합니다.
+    작업 스케줄러  윈도우에 이미 들어 있습니다. 받을 것이 없습니다. ← 이것
+
+  작업 스케줄러도 부팅 시 자동 실행 · 실패 시 재시작 · 로그온 없이 실행을
+  모두 합니다. services.msc 목록에 안 보인다는 점만 다릅니다.
+
+    작업 이름   PolicyEval
+    부팅 30초 뒤 자동으로 켜짐
+    죽으면 1분 뒤 다시 켬 (최대 999번)
+    로그온하지 않아도 돎 (SYSTEM 계정)
+
+  손으로 켜고 끄기:
+    schtasks /Run /TN PolicyEval
+    schtasks /End /TN PolicyEval
+
+
+■ IIS 앞단
+
+  모듈 두 개를 먼저 깝니다.
+
+    URL Rewrite
+      https://www.iis.net/downloads/microsoft/url-rewrite
+    Application Request Routing
+      https://www.iis.net/downloads/microsoft/application-request-routing
+
+  ARR 은 설치한 뒤 한 번 켜야 합니다.
+
+    IIS 관리자 → 서버 노드 → Application Request Routing Cache
+              → Server Proxy Settings → Enable proxy 체크 → 적용
+
+  그다음 사이트를 하나 만들고(실체 경로는 빈 폴더여도 됩니다)
+  deploy_win\web.config 를 그 경로에 복사합니다. 규칙이 셋 들어 있습니다.
+
+    BlockRecords   /records 와 /api/records 를 404 로 막습니다
+    ForceHttps     평문을 https 로 보냅니다 — 주석으로 되어 있습니다
+    ToUvicorn      나머지를 127.0.0.1:8000 으로 넘깁니다
+
+  ForceHttps 는 인증서를 붙인 뒤에 주석을 푸십시오.
+  인증서 없이 켜면 접속이 아예 안 됩니다.
+
+  인증서는 IIS 관리자에서 사이트 바인딩(https, 443)에 붙입니다.
+
+
+■ HTTPS 는 선택이 아닙니다
+
+  personal 판에서는 방문자가 화면에 자기 API 키를 붙여넣습니다.
+  평문(http)으로 받으면 그 키가 도중에 드러납니다.
+  인증서 없이 열지 마십시오.
+
+  방문자의 키는 그 브라우저와 서버 메모리에만 있습니다.
+  sessions.db 에도 로그에도 남지 않습니다.
+
+
+■ 기록 화면(/records)은 밖에서 열리지 않습니다
+
+  일부러 그렇게 두었습니다. sessions.db 에는 여러 사람의 문답이 함께
+  쌓이므로, 접속한 사람이 남의 대화를 받아 갈 수 있으면 안 됩니다.
+  초대 코드로 막는 것으로는 부족합니다(참여자 전원이 아는 값입니다).
+
+  두 겹으로 막혀 있습니다.
+    앱   프록시 머리표가 붙은 요청은 403
+    IIS  /records 와 /api/records 는 404
+
+  운영자는 서버에 원격 데스크톱으로 들어가 그 기계의 브라우저에서
+    http://localhost:8000/records
+  를 엽니다.
+
+  ※ run_server.py 에 --proxy-headers 를 붙이지 마십시오. 그 옵션은
+    X-Forwarded-For 를 client.host 로 바꿔치기하는데, 잠금장치가 보는
+    것이 바로 그 값입니다. 붙이면 밖에서 온 요청이 내부 주소로
+    위장해 통과합니다.
+
+
+■ 판은 personal 입니다 — 밖에 열기 때문입니다
+
+  mode.txt 한 줄이 판을 가릅니다. 이 zip 은 personal 로 되어 있습니다.
+
+    personal     방문자가 각자 자기 Anthropic API 키를 화면에 넣습니다.
+                 기관은 Claude 요금을 내지 않습니다.
+    experiment   기관 키 하나로 전원이 씁니다.
+
+  밖에 여신다면 personal 이어야 합니다. 초대 코드는 참여자 전원이 아는
+  값이라 반드시 샙니다. experiment 로 열어 두면 코드가 새는 순간 남의
+  실험이 기관 카드로 결제됩니다. 아이디어 1건에 300~600원입니다.
+
+  ※ personal 판에서는 keys.local.bat 에 ANTHROPIC_API_KEY 를 넣지
+    마십시오. 넣으면 방문자가 키를 안 넣어도 그 키로 돌아가 요금이
+    기관에 붙습니다. 서버_1_설치.bat 이 이 경우를 발견하면 경고합니다.
+
+
+■ 검증 통로는 네 개
+
+  (1) 재정      data\fiscal.json         키 불필요 · 바로 작동
+  (2) KDI 연구  data\kdi.sqlite          키 불필요 · 바로 작동
+  (3) 국회 의안 open.assembly.go.kr      키 필요 (선택)
+  (4) 해외사례  data\opsi_policies.db    키 불필요 · 바로 작동
+
+  (3)의 키는 keys.local.bat 의 ASSEMBLY_KEY 에 넣거나, 방문자가 웹 첫
+  화면에서 각자 넣습니다. 발급처는 열린국회정보(open.assembly.go.kr) —
+  공공데이터포털(data.go.kr) 키와 다릅니다.
+
+  통로 상태는 결과 화면 "커버리지"에 셋으로 구분되어 나옵니다.
+
+    미실행     키·데이터가 없어 아예 돌리지 않음
+    조회 실패  돌렸으나 오류로 결과를 못 받음
+    N건        실제로 조회한 결과
+
+  앞의 둘은 판정 근거로 쓰이지 않습니다. "0건"과 다르게 처리되며,
+  이런 통로가 있으면 판정기가 확신도를 '상'으로 올리지 않습니다.
+
+
+■ 폴더 안에 무엇이 있나
+
+  mode.txt          personal  ← 이 한 줄이 판을 정합니다
+  서버_1_설치.bat
+  서버_2_서비스등록.bat
+  서버_3_직접실행.bat
+  서버_4_상태확인.bat
+  deploy_win\       윈도우 서버에 올리는 것 전부
+                      setup_win.py    서버_1 이 실제로 하는 일
+                      service_win.py  서버_2·4 가 실제로 하는 일
+                      run_server.py   서버를 켜는 본체
+                      web.config      IIS 앞단 설정
+                      README.md       더 자세한 설명
+  data\             평가에 쓰는 데이터 3개
+                      fiscal.json       세출예산 14,122개 사업     2.8MB
+                      kdi.sqlite        KDI 발간물 7,362건        26.8MB
+                      opsi_policies.db  OECD OPSI 1,015건·98개국  14.8MB
+  webapp\           웹 서버와 화면. sessions.db 도 여기 생깁니다
+  socratic\         문답·채점 엔진과 프롬프트
+  kdinov\           KDI 코퍼스 정밀 판정기
+
+  배치 파일은 "python OO.py" 한 줄만 합니다. 한국어 안내와 로직은
+  전부 .py 안에 있습니다 — 배치에 한국어를 넣으면 윈도우 인코딩에
+  따라 깨지기 때문입니다.
+
+  ※ 압축을 풀면 45MB 를 차지합니다. 푸는 데 30초에서 1분쯤 걸립니다.
+
+
+■ 운영에서 챙길 것
+
+  설정             전부 keys.local.bat 한 곳에 있습니다.
+                   고친 뒤 작업을 다시 켜십시오.
+                     schtasks /End /TN PolicyEval
+                     schtasks /Run /TN PolicyEval
+
+  keys.local.bat   여기에 키가 들어갑니다. 이 폴더를 통째로 남에게
+                   주지 마십시오.
+
+  하루 세션 상한   기본 30건. 설치가 100 으로 올려 둡니다.
+                   SOCRATIC_MAX_SESSIONS_PER_DAY 로 조절합니다.
+
+  인증             초대 코드 하나뿐입니다. 참여자 전원이 아는 값이라,
+                   소속 연구원만 쓰게 하시려면 IIS 쪽에 기본 인증이나
+                   기관 SSO 를 한 겹 더 얹으셔야 합니다.
+
+  연구 자료        webapp\sessions.db 에 문답·채점·선례 판정이 전부
+                   쌓입니다. 백업 대상에 넣되 개인정보가 담길 수 있으니
+                   배포용 zip 에는 넣지 마십시오.
+
+  갱신             새 zip 을 풀고 webapp\sessions.db 와 keys.local.bat 을
+                   남겨 둔 채 나머지를 덮어쓴 뒤, 서버_1_설치.bat 을
+                   다시 실행하고 작업을 재시작하십시오.
+
+
+■ 무언가 안 될 때
+
+  배치를 눌렀는데 창이
+  순식간에 사라진다        파이썬이 없거나 PATH 에 없습니다.
+                           python.org 에서 다시 설치하며
+                           "Add python.exe to PATH" 를 체크하세요
+
+  등록에 실패한다          관리자 권한으로 실행하지 않았습니다.
+                           서버_2_서비스등록.bat 오른쪽 클릭 →
+                           [관리자 권한으로 실행]
+
+  작업은 실행 중인데
+  화면이 안 뜬다           서버_3_직접실행.bat 으로 켜 보십시오.
+                           오류가 화면에 그대로 나옵니다
+
+  IIS 가 404 를 낸다       URL Rewrite / ARR 모듈이 없거나
+                           Enable proxy 를 안 켠 것입니다
+
+  502 · 504                파이썬 서버가 죽었습니다.
+                           서버_4_상태확인.bat
+
+  "닿지 못했습니다"        방화벽이 api.anthropic.com 을 막고 있습니다
+
+  의안 통로가 의심스럽다   .venv\Scripts\python webapp\check_bill.py
+  Claude 키가 의심스럽다   .venv\Scripts\python webapp\check_claude.py
+
+  ※ 서버_4_상태확인.bat 은 작업이 등록됐는지만 보지 않고
+    127.0.0.1:8000 에 실제로 물어봅니다. 작업이 '실행 중'이어도
+    앱이 죽어 있을 수 있기 때문입니다.
